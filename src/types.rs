@@ -164,6 +164,19 @@ impl BucketLoc {
     }
 }
 
+impl Default for BucketLoc {
+    /// `(-1, -1)`, matching C++'s default-constructed `BucketLoc()`. Kept
+    /// as a real sentinel (rather than `Option<BucketLoc>`) because it's
+    /// part of the PAF tag output contract: a mapping with no second-best
+    /// candidate genuinely prints `b2:s:(-1,-1)`, which existing downstream
+    /// tooling may already depend on — this isn't just an internal
+    /// "uninitialized" flag the way e.g. `ParsedQueryId`'s old `valid` bool
+    /// was.
+    fn default() -> Self {
+        BucketLoc { segm_id: -1, b: -1 }
+    }
+}
+
 impl fmt::Display for BucketLoc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({},{})", self.segm_id, self.b)
