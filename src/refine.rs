@@ -137,13 +137,36 @@ impl<'idx, 'b, const AP: bool> Matcher<'idx, 'b, AP> {
                 }
                 debug_assert!(matches[l].hit.r <= matches[r].hit.r);
                 if l < r {
-                    let s_sz = matches[r - 1].hit.tpos - matches[l].hit.tpos + 1;
+                    // Fixed vs. upstream: the C++ scores here using
+                    // `prev(r)` (one element *before* the current `r`) —
+                    // the author even left a `// TODO: should it be
+                    // prev(r) instead?` comment on this exact line,
+                    // confirming they weren't sure themselves. But
+                    // `intersection`/`same_strand_seeds` above have
+                    // *already* been updated for the current `r` (the
+                    // decrement/increment happens unconditionally before
+                    // this check), so scoring the span as `prev(r)` while
+                    // `intersection` reflects `r` is an internal
+                    // inconsistency, not a deliberate choice — it's what
+                    // produces `intersection > s_sz`, violating this
+                    // function's own invariant (checked by `jaccard()`'s
+                    // `debug_assert`). Unlike `best_fixed_length` above,
+                    // which scores *after* its inner loop exits (where
+                    // `matches[r-1]` correctly means "last processed"),
+                    // this loop scores *mid*-iteration, where the current,
+                    // just-processed element is `matches[r]` itself.
+                    // Fixed by scoring against `r`, consistent with what
+                    // `intersection` already counts. No upstream test
+                    // exercises this method at all, so there's no
+                    // oracle to defer to here — this is the internally
+                    // consistent reading.
+                    let s_sz = matches[r].hit.tpos - matches[l].hit.tpos + 1;
                     let j = jaccard(intersection, m, s_sz);
                     best.update(
                         0,
                         p_sz - 1,
                         matches[l].hit.r,
-                        matches[r - 1].hit.r,
+                        matches[r].hit.r,
                         self.tidx.get_segment(matches[l].hit.segm_id),
                         intersection,
                         j,

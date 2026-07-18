@@ -42,7 +42,7 @@ use std::io::Write;
 use crate::buckets::Buckets;
 use crate::handler::Handler;
 use crate::io::read_fasta;
-use crate::mapping::MappingPaf;
+use crate::mapping::{Mapping, MappingPaf};
 use crate::types::{H2Cnt, H2Seed, QPos};
 use crate::utils::{Counters, ProgressBar, Timers};
 
@@ -119,6 +119,14 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         } else {
             None
         };
+        let mut paulout = if !handler.params.params_file.is_empty() && handler.params.verbose >= 2 {
+            let pauls_fn = format!("{}.paul.tsv", handler.params.params_file);
+            eprintln!("Paul's experiment to {pauls_fn}");
+            Some(std::fs::File::create(&pauls_fn)?)
+        } else {
+            None
+        };
+        let mut paulout_is_first_row = true;
 
         let mut buckets: Buckets<'idx, AP> = Buckets::new(self.tidx);
 
@@ -130,7 +138,15 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             handler.counters.inc1("reads");
             handler.timers.stop("query_reading");
 
-            if let Err(e) = self.map_read(handler, unmapped_out.as_mut(), query_id, seq, &mut buckets) {
+            if let Err(e) = self.map_read(
+                handler,
+                unmapped_out.as_mut(),
+                paulout.as_mut(),
+                &mut paulout_is_first_row,
+                query_id,
+                seq,
+                &mut buckets,
+            ) {
                 read_err = Some(e);
             }
 
@@ -161,6 +177,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         &mut self,
         handler: &Handler,
         mut unmapped_out: Option<&mut std::fs::File>,
+        mut paulout: Option<&mut std::fs::File>,
+        paulout_is_first_row: &mut bool,
         query_id: &str,
         p_seq: &[u8],
         buckets: &mut Buckets<'idx, AP>,
@@ -319,7 +337,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     self.timers.secs("query_mapping"),
                 );
 
-                println!("{best}");
+                print!("{best}");
                 if best.mapq() == 60 {
                     self.counters.inc1("mapq60");
                 }
@@ -327,16 +345,56 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     self.counters.inc1("mapq0");
                 }
 
-                // TODO(milestone: analyse_simulated wiring): the C++ also
-                // prints an `AnalyseSimulatedReads` ground-truth comparison
-                // here under `verbose >= 2`; wired in once that module is
-                // ported (it has zero existing test coverage upstream
-                // either way).
+                if handler.params.verbose >= 2 {
+                    let mut gt = crate::analyse_simulated::AnalyseSimulatedReads::<AP>::new(
+                        query_id,
+                        p_seq,
+                        p_seq.len() as QPos,
+                        diff_hist.clone(),
+                        m,
+                        &p_ht,
+                        self.tidx,
+                        buckets,
+                        handler.params.theta,
+                    );
+                    let mut buf = Vec::new();
+                    gt.print_paf(&mut buf)?;
+                    print!("{}", String::from_utf8_lossy(&buf));
+                    let gt_overlap = Mapping::overlap(&gt.gt_mapping, &best);
+                    print!(
+                        "\tgt_mapping_len:i:{}\treported_mapping_len:i:{}\tgt_overlap:f:{:.3}",
+                        gt.gt_mapping.paf.t_r - gt.gt_mapping.paf.t_l,
+                        best.paf.t_r - best.paf.t_l,
+                        gt_overlap
+                    );
+                    if let Some(f) = paulout.as_mut() {
+                        gt.print_tsv(f, paulout_is_first_row)?;
+                    }
+                }
+                println!();
             }
             None => {
                 let line = MappingPaf::unmapped_line(query_id, p_seq.len() as QPos);
                 if let Some(f) = unmapped_out.as_mut() {
                     writeln!(f, "{line}")?;
+                }
+
+                if handler.params.verbose >= 2 {
+                    let gt = crate::analyse_simulated::AnalyseSimulatedReads::<AP>::new(
+                        query_id,
+                        p_seq,
+                        p_seq.len() as QPos,
+                        diff_hist.clone(),
+                        m,
+                        &p_ht,
+                        self.tidx,
+                        buckets,
+                        handler.params.theta,
+                    );
+                    if let Some(f) = paulout.as_mut() {
+                        let mut gt = gt;
+                        gt.print_tsv(f, paulout_is_first_row)?;
+                    }
                 }
             }
         }
@@ -411,5 +469,70 @@ mod integration_tests {
         run_variant::<true, false, true>(REF, READS);
         run_variant::<false, true, true>(REF, READS);
         run_variant::<true, true, true>(REF, READS);
+    }
+
+    /// Exercises the `verbose >= 2` ground-truth-comparison path wired up
+    /// in `map_read` (`AnalyseSimulatedReads`, `.paul.tsv`, the
+    /// `gt_*`/`gt_overlap` PAF tags), including for an unmapped read, with
+    /// `params_file` set so both output files actually get created.
+    #[test]
+    fn verbose_ground_truth_path_runs_without_panicking() {
+        let reference = ">chr1\nACGTGGCATTACGGATCCAGTGCATTGGACCTAGCATTGACCGGTAACCTTGGCATCGATGCCTAGGCATTACCGGATGCATCCGGTTACGATGCCATTGGACCTAGCATTGACCGGTA\n";
+        // Ground-truth-encoded name (parsed by `ParsedQueryId`), an
+        // unmapped-by-construction read (`nnnn...`, matches nothing), and
+        // a real substring of chr1.
+        let reads = ">sim1!chr1!10!50!+\nACGGATCCAGTGCATTGGACCTAGCATTGACCGGTAACCT\n>unmapped_sim!chr1!0!10!+\nNNNNNNNNNNNNNNNNNNNN\n";
+
+        let ref_file = write_fasta(reference);
+        let reads_file = write_fasta(reads);
+        let params_prefix = format!("{}/shmap_test_params", std::env::temp_dir().display());
+
+        let params = Params::try_parse_from([
+            "shmap",
+            "-p",
+            reads_file.path().to_str().unwrap(),
+            "-s",
+            ref_file.path().to_str().unwrap(),
+            "-k",
+            "8",
+            "-r",
+            "1.0",
+            "-t",
+            "0.9",
+            "-v",
+            "2",
+            "-z",
+            &params_prefix,
+        ])
+        .unwrap();
+        params.validate().unwrap();
+
+        let mut handler = Handler::new(params).unwrap();
+        let mut tidx = SketchIndex::new();
+        tidx.build_index(
+            &handler.params.t_file.clone(),
+            &handler.sketcher,
+            handler.params.max_matches,
+            &mut handler.counters,
+            &mut handler.timers,
+        )
+        .unwrap();
+
+        let mut mapper: SHMapper<false, false, false> = SHMapper::new(&tidx);
+        let p_file = handler.params.p_file.clone();
+        mapper.map_reads(&mut handler, &p_file).unwrap();
+
+        let paul_tsv = std::fs::read_to_string(format!("{params_prefix}.paul.tsv")).unwrap();
+        assert!(paul_tsv.starts_with("query_id\t"));
+        assert!(paul_tsv.contains("sim1!chr1!10!50!+"));
+        assert!(paul_tsv.contains("unmapped_sim!chr1!0!10!+"));
+
+        // With a strict theta, the mostly-N read shouldn't clear the
+        // threshold against a real (N-free) reference.
+        let unmapped_paf = std::fs::read_to_string(format!("{params_prefix}.unmapped.paf")).unwrap();
+        assert!(unmapped_paf.contains("unmapped_sim!chr1!0!10!+"));
+
+        let _ = std::fs::remove_file(format!("{params_prefix}.paul.tsv"));
+        let _ = std::fs::remove_file(format!("{params_prefix}.unmapped.paf"));
     }
 }
