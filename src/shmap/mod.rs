@@ -31,18 +31,48 @@
 //!   in Rust. Per the decision made when this port was planned, unmapped
 //!   reads get a minimal record (query id, read length, `*` fields)
 //!   written to the `.unmapped.paf` file instead.
+//!
+//! # Multithreading (`-@`/`--threads`)
+//!
+//! Not present upstream at all (grep confirms zero threading in the C++).
+//! `map_reads` always runs a fixed three-stage pipeline, wired up with
+//! `std::thread::scope` so worker closures can borrow `tidx`/`params`/
+//! `sketcher` without needing `Arc`:
+//! - one reader thread streams records off disk via [`read_fasta`] and
+//!   dispatches them as [`Job`]s over a bounded channel (bounding memory to
+//!   a few jobs ahead of the workers);
+//! - `params.threads.max(1)` worker threads each own an independent
+//!   `SHMapper` + `Buckets` (per-read scratch state can't be shared across
+//!   threads) and turn each `Job` into a [`ReadOutput`], sent back tagged
+//!   with its original sequence index;
+//! - the scope's own thread (no extra thread for this part) is the sole
+//!   collector: it reorders completions by index and applies them
+//!   ([`apply_read_output`], counter/timer merge, progress bar) strictly in
+//!   input order, so stdout/PAF/`.unmapped.paf`/`paul.tsv` output is
+//!   byte-identical regardless of thread count — only the CPU-bound mapping
+//!   work actually runs in parallel.
+//!
+//! `-@ 1` (the default) still goes through this same pipeline rather than a
+//! separate sequential fast path: with a single worker, completions already
+//! arrive in submission order, so the reorder buffer is a no-op and
+//! behavior is identical to before — one fewer code path to keep in sync.
 
 mod pruning;
 mod scoring;
 mod seeding;
 mod stats;
 
+use std::collections::HashMap;
 use std::io::Write;
+use std::sync::mpsc;
+use std::sync::Mutex;
 
 use crate::buckets::Buckets;
 use crate::handler::Handler;
 use crate::io::read_fasta;
 use crate::mapping::{Mapping, MappingPaf};
+use crate::params::Params;
+use crate::sketch::FracMinHash;
 use crate::types::{H2Cnt, H2Seed, QPos};
 use crate::utils::{Counters, ProgressBar, Timers};
 
@@ -80,6 +110,55 @@ const PER_READ_COUNTERS: &[&str] = &[
     "seeded_buckets",
 ];
 
+/// Everything a single `map_read` call would otherwise have written
+/// straight to stdout/the unmapped-PAF file/`paul.tsv`, captured as owned
+/// data instead so it can be produced on any worker thread and applied by
+/// the single serial collector in [`SHMapper::map_reads`] — see the module
+/// doc comment.
+struct ReadOutput {
+    /// Exactly what `print!` would have received for this read: the PAF
+    /// line (plus verbose ground-truth tags) followed by a newline, or an
+    /// empty string for an unmapped read (which prints nothing to stdout,
+    /// matching the C++).
+    stdout: String,
+    /// The line to append to `<params_file>.unmapped.paf`, if this read
+    /// didn't map.
+    unmapped_line: Option<String>,
+    /// The `paul.tsv` data row (verbose >= 2 only), *without* the header —
+    /// header emission is centralized in [`apply_read_output`]'s caller.
+    paul_row: Option<String>,
+}
+
+/// Applies one read's already-rendered [`ReadOutput`] — the only place that
+/// actually touches stdout/the unmapped-PAF file/`paul.tsv` during mapping.
+/// Must be called strictly in original read order for output to match a
+/// single-threaded run.
+fn apply_read_output(
+    output: &ReadOutput,
+    unmapped_out: Option<&mut std::fs::File>,
+    paulout: Option<&mut std::fs::File>,
+    paulout_is_first_row: &mut bool,
+) -> anyhow::Result<()> {
+    if !output.stdout.is_empty() {
+        print!("{}", output.stdout);
+    }
+    if let Some(line) = &output.unmapped_line
+        && let Some(f) = unmapped_out
+    {
+        writeln!(f, "{line}")?;
+    }
+    if let Some(row) = &output.paul_row
+        && let Some(f) = paulout
+    {
+        if *paulout_is_first_row {
+            writeln!(f, "{}", crate::analyse_simulated::TSV_HEADER)?;
+            *paulout_is_first_row = false;
+        }
+        writeln!(f, "{row}")?;
+    }
+    Ok(())
+}
+
 /// `NBP`/`OS`/`AP` are the C++ template bools `no_bucket_pruning`/
 /// `one_sweep`/`abs_pos`. Upstream only ever compiles the `<false, false,
 /// false>` instantiation (`mapper.cpp` comments out the other 7 `case`
@@ -106,7 +185,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     /// Maps every read in `p_file` against the index, writing PAF to
     /// stdout (one line per mapped read) and a minimal record per unmapped
     /// read to `<params_file>.unmapped.paf` (only created/written at all
-    /// if `-z`/`params_file` was given, matching the C++).
+    /// if `-z`/`params_file` was given, matching the C++). Runs the
+    /// reader/workers/collector pipeline described in the module doc
+    /// comment, with `params.threads.max(1)` worker threads.
     pub fn map_reads(&mut self, handler: &mut Handler, p_file: &str) -> anyhow::Result<()> {
         handler.counters.init(&["reads"]);
         eprintln!("Mapping reads using SHmap...");
@@ -128,41 +209,122 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         };
         let mut paulout_is_first_row = true;
 
-        let mut buckets: Buckets<'idx, AP> = Buckets::new(self.tidx);
-
         handler.timers.start("mapping");
-        handler.timers.start("query_reading");
 
-        let mut read_err = None;
-        read_fasta(p_file, |query_id, seq, mapping_progress| {
-            handler.counters.inc1("reads");
-            handler.timers.stop("query_reading");
+        let n_threads = handler.params.threads.max(1);
+        let tidx = self.tidx;
+        let params = &handler.params;
+        let sketcher = &handler.sketcher;
 
-            if let Err(e) = self.map_read(
-                handler,
-                unmapped_out.as_mut(),
-                paulout.as_mut(),
-                &mut paulout_is_first_row,
-                query_id,
-                seq,
-                &mut buckets,
-            ) {
-                read_err = Some(e);
+        struct Job {
+            idx: u64,
+            query_id: String,
+            seq: Vec<u8>,
+            progress: f32,
+        }
+        struct Done {
+            idx: u64,
+            progress: f32,
+            counters: Counters,
+            timers: Timers,
+            result: anyhow::Result<ReadOutput>,
+        }
+
+        // Bounded so a fast-reading thread can't buffer the whole input
+        // file ahead of slower mapping workers.
+        let (job_tx, job_rx) = mpsc::sync_channel::<Job>(n_threads * 4);
+        let job_rx = Mutex::new(job_rx);
+        // Unbounded: a worker must never block trying to hand back a
+        // finished read (the collector may be lagging behind on an earlier,
+        // slower read), only the job side needs backpressure.
+        let (done_tx, done_rx) = mpsc::channel::<Done>();
+
+        let mut read_err: Option<anyhow::Error> = None;
+        std::thread::scope(|scope| -> anyhow::Result<()> {
+            for _ in 0..n_threads {
+                let job_rx = &job_rx;
+                let done_tx = done_tx.clone();
+                scope.spawn(move || {
+                    let mut worker: SHMapper<'_, NBP, OS, AP> = SHMapper::new(tidx);
+                    let mut buckets: Buckets<'_, AP> = Buckets::new(tidx);
+                    loop {
+                        let job = job_rx.lock().unwrap().recv();
+                        let Ok(job) = job else { break };
+                        let result = worker.map_read(sketcher, params, &job.query_id, &job.seq, &mut buckets);
+                        let done = Done {
+                            idx: job.idx,
+                            progress: job.progress,
+                            counters: worker.counters.clone(),
+                            timers: worker.timers.clone(),
+                            result,
+                        };
+                        if done_tx.send(done).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            drop(done_tx);
+
+            let reader = scope.spawn(move || -> anyhow::Result<Timers> {
+                let mut timers = Timers::new();
+                timers.init(&["query_reading"]);
+                timers.start("query_reading");
+                let mut idx = 0u64;
+                read_fasta(p_file, |query_id, seq, progress| {
+                    timers.stop("query_reading");
+                    // A send error only happens once every worker has
+                    // already exited; the collector loop below will observe
+                    // the closed `done_rx` and stop, so it's safe to just
+                    // drop the remaining records here.
+                    let _ = job_tx.send(Job {
+                        idx,
+                        query_id: query_id.to_string(),
+                        seq: seq.to_vec(),
+                        progress,
+                    });
+                    idx += 1;
+                    timers.start("query_reading");
+                })?;
+                timers.stop("query_reading");
+                Ok(timers)
+            });
+
+            let mut next_idx = 0u64;
+            let mut pending: HashMap<u64, Done> = HashMap::new();
+            while let Ok(done) = done_rx.recv() {
+                pending.insert(done.idx, done);
+                while let Some(done) = pending.remove(&next_idx) {
+                    handler.counters.inc1("reads");
+                    handler.counters += &done.counters;
+                    handler.timers += &done.timers;
+
+                    match done.result {
+                        Ok(output) => {
+                            apply_read_output(&output, unmapped_out.as_mut(), paulout.as_mut(), &mut paulout_is_first_row)?;
+                        }
+                        Err(e) => {
+                            if read_err.is_none() {
+                                read_err = Some(e);
+                            }
+                        }
+                    }
+
+                    if handler.counters.count("mapped_reads") % 100 == 0 {
+                        progress_bar.update(done.progress as f64);
+                    }
+                    next_idx += 1;
+                }
             }
 
-            handler.timers.start("query_reading");
-            handler.counters += &self.counters;
-            handler.timers += &self.timers;
-
-            if handler.counters.count("mapped_reads") % 100 == 0 {
-                progress_bar.update(mapping_progress as f64);
-            }
+            let reader_timers = reader.join().expect("reader thread panicked")?;
+            handler.timers += &reader_timers;
+            Ok(())
         })?;
         if let Some(e) = read_err {
             return Err(e);
         }
 
-        handler.timers.stop("query_reading");
         handler.timers.stop("mapping");
         eprintln!();
 
@@ -175,14 +337,12 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     #[allow(clippy::too_many_arguments)]
     fn map_read(
         &mut self,
-        handler: &Handler,
-        mut unmapped_out: Option<&mut std::fs::File>,
-        mut paulout: Option<&mut std::fs::File>,
-        paulout_is_first_row: &mut bool,
+        sketcher: &FracMinHash,
+        params: &Params,
         query_id: &str,
         p_seq: &[u8],
         buckets: &mut Buckets<'idx, AP>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<ReadOutput> {
         self.counters.clear();
         self.counters.init(PER_READ_COUNTERS);
         self.timers.clear();
@@ -192,7 +352,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.timers.start("query_mapping");
 
         self.timers.start("sketching");
-        let p = handler.sketcher.sketch(p_seq, &mut self.counters);
+        let p = sketcher.sketch(p_seq, &mut self.counters);
         let m: QPos = p.len() as QPos;
         self.timers.stop("sketching");
 
@@ -215,8 +375,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.counters.inc("possible_matches", possible_matches as i64);
 
         let lmax: QPos = m;
-        let theta = handler.params.theta;
-        let theta2 = theta - handler.params.min_diff;
+        let theta = params.theta;
+        let theta2 = theta - params.min_diff;
         // `one_sweep`'s best-effort interpretation (see the crate-level
         // decision this port recorded): use every unique k-mer as a seed
         // instead of the theta-derived early-cutoff count `S`.
@@ -247,7 +407,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         let mut sorted_buckets = buckets.get_sorted_buckets();
         self.counters.inc("seeded_buckets", sorted_buckets.len() as i64);
 
-        if handler.params.verbose >= 2 {
+        if params.verbose >= 2 {
             eprintln!("kmers: {m} seeds: {s}");
             eprintln!(
                 "seeded_buckets: {} total_matches: {}",
@@ -273,15 +433,15 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             &p_ht,
             theta,
             None,
-            handler.params.verbose,
-            handler.params.max_overlap,
-            handler.params.metric,
-            handler.params.k,
+            params.verbose,
+            params.max_overlap,
+            params.metric,
+            params.k,
         );
         self.timers.stop("match_rest_for_best");
         self.timers.start("match_rest_for_best2");
         let best2 = if let Some(best) = &best {
-            let second_best_thr = best.score() * (1.0 - handler.params.min_diff);
+            let second_best_thr = best.score() * (1.0 - params.min_diff);
             self.match_rest(
                 p_seq.len() as QPos,
                 m,
@@ -293,10 +453,10 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 &p_ht,
                 second_best_thr,
                 Some(best),
-                handler.params.verbose,
-                handler.params.max_overlap,
-                handler.params.metric,
-                handler.params.k,
+                params.verbose,
+                params.max_overlap,
+                params.metric,
+                params.k,
             )
         } else {
             None
@@ -309,6 +469,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.timers.stop("query_mapping");
 
         self.timers.start("output");
+        let mut stdout = String::new();
+        let mut unmapped_line = None;
+        let mut paul_row = None;
         match best {
             Some(mut best) => {
                 if let Some(best2) = &best2 {
@@ -322,11 +485,11 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 
                 best.set_global_stats(
                     theta2,
-                    handler.params.min_diff,
+                    params.min_diff,
                     m,
                     query_id,
                     p_seq.len() as QPos,
-                    handler.params.k,
+                    params.k,
                     s,
                     self.counters.count("total_matches") as i32,
                     self.counters.count("max_seed_matches") as i32,
@@ -337,7 +500,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     self.timers.secs("query_mapping"),
                 );
 
-                print!("{best}");
+                use std::fmt::Write as _;
+                write!(stdout, "{best}").unwrap();
                 if best.mapq() == 60 {
                     self.counters.inc1("mapq60");
                 }
@@ -345,7 +509,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     self.counters.inc1("mapq0");
                 }
 
-                if handler.params.verbose >= 2 {
+                if params.verbose >= 2 {
                     let mut gt = crate::analyse_simulated::AnalyseSimulatedReads::<AP>::new(
                         query_id,
                         p_seq,
@@ -355,32 +519,29 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         &p_ht,
                         self.tidx,
                         buckets,
-                        handler.params.theta,
+                        params.theta,
                     );
                     let mut buf = Vec::new();
                     gt.print_paf(&mut buf)?;
-                    print!("{}", String::from_utf8_lossy(&buf));
+                    stdout.push_str(&String::from_utf8_lossy(&buf));
                     let gt_overlap = Mapping::overlap(&gt.gt_mapping, &best);
-                    print!(
+                    write!(
+                        stdout,
                         "\tgt_mapping_len:i:{}\treported_mapping_len:i:{}\tgt_overlap:f:{:.3}",
                         gt.gt_mapping.paf.t_r - gt.gt_mapping.paf.t_l,
                         best.paf.t_r - best.paf.t_l,
                         gt_overlap
-                    );
-                    if let Some(f) = paulout.as_mut() {
-                        gt.print_tsv(f, paulout_is_first_row)?;
-                    }
+                    )
+                    .unwrap();
+                    paul_row = Some(gt.render_tsv_row());
                 }
-                println!();
+                stdout.push('\n');
             }
             None => {
-                let line = MappingPaf::unmapped_line(query_id, p_seq.len() as QPos);
-                if let Some(f) = unmapped_out.as_mut() {
-                    writeln!(f, "{line}")?;
-                }
+                unmapped_line = Some(MappingPaf::unmapped_line(query_id, p_seq.len() as QPos));
 
-                if handler.params.verbose >= 2 {
-                    let gt = crate::analyse_simulated::AnalyseSimulatedReads::<AP>::new(
+                if params.verbose >= 2 {
+                    let mut gt = crate::analyse_simulated::AnalyseSimulatedReads::<AP>::new(
                         query_id,
                         p_seq,
                         p_seq.len() as QPos,
@@ -389,18 +550,19 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         &p_ht,
                         self.tidx,
                         buckets,
-                        handler.params.theta,
+                        params.theta,
                     );
-                    if let Some(f) = paulout.as_mut() {
-                        let mut gt = gt;
-                        gt.print_tsv(f, paulout_is_first_row)?;
-                    }
+                    paul_row = Some(gt.render_tsv_row());
                 }
             }
         }
         self.timers.stop("output");
 
-        Ok(())
+        Ok(ReadOutput {
+            stdout,
+            unmapped_line,
+            paul_row,
+        })
     }
 }
 

@@ -24,6 +24,15 @@ use crate::refine::{Matcher, MappingMetric};
 use crate::types::{BucketLoc, H2Cnt, H2Seed, QPos, RPos, SegmId};
 use crate::utils::ParsedQueryId;
 
+/// Header row for the `paul.tsv` file. Kept separate from
+/// [`AnalyseSimulatedReads::render_tsv_row`] so callers can decide for
+/// themselves when to emit it — the multithreaded mapping pipeline renders
+/// rows on worker threads but writes (and headers) them from a single
+/// serial collector, so it can no longer track "is this the first row" via
+/// a `&mut bool` threaded through the render call itself.
+pub const TSV_HEADER: &str =
+    "query_id\tm\ttheta\thl\tsegm\tgt_l_bucket\tgt_r_bucket\tgt_next_bucket\tgt_J_l\tgt_J_r\tgt_J_next\tgt_C_l\tgt_C_r\tgt_C_next\tgt_C_l_lmax\tgt_C_r_lmax\t#J>theta\t#C>theta\tJ>theta\tC>theta\tmaxJ\tmaxC\tP";
+
 pub struct AnalyseSimulatedReads<'idx, 'b, 'p, const AP: bool> {
     matcher: Matcher<'idx, 'b, AP>,
     p_ht: &'p H2Seed,
@@ -223,20 +232,12 @@ impl<'idx, 'b, 'p, const AP: bool> AnalyseSimulatedReads<'idx, 'b, 'p, AP> {
         res
     }
 
-    pub fn print_tsv(&mut self, out: &mut impl Write, is_first_row: &mut bool) -> std::io::Result<()> {
-        if *is_first_row {
-            writeln!(
-                out,
-                "query_id\tm\ttheta\thl\tsegm\tgt_l_bucket\tgt_r_bucket\tgt_next_bucket\tgt_J_l\tgt_J_r\tgt_J_next\tgt_C_l\tgt_C_r\tgt_C_next\tgt_C_l_lmax\tgt_C_r_lmax\t#J>theta\t#C>theta\tJ>theta\tC>theta\tmaxJ\tmaxC\tP"
-            )?;
-            *is_first_row = false;
-        }
+    pub fn render_tsv_row(&mut self) -> String {
         let j_buckets = self.j_buckets.clone();
         let c_buckets = self.c_buckets.clone();
         let j_str = self.vec2str(&j_buckets);
         let c_str = self.vec2str(&c_buckets);
-        writeln!(
-            out,
+        format!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             self.query_id,
             self.m,

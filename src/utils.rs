@@ -20,6 +20,7 @@ use std::time::Instant;
 
 use crate::types::RPos;
 
+#[derive(Clone)]
 pub struct Timer {
     start_time: Option<Instant>,
     accumulated: f64,
@@ -107,7 +108,7 @@ impl AddAssign<&Timer> for Timer {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Timers {
     timers: HashMap<String, Timer>,
 }

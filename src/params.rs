@@ -86,6 +86,10 @@ pub struct Params {
     /// Use absolute positions instead of kmer positions
     #[arg(short = 'F', long = "abs_pos")]
     pub abs_pos: bool,
+
+    /// Number of mapping threads (positive integer)
+    #[arg(short = '@', long = "threads", default_value_t = 1)]
+    pub threads: usize,
 }
 
 impl Params {
@@ -123,6 +127,9 @@ impl Params {
         if !(0..=2).contains(&self.verbose) {
             bail!("--verbose (-v) should be 0, 1, or 2. You provided {}.", self.verbose);
         }
+        if self.threads == 0 {
+            bail!("The number of threads (-@) should be positive. You provided {}.", self.threads);
+        }
         Ok(())
     }
 
@@ -145,6 +152,7 @@ impl Params {
             ("no-bucket-pruning", (self.no_bucket_pruning as i32).to_string()),
             ("one-sweep", (self.one_sweep as i32).to_string()),
             ("abs-pos", (self.abs_pos as i32).to_string()),
+            ("threads", self.threads.to_string()),
         ]
     }
 
@@ -184,6 +192,7 @@ impl Params {
         writeln!(out, " | max_overlap:           {}", self.max_overlap)?;
         writeln!(out, " | no-bucket-pruning:     {}", self.no_bucket_pruning as i32)?;
         writeln!(out, " | abs-pos:               {}", self.abs_pos as i32)?;
+        writeln!(out, " | threads:               {}", self.threads)?;
         Ok(())
     }
 }
@@ -212,6 +221,20 @@ mod tests {
         assert_eq!(p.k, 15);
         assert_eq!(p.metric, Metric::Containment);
         assert_eq!(p.max_seeds, None);
+        assert_eq!(p.threads, 1);
+    }
+
+    #[test]
+    fn validate_rejects_zero_threads() {
+        let mut p = Params::try_parse_from(["shmap", "-p", "r.fa", "-s", "t.fa"]).unwrap();
+        p.threads = 0;
+        assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn threads_flag_is_parsed() {
+        let p = Params::try_parse_from(["shmap", "-p", "r.fa", "-s", "t.fa", "-@", "8"]).unwrap();
+        assert_eq!(p.threads, 8);
     }
 
     #[test]
