@@ -1,0 +1,307 @@
+\chapter{Catalog of Defects and Dead Code in the Reference Implementation}
+\label{ch:defects}
+
+Every entry below was found during an exhaustive, function-by-function cross-reference of the
+reference C++ source against an independent re-implementation, and confirmed either by
+constructing a triggering test case or by an exhaustive grep-based call-site audit (for
+dead-code claims: a claim of ``zero call sites'' means every reference to the symbol in the
+entire source tree was individually inspected). None of these were assumed from documentation or
+comments alone.
+
+\section{Summary table}
+
+\begin{center}
+\begin{tabular}{@{}p{0.6cm}p{3.6cm}p{2.2cm}p{2.1cm}p{5.2cm}@{}}
+\toprule
+\# & \textbf{Defect} & \textbf{Affects live output?} & \textbf{Severity} & \textbf{Recommended
+  handling} \\
+\midrule
+D1 & Uninitialized LUT arrays & Only non-ACGT input & Latent UB & Zero-initialize (\S
+  \ref{sec:d1}) \\
+D2 & \code{kmers\_notmatched} miscount & Diagnostic only & Cosmetic & Reorder the increment (\S
+  \ref{sec:d2}) \\
+D3 & \code{more\_seeds\_if\_cheap} unreachable & No (dead) & None & Optional to wire in (\S
+  \ref{sec:d3}) \\
+D4 & Hardcoded 100-segment cap & Crashes on $>100$ contigs & Usability & Size dynamically (\S
+  \ref{sec:d4}) \\
+D5 & \code{Buckets::size()} dead stub & No (dead) & None & Drop (\S\ref{sec:d5}) \\
+D6 & \code{Mapping::do\_overlap} dead & No (dead) & None & Drop (\S\ref{sec:d6}) \\
+D7 & \code{Matcher::do\_overlap}/\newline\code{lost\_correct\_mapping} dead & No (dead) & None &
+  Drop (\S\ref{sec:d7}) \\
+D8 & Dead \code{lmax} parameter in ground-truth \code{bestFixedLength} & Diagnostic only &
+  Cosmetic/confusing & Drop the parameter (\S\ref{sec:d8}) \\
+D9 & Off-by-one in \code{bestIncludedJaccard} & Diagnostic only (\code{-v 2}) & \textbf{Real
+  correctness bug} & Fix indexing (\S\ref{sec:d9}) \\
+D10 & Missing bounds clamp in ground-truth \code{collect\_matches} & Diagnostic only, potential
+  crash/OOB & Latent bug & Clamp to segment length (\S\ref{sec:d10}) \\
+D11 & \code{RefSegment::seq} unused waste & No (memory only) & Efficiency & Omit field (\S
+  \ref{sec:d11}) \\
+D12 & Dead \code{-a}/SAM output path & No (dead) & None & Omit entirely (\S\ref{sec:d12}) \\
+D13 & Dead \code{-S}/\code{-n} CLI flags & No (dead) & None & Keep parsed-but-inert for
+  compatibility (\S\ref{sec:d13}) \\
+D14 & \code{one\_sweep}/\code{-B} never branched on & No (dead) & Usability/API honesty &
+  Implement a concrete meaning (\S\ref{sec:d14}) \\
+D15 & \textbf{Per-read counters never reset} & \textbf{Yes --- live PAF tags} & \textbf{Real
+  correctness bug} & Fully reset every read (\S\ref{sec:d15}) \\
+D16 & \textbf{Unconditional dereference of empty optional} & \textbf{Yes --- crashes/UB on every
+  unmapped read} & \textbf{Real correctness bug (UB)} & Emit a defined minimal record (\S
+  \ref{sec:d16}) \\
+D17 & \code{gt\_C\_r\_lmax} never assigned & Diagnostic only (\code{-v 2}) & Cosmetic & Leave
+  unassigned or compute it properly (\S\ref{sec:d17}) \\
+D18 & PAF columns 10/11 always repeat query length & \textbf{Yes, if spec-conformance matters} &
+  Cosmetic/compat & Populate real values if spec conformance is required (\S\ref{sec:d18}) \\
+D19 & \code{Timers::secs}'s try/catch never catches anything & No (silent no-op) & Latent & Handle
+  missing keys directly (\S\ref{sec:d19}) \\
+D20 & \code{ParsedQueryId::parse} catches then rethrows & No & Style only & Simplify (\S
+  \ref{sec:d20}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{D1: Uninitialized hash lookup tables}
+\label{sec:d1}
+\textbf{Location:} \code{FracMinHash} construction, \texttt{src/sketch.h} (\S\ref{sec:sketch-lut}).
+\textbf{Description:} \code{LUT\_fw}/\code{LUT\_rc} are fixed 256-entry arrays; only the 8 entries
+for \texttt{ACGTacgt} are ever written. Any other input byte (most commonly \texttt{N}) reads
+uninitialized memory when used as a hash contribution --- undefined behavior in C++, and not even
+a fixed garbage value (it depends on prior stack contents at the time \code{sketch()} first runs).
+\textbf{Trigger:} any reference or read sequence containing a non-ACGT byte.
+\textbf{Fix:} zero-initialize both tables before filling in the 8 real entries. This is a strict
+safety improvement with zero behavioral change on ACGT-only input (the overwhelming majority of
+real data), and was adopted without further discussion in the companion re-implementation.
+
+\section{D2: \code{kmers\_notmatched} always reports the full sketch size}
+\label{sec:d2}
+\textbf{Location:} \code{unique\_elements\_with\_info}, \texttt{src/shmap.h} (\S
+\ref{sec:seeding-grouping}). \textbf{Description:} the increment
+\code{if (hits\_in\_t > 0) nonzero += strike;} is placed textually after \code{strike} has
+already been reset to 0 for the next group, so it always adds zero; \code{kmers\_notmatched} (a
+diagnostic counter only) therefore always reports the entire sketch size regardless of actual
+match rate. \textbf{Impact:} cosmetic only --- feeds one end-of-run percentage in the stderr
+summary (\S\ref{sec:runtime-warnings}), nothing else. \textbf{Fix:} move the increment before the
+reset (or reorder the two statements).
+
+\section{D3: \code{more\_seeds\_if\_cheap} is fully implemented but unreachable}
+\label{sec:d3}
+\textbf{Location:} \texttt{src/shmap.h} (\S\ref{sec:seed-budget}). \textbf{Description:} a
+complete, presumably-tested function to opportunistically extend the seed budget when the next
+seeds are (almost) unique in the reference; its only call site in \code{map\_read} is commented
+out. \textbf{Impact:} none on shipped behavior (never runs). \textbf{Recommendation:} a
+from-scratch implementation may wire it in (a plausible, low-risk recall improvement) or omit it
+to match shipped behavior exactly; either is defensible.
+
+\section{D4: Hardcoded 100-segment cap}
+\label{sec:d4}
+\textbf{Location:} \code{Buckets} construction, \texttt{src/buckets.h} (\S\ref{sec:buckets-struct}).
+\textbf{Description:} \code{MAX\_SEGMENTS = 100}; construction throws for references with more
+segments. \textbf{Trigger:} draft/scaffolded assemblies with hundreds or thousands of small
+contigs --- not a rare input in practice. \textbf{Fix:} size the per-segment bucket storage to the
+reference's actual segment count.
+
+\section{D5--D7: Dead stubs and unreachable methods}
+\label{sec:d5}
+\label{sec:d6}
+\label{sec:d7}
+Three separate pieces of code are fully defined but have \textbf{zero} call sites anywhere in the
+source tree (verified exhaustively, not just ``no obvious caller''):
+\begin{itemize}
+  \item \code{Buckets::size()} (\texttt{src/buckets.h}) --- literally \code{return -1;} with a
+    \code{// TODO: implement} comment.
+  \item \code{Mapping::do\_overlap} (\texttt{src/sketch.h}) --- a boolean overlap check,
+    superseded everywhere by the (used) \code{Mapping::overlap} that returns a fraction
+    (\S\ref{sec:overlap-exclusion}).
+  \item \code{Matcher::do\_overlap} and \code{Matcher::lost\_correct\_mapping}
+    (\texttt{src/refine.h}) --- ground-truth-overlap-checking helpers, superseded by the
+    \code{-v 2} diagnostic path (\S\ref{sec:ground-truth}) actually used.
+\end{itemize}
+\textbf{Recommendation:} omit all three from a from-scratch implementation; they contribute no
+behavior.
+
+\section{D8: Dead \code{lmax} parameter in the ground-truth \code{bestFixedLength}}
+\label{sec:d8}
+\textbf{Location:} \texttt{src/refine.h}, the \code{Matcher}-scoped \code{bestFixedLength}
+(\S\ref{sec:matcher-best-fixed-length}). \textbf{Description:} the function signature accepts an
+\code{lmax} parameter, and every call site dutifully computes and passes a value for it
+(\code{2*bucket\_l} or \code{bucket\_l}), but the function body's actual window-width check uses
+\code{P\_sz} instead --- a commented-out \code{lmax}-based condition sits directly above the live
+one, evidence the author switched approaches and left the now-ornamental parameter (and its
+call-site computation) in place. \textbf{Consequence:} the two ground-truth tags
+\code{gt\_C\_l\_lmax} and \code{gt\_C\_l} (\S\ref{sec:ground-truth}), whose call sites differ only
+in what they pass for this dead parameter, are numerically \emph{identical} in practice.
+\textbf{Fix:} drop the parameter; it does nothing.
+
+\section{D9: Off-by-one in \code{bestIncludedJaccard} (real bug)}
+\label{sec:d9}
+\textbf{Location:} \texttt{src/refine.h}, \code{Matcher::bestIncludedJaccard}
+(\S\ref{sec:matcher-best-fixed-length}). Full technical description already given in
+\S\ref{sec:defect-prevr}; repeated here for completeness of this catalog. \textbf{Description:}
+the function's window-growing loop scores mid-iteration using the position \emph{one before} the
+just-processed element (\code{prev(r)}) for the reported span, while \code{intersection} at that
+point already reflects the just-processed element --- an internal inconsistency that can and does
+produce \code{intersection > span}, violating the metric's own $[0,1]$-boundedness invariant. The
+original source carries an explicit \code{// TODO: should it be prev(r) instead?} comment on this
+exact line. \textbf{Trigger:} confirmed via a small constructed example (a $\sim$50bp read against
+a $\sim$200bp synthetic reference, exercising the \code{-v 2} ground-truth ``included Jaccard''
+computation). \textbf{Impact:} affects only the \code{-v 2} diagnostic tags/TSV, never the primary
+PAF output or any mapping decision (this sweep is not used by the main scoring path,
+\S\ref{sec:best-fixed-length}, which has the analogous computation \emph{and gets it right} by
+scoring only after its inner loop fully exits). \textbf{Fix:} score using the \emph{current},
+just-processed right-boundary element consistently (matching what \code{intersection} already
+counts), not the one before it.
+
+\section{D10: Missing bounds clamp in ground-truth \code{collect\_matches}}
+\label{sec:d10}
+\textbf{Location:} \texttt{src/refine.h}, \code{Matcher::collect\_matches}. \textbf{Description:}
+this function computes a bucket's \code{[start, end)} range into a segment's sketch array but does
+not clamp \code{end} to the segment's actual length --- for the last bucket of a segment, a
+bucket's nominal end can run past the sketch array's bounds, risking an out-of-bounds read. The
+same file's own (separately dead, D7) \code{do\_overlap} function \emph{does} apply exactly this
+clamp for the same quantity, suggesting the omission here is an oversight rather than intentional.
+\textbf{Fix:} clamp \code{end} to \code{min(end, len(segment.kmers))} before iterating, mirroring
+the clamp already present elsewhere in the same file.
+
+\section{D11: \code{RefSegment::seq} is stored but never read (in the shipped feature set)}
+\label{sec:d11}
+\textbf{Location:} \texttt{src/sketch.h} (\S\ref{sec:type-refsegment}). \textbf{Description:} the
+full raw nucleotide sequence of every reference segment is retained in memory, but the only code
+that ever reads it (a SAM-output/edit-distance feature) is entirely commented out and
+unreachable. For large references this is a substantial, unnecessary memory cost (roughly doubling
+index memory beyond the sketch itself). \textbf{Recommendation:} omit the field entirely in a
+from-scratch implementation targeting the mapping functionality this document describes; only
+retain it if also implementing base-level alignment output.
+
+\section{D12: Dead \code{-a}/SAM output path}
+\label{sec:d12}
+\textbf{Location:} CLI parsing (\texttt{src/io.h}) and \texttt{src/sketch.h}.
+\textbf{Description:} the \code{-a} flag (\code{sam}) is parsed and stored but never read by any
+live code; the SAM-format output function it would have selected is fully commented out (and
+itself depends on an edit-distance library, \code{edlib}, that is otherwise entirely unused by the
+shipped binary). \textbf{Recommendation:} omit this flag from a from-scratch implementation rather
+than reproduce a no-op switch.
+
+\section{D13: Dead \code{-S}/\code{-n} CLI flags}
+\label{sec:d13}
+\textbf{Location:} CLI parsing (\texttt{src/io.h}). \textbf{Description:} \code{max\_seeds}
+(\code{-S}) and \code{normalize} (\code{-n}) are parsed, range-validated, and included in the
+parameter dump, but neither is ever read by any algorithmic code. \textbf{Distinction from D12:}
+unlike \code{-a}, these are not accompanied by a larger commented-out feature --- they appear to be
+either forward-looking placeholders or remnants of a removed feature. \textbf{Recommendation:}
+unlike the confirmed-and-explicitly-flagged \code{-a} case, a from-scratch implementation should
+by default \emph{keep} these as accepted-but-inert CLI parameters (for command-line compatibility
+with existing scripts/pipelines that may already pass them) rather than unilaterally removing
+CLI-visible surface area that wasn't specifically identified for removal.
+
+\section{D14: \code{one\_sweep}/\code{-B} has no implemented behavior}
+\label{sec:d14}
+\textbf{Location:} template parameter and CLI flag threaded throughout \texttt{src/shmap.h},
+\texttt{src/mapper.cpp}. \textbf{Description:} unlike \code{no\_bucket\_pruning}/\code{-P} (which
+does gate real behavior, \S\ref{sec:seed-heuristic-pass}) or \code{abs\_pos}/\code{-F} (which
+gates coordinate-space arithmetic throughout Chapters~\ref{ch:bucketing}--\ref{ch:scoring}),
+\code{one\_sweep} is threaded through every relevant function signature and even given a
+descriptive CLI help string (``disregards seed heuristic and runs one sweep on all matches''), but
+is never once tested inside any conditional in the mapper's actual logic --- confirmed via
+exhaustive grep. \textbf{Recommendation:} since this document's companion implementation was
+tasked with making every configuration combination genuinely meaningful (rather than silently
+inert), it defines a concrete best-effort semantics matching the flag's own help text: consume
+\emph{every} seed (\code{S := len(seeds)}) rather than the theta-derived budget
+(\S\ref{sec:seed-budget}), leaving the rest of the pipeline (bucket pruning, refinement)
+unchanged. This is an explicit design choice filling a gap the reference source left open, not a
+recovered original behavior --- a from-scratch implementation is free to define \code{one\_sweep}
+differently (e.g.\ literally skip bucket-based clustering and score one global sweep over every
+raw match, which is closer to a literal reading of the help text but a substantially larger
+undertaking) as long as it documents which interpretation it chose.
+
+\section{D15: Per-read counters are never actually reset (real bug, affects live output)}
+\label{sec:d15}
+\textbf{Location:} \code{map\_read}, \texttt{src/shmap.h} (\S\ref{sec:map-read-counters}).
+\textbf{Description:} the call that would fully reset the per-read \code{Counters} object
+(\code{C.clear()}) is commented out; the subsequent re-initialization only names a subset of the
+counter keys the function goes on to increment. The following counters are left unreset across
+every read a single mapper instance processes: \code{read\_len}, \code{total\_matches},
+\code{possible\_matches}, \code{kmers\_sketched}, \code{kmers\_unique}, \code{kmers\_seeds},
+\code{seeded\_buckets}. Because the (also unreset) running counters object is merged into the
+run-wide totals \emph{after every single read}, these specific counters compound
+super-linearly across a run. \textbf{Concretely affected live output:} \code{total\_matches:i:}
+and its derived \code{match\_inefficiency:f:} PAF tag (\S\ref{ch:output}) are read \emph{directly}
+from this same, never-reset counters object \emph{before} the end-of-read merge into run-wide
+totals --- meaning every mapped read's own reported \code{total\_matches:i:} value already
+reflects leftover accumulation from every previous read the same mapper instance processed, not
+just the current read. This is the most consequential defect in this catalog: it corrupts an
+observable, per-mapping output field, not merely an end-of-run summary statistic.
+\textbf{Confirmed} by observing, in a controlled two-read test, \code{total\_matches:i:} values
+that were consistent per-read only after applying the fix below; without it, the second read's
+value visibly incorporated the first read's contribribution. \textbf{Fix:} fully clear the
+per-read counters object at the start of every read, and pre-register (at zero) every counter
+name the function's call graph touches (the complete, corrected list is: every name in the
+reference source's own partial list, \emph{plus} the seven listed above).
+
+\section{D16: Unconditional dereference of an empty optional on unmapped reads (real bug, UB)}
+\label{sec:d16}
+\textbf{Location:} \code{map\_read}, \texttt{src/shmap.h} (\S\ref{sec:map-read-output}).
+\textbf{Description:} \code{best->set\_global\_stats(...)} and \code{best->print\_paf(...)} are
+called unconditionally, textually after the point where the code has already branched on whether
+\code{best} holds a value or not --- for every unmapped read, this dereferences an empty
+\code{std::optional<Mapping>}, which is undefined behavior in C++ (it does not reliably crash;
+depending on standard-library internals it may silently read whatever a default-constructed-
+looking object's memory layout happens to contain). \textbf{Trigger:} any read that does not map
+(a normal, expected, frequently-occurring outcome --- the surrounding code clearly anticipates it,
+since a dedicated \code{unmapped\_out} stream and \code{lost\_on\_seeding}/\code{lost\_on\_pruning}
+counters all exist specifically to track this case). \textbf{Fix:} guard both calls behind the
+same \code{if (best)} check already present a few lines above, and define an explicit,
+well-formed output for the unmapped case instead --- this document's companion implementation
+writes a minimal 12-column PAF-shaped record (\S\ref{sec:unmapped-record}) rather than silently
+omitting unmapped reads from output entirely, on the reasoning that the reference source's own
+\code{unmapped\_out} stream was clearly intended to receive \emph{some} record per unmapped read,
+even though the bug above meant it never cleanly did.
+
+\section{D17: \code{gt\_C\_r\_lmax} is declared, printed, but never assigned}
+\label{sec:d17}
+\textbf{Location:} \code{AnalyseSimulatedReads} constructor, \texttt{src/analyse\_simulated.h}
+(\S\ref{sec:ground-truth}). \textbf{Description:} distinct from D8 (which is a dead
+\emph{parameter}) --- this is a genuinely missing assignment. The constructor computes and stores
+\code{gt\_C\_l\_lmax} but has no corresponding \code{gt\_C\_r\_lmax = ...} line at all, despite
+both fields being declared and both being unconditionally printed in \emph{both} the \code{-v 2}
+PAF tags and the \code{.paul.tsv} output. \textbf{Impact:} the \code{gt\_C\_r\_lmax:f:} tag / TSV
+column always shows the default \code{Mapping}'s sentinel score, $-1.000$, for every read, in
+every run. \textbf{Recommendation:} since this diagnostic path has zero automated test coverage
+to indicate the intended value, a from-scratch implementation may either leave the field
+unassigned (matching shipped behavior exactly) or assign it the obviously-analogous computation
+(mirroring \code{gt\_C\_l\_lmax} but for the right-side ground-truth bucket) --- both are
+defensible; this document's companion implementation chose to leave it unassigned, to avoid
+inventing behavior for a code path with no oracle to validate against.
+
+\section{D18: PAF columns 10/11 always repeat the query-length column}
+\label{sec:d18}
+Already described in full in \S\ref{ch:output}; included here for completeness of this catalog.
+Marked with the reference source's own \code{// TODO: fix} comment.
+
+\section{D19: \code{Timers::secs}'s exception handling can never actually fire}
+\label{sec:d19}
+\textbf{Location:} \texttt{src/utils.h}. \textbf{Description:} \code{Timers::secs(name)} wraps
+\code{timers\_.at(name).secs()} in a \code{try \{ ... \} catch (const std::runtime\_error\&)}
+intended to gracefully handle a missing timer name. However, \code{std::unordered\_map::at} throws
+\code{std::out\_of\_range} on a missing key, which does \emph{not} derive from
+\code{std::runtime\_error} in the C++ standard exception hierarchy (both derive independently from
+\code{std::exception}) --- so this catch clause can never actually trigger for the failure mode it
+was written for. In practice this is masked because every timer name actually queried has always
+been previously \code{.start()}'d (which auto-vivifies the entry), so the missing-key path is
+never exercised by the shipped tool. \textbf{Recommendation:} a from-scratch implementation should
+simply handle the ``timer not found'' case directly (e.g.\ return $0.0$ and log, which was
+evidently the original intent) rather than reproduce a try/catch that provides no actual safety
+net.
+
+\section{D20: \code{ParsedQueryId::parse} catches a parse error only to rethrow it}
+\label{sec:d20}
+\textbf{Location:} \texttt{src/utils.h}. \textbf{Description:} when a ground-truth-encoded read
+name's numeric fields (start/end position) fail to parse as integers, the function catches the
+resulting exception, logs an error message, sets a (about-to-be-discarded) validity flag to false,
+and then rethrows the same exception unconditionally --- so the net behavior is identical to not
+catching it at all, just with an extra log line first. \textbf{Distinction from the two graceful
+cases the same function handles} (no \code{!}-delimiter present at all; wrong number of
+\code{!}-delimited fields), both of which \emph{do} return a clean ``not a ground-truth name''
+result: a malformed \emph{numeric} field within an otherwise correctly-shaped name is treated as a
+hard failure, not a graceful ``not ground-truth-encoded'' result. \textbf{Recommendation:}
+this is reasonable, defensible behavior for a diagnostic feature that assumes well-formed
+simulated-read names (only used in the opt-in \code{-v 2} mode); a from-scratch implementation
+should simply let the parse error propagate (panic/exception) without the pointless
+catch-log-rethrow wrapper, since the wrapper adds a log message but changes nothing else.

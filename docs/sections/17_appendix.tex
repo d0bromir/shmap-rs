@@ -1,0 +1,108 @@
+\appendix
+\chapter{Notation, Glossary, and Quick Index}
+\label{ch:appendix}
+
+\section{Notation summary}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} & \textbf{Defined} \\
+\midrule
+$k$ & $k$-mer length & \S\ref{sec:sketch-lut}, CLI \code{-k} \\
+$r$ & FracMinHash keep-fraction & \S\ref{sec:fracminhash-theory}, CLI \code{-r} \\
+$H_{\max}$ & Maximum hash value ($2^{64}-1$) & \S\ref{sec:fracminhash-hash} \\
+$n$ & Total reference length & \S\ref{ch:complexity} \\
+$|P|$ & Read length (nucleotides) & \\
+$m$ & Read's sketch cardinality & \S\ref{sec:seeding-grouping} \\
+$S$ & Seed budget (occurrences) consumed & \S\ref{sec:seed-budget} \\
+$\theta$ & Acceptance threshold & CLI \code{-t} \\
+$\theta_2$ & $\theta - \mathit{min\_diff}$ & \S\ref{sec:seed-budget} \\
+$\mathit{min\_diff}$ & MAPQ/threshold margin & CLI \code{-d} \\
+$\ell$ & Bucket half-length & \S\ref{sec:bucket-halflen} \\
+$\ell_{\min}$ & Minimum allowed $\ell$ ($=5$) & \S\ref{sec:bucket-halflen} \\
+$h_{\mathrm{seed}}$ & Seed-heuristic bound & \S\ref{sec:seed-heuristic-theory} \\
+$J(A,B)$ & Jaccard similarity & \S\ref{sec:minhash} \\
+$C(A,B)$ & Containment index & \S\ref{sec:fracminhash-theory} \\
+$f_1, f_2$ & Best / second-best mapping score & \S\ref{ch:mapq} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Glossary}
+
+\begin{description}[style=nextline,leftmargin=1.2cm]
+\item[Bucket] A fixed-geometry, overlapping candidate window along one reference segment
+  (Chapter~\ref{ch:bucketing}).
+\item[Canonical $k$-mer] A $k$-mer identified by a strand-agnostic combination of its forward and
+  reverse-complement hash (\S\ref{sec:canonical-kmers}).
+\item[Containment index] Fraction of one set's elements found in another; shmap's primary scoring
+  metric (\S\ref{sec:fracminhash-theory}).
+\item[FracMinHash] A hash-threshold-based sketching scheme giving length-proportional sketch size
+  (\S\ref{sec:fracminhash-theory}).
+\item[Hit] A $k$-mer's occurrence in the \emph{reference} (\S\ref{sec:type-hit}).
+\item[Jaccard similarity] Intersection over union of two sets (\S\ref{sec:minhash}).
+\item[MAPQ] Mapping quality, a Phred-like confidence score for a reported mapping
+  (\S\ref{sec:mapq-theory}, Chapter~\ref{ch:mapq}).
+\item[Minimizer] The smallest-hash $k$-mer in a sliding window; an alternative sketching scheme
+  shmap does \emph{not} use (\S\ref{sec:minimizers}).
+\item[PAF] Pairwise mApping Format, shmap's output format (Chapter~\ref{ch:output}).
+\item[Rolling hash] An $O(1)$-amortized-update hash recurrence over sliding windows
+  (\S\ref{sec:rolling-hash}).
+\item[Seed] One distinct $k$-mer hash from a read's sketch, with reference/read occurrence
+  metadata attached (\S\ref{sec:type-seed}).
+\item[Seed heuristic] The closed-form pruning upper bound central to shmap's performance
+  (\S\ref{sec:seed-heuristic-theory}, Chapter~\ref{ch:pruning}).
+\item[Sketch] A subsampled representative subset of a sequence's $k$-mers
+  (\S\ref{sec:minhash}--\S\ref{sec:fracminhash-theory}).
+\end{description}
+
+\section{Quick algorithm index}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Function} & \textbf{Section} & \textbf{Purpose} \\
+\midrule
+\code{sketch} & \S\ref{ch:sketching} & FracMinHash rolling hash \\
+\code{build\_index} & \S\ref{ch:indexing} & Reference $k$-mer index \\
+\code{unique\_elements\_with\_info} & \S\ref{sec:seeding-grouping} & Group read $k$-mers into
+  seeds \\
+\code{match\_seeds} & \S\ref{sec:match-seeds} & Populate buckets from the seed budget \\
+\code{hseed} & \S\ref{ch:pruning} & Seed-heuristic bound formula \\
+\code{seed\_heuristic\_pass} & \S\ref{sec:seed-heuristic-pass} & Incremental pruning loop \\
+\code{bestFixedLength} (SHMapper) & \S\ref{sec:best-fixed-length} & Main Containment/Jaccard sweep
+\\
+\code{lcs} & \S\ref{sec:lcs-implementation} & bucket\_LCS metric \\
+\code{findBestMapping} & \S\ref{sec:find-best-mapping} & Metric dispatch \\
+\code{match\_rest} & \S\ref{sec:match-rest} & Best/second-best search \\
+\code{calc\_mapq} & \S\ref{sec:calc-mapq-formula} & MAPQ formula \\
+\code{map\_read} & \S\ref{sec:map-read} & Full per-read driver \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Minimal reference implementation checklist}
+
+A from-scratch implementation is functionally complete once it has:
+\begin{enumerate}[nosep]
+  \item Bit-exact FracMinHash sketching (Chapter~\ref{ch:sketching}), verified via the
+    reverse-complement symmetry test (end of \S\ref{ch:sketching}).
+  \item A reference index with correct single/multi occurrence splitting and sorted multi-hit
+    lists (Chapter~\ref{ch:indexing}).
+  \item Rarest-first seed grouping with correctly-collected \code{pmatches} (Chapter~\ref{ch:seeding}).
+  \item Overlapping bucket geometry with the 50\% overlap rule applied consistently
+    (Chapter~\ref{ch:bucketing}).
+  \item The seed-heuristic bound implemented and unit-tested against hand-derived examples
+    (Chapter~\ref{ch:pruning}).
+  \item All four scoring metrics (Chapter~\ref{ch:scoring}), each independently verified (e.g.\
+    against a brute-force $O(n)$ containment/Jaccard computation on small synthetic inputs).
+  \item Best/second-best search with overlap exclusion and MAPQ (Chapters~\ref{ch:end-to-end}--
+    \ref{ch:mapq}).
+  \item Well-defined (not undefined-behavior) handling of the unmapped case
+    (\S\ref{sec:unmapped-record}).
+  \item PAF output matching \S\ref{ch:output}'s column/tag definitions.
+\end{enumerate}
+Chapter~\ref{ch:defects} should be read in full before finalizing any of the above, since several
+entries there materially change what ``correct'' means for a specific function relative to a
+naive reading of the reference source alone.

@@ -1,0 +1,305 @@
+\chapter{Theoretical Background}
+\label{ch:theory}
+
+This chapter develops, from first principles, every theoretical tool shmap relies on. No prior
+familiarity with sketch-based mapping is assumed.
+
+\section{$k$-mers}
+
+A \textbf{$k$-mer} is a contiguous substring of length $k$ of a DNA sequence. A sequence $S$ of
+length $n$ over $\Sigma=\{A,C,G,T\}$ has exactly $n-k+1$ $k$-mers (for $n \ge k$), one starting at
+each position $i \in [0, n-k]$: $S[i \mathinner{.\,.} i{+}k)$.
+
+$k$-mers are the atomic unit of comparison in almost all modern sequence analysis: instead of
+comparing sequences character-by-character (which is what alignment does, and is expensive),
+tools compare the \emph{sets} of $k$-mers two sequences share. Two sequences that share many
+$k$-mers are likely to be similar/overlapping/from the same genomic locus; two that share almost
+none are likely unrelated. This is the basis of alignment-free sequence comparison.
+
+Two design parameters govern how well $k$-mers work as a similarity proxy:
+\begin{itemize}
+  \item If $k$ is too small, $k$-mers recur very frequently by chance alone (there are only
+    $4^k$ distinct $k$-mers; for $k=8$ that is $65{,}536$, tiny compared to a genome of $10^9$
+    bases), so a shared $k$-mer carries little evidence of true homology.
+  \item If $k$ is too large, a single sequencing error (common in long reads, particularly Oxford
+    Nanopore data, at rates of $1$--$15\%$ depending on chemistry) destroys every $k$-mer that
+    overlaps it (up to $k$ of them), so real matches are missed.
+\end{itemize}
+shmap's default is $k=15$ (flag \code{-k}), with typical experiments in the codebase's own
+evaluation harness sweeping $k \in \{17,19,\dots,33\}$.
+
+\subsection{Canonical $k$-mers and strand}
+\label{sec:canonical-kmers}
+
+DNA is double-stranded, and a sequencing read may originate from either strand, with no way to
+know which \emph{a priori}. A $k$-mer $x$ occurring on the forward strand of the reference is
+identical to the \textbf{reverse complement} of $x$ occurring on the reverse strand at the
+mirrored position. To make $k$-mer matching strand-agnostic, essentially every tool in this space
+computes, for each $k$-mer window, both:
+\begin{itemize}[nosep]
+  \item the forward-strand hash $h_{fw}$, and
+  \item the reverse-complement hash $h_{rc}$ (i.e., the hash of the reverse complement of the
+    same window),
+\end{itemize}
+and uses a canonical combination of the two (commonly $\min(h_{fw}, h_{rc})$, or, as shmap does,
+$h_{fw} \oplus h_{rc}$ --- see \S\ref{sec:fracminhash-hash}) as the $k$-mer's identity, plus a
+single bit recording which strand ``won'' so that downstream code can recover orientation.
+
+\section{Hashing $k$-mers, and rolling hashes}
+\label{sec:rolling-hash}
+
+Because a sequence of length $n$ has $O(n)$ overlapping $k$-mers, naively hashing each one from
+scratch costs $O(nk)$. A \textbf{rolling hash} instead updates the previous window's hash in
+$O(1)$ to obtain the next window's hash, giving $O(n)$ total. The general recurrence for a
+polynomial or XOR-based rolling hash removes the outgoing base's contribution and adds the
+incoming base's contribution:
+\[
+  h_{i+1} = f(h_i, \, \text{out\_base} = S[i], \, \text{in\_base} = S[i+k])
+\]
+shmap uses an XOR/rotate rolling hash (not a polynomial one); the exact recurrence, including the
+reverse-complement side, is derived in \S\ref{sec:fracminhash-hash}.
+
+\section{Sketching: reducing $k$-mer sets to a manageable, comparable size}
+
+Even with an efficient rolling hash, a set of $O(n)$ $k$-mers per sequence is too large to
+compare pairwise across, e.g., every read against a whole genome. \textbf{Sketching} techniques
+subsample the $k$-mer set down to a small representative subset, in a way that lets similarity
+between two sequences be \emph{estimated} from the subsets alone, with a distortion (approximation
+error) that shrinks as the subset grows.
+
+\subsection{Minimizer schemes}
+\label{sec:minimizers}
+
+The most widely used sketching scheme (used by minimap2, most short-read aligners' seed indices,
+Winnowmap, etc.) is the \textbf{minimizer}: slide a window of $w$ consecutive $k$-mers along the
+sequence, and keep only the $k$-mer with the smallest hash value in each window (ties broken by
+position or a secondary key). This guarantees:
+\begin{itemize}[nosep]
+  \item \textbf{Bounded density:} at most $2/(w+1)$ of all $k$-mers are ever selected (in
+    expectation, for a uniform hash), giving a sketch size proportional to $n/w$.
+  \item \textbf{Window guarantee:} any window of $w$ consecutive $k$-mers has \emph{at least one}
+    selected minimizer, so no region of the sequence is left completely unsampled --- important
+    for finding short matches / handling indels robustly.
+\end{itemize}
+The window guarantee is minimizers' main strength; their main weakness is that the selected set is
+sensitive to single-base edits near a window boundary (a phenomenon studied extensively in the
+minimizer/syncmer literature), and that sketch size is governed by $w$, not by a similarity-space
+quantity directly.
+
+\subsection{MinHash}
+\label{sec:minhash}
+
+An older, different sketching idea (Broder, 1997) underlies Mash and sourmash. Given a hash
+function $h$ assumed to distribute $k$-mers uniformly over $[0, H_{\max}]$, the \textbf{MinHash
+sketch} of a $k$-mer set $A$ of size $n$ keeps only the $n$ smallest-hash elements for a
+fixed target sketch size (\emph{bottom-$n$ sketch}), or equivalently the single minimum hash
+value repeated over many independent hash functions (\emph{classic MinHash}). The key theoretical
+result is:
+\[
+  \Pr[\min h(A) = \min h(B)] = \frac{|A \cap B|}{|A \cup B|} = J(A,B)
+\]
+i.e., the probability that two sets' minimum hashes coincide equals their \textbf{Jaccard
+similarity}. Averaging this indicator over $m$ independent hash functions (or, equivalently,
+comparing the $m$ smallest of a single hash function's outputs) gives an unbiased estimator of
+$J(A,B)$ with standard error $O(1/\sqrt{m})$.
+
+MinHash's practical drawback for genomic sketching: a fixed-size bottom-$n$ sketch of a short
+sequence and of a long sequence look the same size, so a short sequence's sketch is a much denser
+(and hence unrepresentative, if $n$ is not scaled per-sequence) sample of its $k$-mers. This
+motivates \textbf{FracMinHash}.
+
+\subsection{FracMinHash (``Mash Screen'' / scaled MinHash)}
+\label{sec:fracminhash-theory}
+
+\textbf{FracMinHash} (used by Mash Screen, sourmash's ``scaled'' sketches, and shmap) fixes not a
+sketch \emph{size} but a hash-space \textbf{fraction} $r \in (0,1]$ (shmap's flag \code{-r},
+default $0.05$): a $k$-mer with hash $h$ is kept in the sketch iff
+\[
+  h \le r \cdot H_{\max}
+\]
+where $H_{\max}$ is the maximum possible hash value (for a 64-bit hash, $H_{\max}=2^{64}-1$).
+Because $h$ is (assumed) uniformly distributed, this keeps, in expectation, a fraction $r$ of all
+$k$-mers, so \textbf{sketch size scales linearly with sequence length}: $|\text{sketch}(S)|
+\approx r\cdot(|S|-k+1)$, for any $|S|$. This is the key advantage over both fixed-size MinHash
+and (to a lesser extent) minimizers: one parameter $r$ controls sampling density uniformly across
+sequences of any length, and, unlike bottom-$n$ MinHash, two FracMinHash sketches computed with
+the \emph{same} threshold are directly comparable set-theoretically (their union/intersection
+correspond exactly to the union/intersection of the full $k$-mer sets restricted to the
+sub-threshold region) --- no renormalization needed.
+
+\paragraph{Jaccard and containment estimation.} For two sketches $\hat A = A \cap [0, rH_{\max}]$
+and $\hat B = B \cap [0, rH_{\max}]$ built with the \emph{same} threshold,
+\[
+  \widehat{J(A,B)} = \frac{|\hat A \cap \hat B|}{|\hat A \cup \hat B|}
+  \qquad\text{estimates}\qquad
+  J(A,B)=\frac{|A\cap B|}{|A \cup B|},
+\]
+and, when $|A| \ll |B|$ (e.g.\ $A$ a read, $B$ the whole genome) the more relevant
+\textbf{containment index}
+\[
+  C(A, B) = \frac{|A \cap B|}{|A|}
+\]
+(``what fraction of the read's $k$-mers are found somewhere in the reference'') is estimated
+directly (without needing to also estimate $|A \cup B|$) as
+\[
+  \widehat{C(A,B)} = \frac{|\hat A \cap \hat B|}{|\hat A|}.
+\]
+shmap's two headline metrics, \code{Containment} and \code{Jaccard} (CLI flag \code{-m}), are
+exactly these two estimators, computed not over the whole reference but over a small candidate
+\emph{bucket} region (Chapter~\ref{ch:scoring}); shmap additionally offers two alternative,
+bucket-native metrics (\code{bucket\_SH}, \code{bucket\_LCS}) discussed in
+\S\ref{sec:metric-variants}.
+
+\subsection{FracMinHash vs.\ minimizers, concretely}
+\label{sec:fracminhash-vs-minimizer}
+
+\begin{center}
+\begin{tabular}{@{}p{4cm}p{5.4cm}p{5.4cm}@{}}
+\toprule
+ & \textbf{Minimizer ($w$-window)} & \textbf{FracMinHash (ratio $r$)} \\
+\midrule
+Sketch size & $\approx 2n/(w{+}1)$ & $\approx rn$ \\
+Coverage guarantee & every $w$-window has $\ge 1$ selected $k$-mer & none: a long low-hash-density
+  stretch can (rarely) be unsampled \\
+Comparable across lengths & only if $w$ fixed and sequences aligned to the same coordinate frame
+  & yes, directly, by construction \\
+Used by & minimap2, Winnowmap, most short-read aligners & Mash Screen, sourmash, \textbf{shmap} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+shmap explicitly favors the containment/Jaccard-estimation cleanliness of FracMinHash over
+minimizers' coverage guarantee; its seed-heuristic pruning (\S\ref{sec:seed-heuristic-theory}) is
+in fact a direct consequence of working in FracMinHash's clean estimation framework.
+
+\section{Seed-and-extend / seed-chain-extend mapping}
+\label{sec:seed-extend}
+
+Given sketches of $P$ (the read) and $T$ (the reference), the generic mapping pipeline is:
+\begin{enumerate}
+  \item \textbf{Seed:} find every position where a $k$-mer of $P$'s sketch also occurs in $T$'s
+    sketch (a \emph{hit}); a hit is a pair (position in $P$, position in $T$).
+  \item \textbf{Chain / cluster:} group hits that are roughly co-linear (i.e., consistent with one
+    contiguous alignment: as position-in-$P$ increases, position-in-$T$ increases by a
+    comparable amount, same strand) into candidate regions.
+  \item \textbf{Score / extend:} for each candidate region, compute a similarity score (or, in
+    tools that go further, a base-level alignment) and report the best (and, for mapping quality,
+    second-best) candidate.
+\end{enumerate}
+Tools differ enormously in step 2. minimap2 runs an $O(N \log N)$ or $O(N^2)$ (bounded) dynamic
+program over all $N$ hits to find the highest-scoring chain of co-linear anchors (\emph{co-linear
+chaining}). shmap instead partitions the reference into fixed-geometry, overlapping
+\textbf{buckets} (a form of coarse, position-only clustering, described in
+Chapter~\ref{ch:bucketing}) and scores whole buckets rather than chaining individual hits --- far
+cheaper, at the cost of being less precise about the exact alignment boundary (which shmap does
+not need, since it is a mapper, not an aligner).
+
+\section{Co-linear chaining via Longest Increasing / Common Subsequence}
+\label{sec:lis-theory}
+
+One of shmap's four scoring metrics, \code{bucket\_LCS} (\S\ref{sec:metric-variants}), scores a
+candidate bucket by the length of the \textbf{longest common subsequence} (LCS) between the order
+hits occur in $P$ and the order they occur in $T$ within the bucket. Because both sequences here
+are permutations of (a subset of) the same multiset of positions-in-$P$, ``LCS'' reduces to
+\textbf{longest increasing subsequence} (LIS) of the sequence of $P$-positions visited in
+increasing $T$-order: a long increasing run means many hits are mutually co-linear (consistent
+with one real alignment on one strand); a long \emph{decreasing} run means many hits are
+co-linear on the \emph{other} strand. shmap computes both (forward and reverse) and takes the max
+(\S\ref{sec:lcs-implementation}).
+
+\paragraph{Patience-sorting LIS algorithm.} The classic $O(n\log n)$ algorithm for LIS length
+(not full reconstruction) processes the sequence left to right, maintaining an array
+$\mathit{tails}$ where $\mathit{tails}[i]$ is the smallest possible tail value of any increasing
+subsequence of length $i{+}1$ seen so far. For each new value $x$: binary-search $\mathit{tails}$
+for the first entry $\ge x$; if none exists, append $x$ (extends the longest run found so far by
+one); otherwise overwrite that entry with $x$ (keeps the same achievable lengths but with a
+smaller, more extensible tail). The final array length is the LIS length. This is exactly the
+algorithm shmap's \code{lcs\_get\_lis} implements (\S\ref{sec:lcs-implementation}).
+
+\section{The seed heuristic: a provable upper bound for cheap pruning}
+\label{sec:seed-heuristic-theory}
+
+This is the theoretical core that gives Map-SHmap its name and its main performance advantage
+over exhaustively scoring every candidate region.
+
+Consider a read sketch of size $m = |\hat P|$ (its FracMinHash sketch cardinality). Seeds are
+consumed \emph{rarest-first} (Chapter~\ref{ch:seeding}) up to some budget $S \le m$ seeds. For any
+candidate bucket, define:
+\begin{itemize}[nosep]
+  \item $\mathit{seeds}$ = number of seed \emph{occurrences} (counting multiplicity in $P$) that
+    have been consumed and attributed to this bucket so far (an occurrence is attributed to a
+    bucket the moment its position is examined --- whether or not the reference actually has a
+    hit there);
+  \item $\mathit{matches}$ = number of those occurrences that \emph{did} find a hit landing inside
+    this bucket.
+\end{itemize}
+Necessarily $\mathit{matches} \le \mathit{seeds} \le m$ (a seed occurrence can match at most once
+per bucket, and only $\mathit{seeds}\le m$ occurrences from the read have been consumed at all).
+Define the \textbf{seed-heuristic score}
+\[
+  h_{\mathrm{seed}}(m, \mathit{seeds}, \mathit{matches}) \;=\; 1 - \frac{\mathit{seeds} -
+  \mathit{matches}}{m}.
+\]
+
+\begin{quote}
+\textbf{Claim.} $h_{\mathrm{seed}}$ is a non-increasing function of $\mathit{seeds}$ for fixed
+$\mathit{matches}$, and an upper bound on the true containment score
+$C = \mathit{matches}_{\mathrm{final}} / m$ that this bucket could achieve \emph{even if every
+remaining, not-yet-consumed seed occurrence in $P$ also matched inside this bucket}.
+\end{quote}
+
+\emph{Why.} At most $m$ total seed occurrences exist; $\mathit{seeds}-\mathit{matches}$ of the
+ones examined so far are \emph{known misses} for this bucket (an occurrence was consumed and did
+\emph{not} land in this bucket). Even in the best possible case --- every one of the
+$m-\mathit{seeds}$ not-yet-examined occurrences turns out to match this bucket too --- the final
+match count can be at most $m - (\mathit{seeds}-\mathit{matches})$ (total occurrences minus known
+misses), giving final containment score at most
+$\bigl(m-(\mathit{seeds}-\mathit{matches})\bigr)/m = h_{\mathrm{seed}}$. Since known misses only
+ever accumulate (both $\mathit{seeds}$ and $\mathit{seeds}-\mathit{matches}$ are non-decreasing as
+more occurrences are examined), $h_{\mathrm{seed}}$ can only decrease or stay the same as more
+seeds are consumed for a fixed bucket --- it is a monotonically tightening upper bound.
+
+\paragraph{Pruning rule.} If, after extending a bucket with more seed occurrences,
+$h_{\mathrm{seed}} < \theta$ for the current acceptance threshold $\theta$ (or the current
+best-known score, whichever is the active bound), the bucket is \emph{guaranteed} to be unable to
+reach $\theta$ no matter how the remaining seeds resolve, and can be discarded \emph{without
+computing its actual score}. This is what makes shmap fast: the overwhelming majority of
+candidate buckets a repetitive genome generates are eliminated by this $O(1)$-per-check bound
+long before the $O(\text{bucket size})$ refinement sweep (Chapter~\ref{ch:scoring}) would ever
+run on them. Chapter~\ref{ch:pruning} gives the exact incremental algorithm
+(\code{seed\_heuristic\_pass}) that extends a bucket with just enough additional seeds to either
+prove it's prunable or exhaust all seeds, at the smallest possible cost.
+
+\section{Mapping quality (MAPQ)}
+\label{sec:mapq-theory}
+
+A mapper is rarely certain a single location is correct, especially in repetitive genomic regions
+where a read may score similarly against several loci. \textbf{MAPQ} (following the SAM/PAF
+convention, an integer typically in $[0,60]$, though PAF's own histrionic convention allows $255$
+for ``unavailable'') encodes, on a Phred-like scale, the mapper's confidence that the reported
+best location is correct. The general recipe used by essentially all mappers (originating with
+MAQ/BWA, and reused with variations by minimap2 and shmap) is:
+\begin{enumerate}[nosep]
+  \item Find the best-scoring candidate location, score $f_1$.
+  \item Find the best-scoring candidate location that is not simply a restatement of the same
+    location (typically: does not overlap the first by more than some fraction), score $f_2\le
+    f_1$.
+  \item If $f_1$ and $f_2$ are close, the read could plausibly have come from either place ---
+    report low confidence. If $f_2$ is much worse than $f_1$ (or no second candidate exists at
+    all), report high confidence.
+\end{enumerate}
+shmap's concrete formula, and the specific (somewhat unusual, all-or-nothing rather than smoothly
+graduated) way it implements step 3, is given in full in Chapter~\ref{ch:mapq}, including a
+discussion of two alternative formulas the original source retains, commented out, as evidence of
+in-progress tuning.
+
+\section{Summary of the theoretical pipeline}
+
+Putting the pieces together, shmap's high-level strategy is: \emph{FracMinHash sketch both sides
+for length-proportional, directly-comparable $k$-mer subsets; index the reference sketch once;
+for each read, seed rarest-$k$-mer-first against the index; accumulate hits into cheap,
+overlapping positional buckets; use the seed-heuristic upper bound to discard almost all buckets
+for a few arithmetic operations each; refine survivors with an exact sliding-window Jaccard/
+containment sweep (or an LCS-based chain score); and report the best two candidates' scores as a
+MAPQ estimate.} Chapter~\ref{ch:architecture} now turns this into the concrete system
+architecture, and the chapters that follow specify every step precisely enough to implement.

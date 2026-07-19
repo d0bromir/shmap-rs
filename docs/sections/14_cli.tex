@@ -1,0 +1,84 @@
+\chapter{Command-Line Parameter Reference}
+\label{ch:cli}
+
+\begin{longtable}{@{}p{1.1cm}p{2.6cm}p{1.6cm}p{2.6cm}p{7cm}@{}}
+\toprule
+\textbf{Flag} & \textbf{Name} & \textbf{Default} & \textbf{Validation} & \textbf{Effect} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Flag} & \textbf{Name} & \textbf{Default} & \textbf{Validation} & \textbf{Effect} \\
+\midrule
+\endhead
+\code{-p} & pattern (reads file) & --- (required) & must exist & Path to the query reads,
+  FASTA/FASTQ, optionally gzip-compressed. \\
+\code{-s} & text (reference file) & --- (required) & must exist & Path to the reference,
+  FASTA, optionally compressed. \\
+\code{-k} & ksize & 15 & $>0$ & $k$-mer length, Chapter~\ref{ch:sketching}. \\
+\code{-r} & hashratio & 0.05 & $(0,1]$ & FracMinHash keep-fraction $r$, \S
+  \ref{sec:fracminhash-theory}. \\
+\code{-S} & max\_seeds & unset & $>0$ if given & \textbf{Dead/inert}: parsed, validated, and
+  printed in the parameter dump, but never read by any algorithmic code path (confirmed by
+  exhaustive cross-reference). Kept for CLI compatibility only. \\
+\code{-M} & max\_matches & unset (no cap) & $>0$ if given & Caps reference occurrences per $k$-mer
+  hash before indexing, \S\ref{sec:max-matches}. \\
+\code{-t} & threshold & 0.9 & $[0,1]$ & Acceptance threshold $\theta$, used throughout seeding
+  (\S\ref{sec:seed-budget}) and refinement (\S\ref{sec:match-rest}). \\
+\code{-d} & min\_diff & 0.02 & $\ge 0$ & $\mathit{min\_diff}$: MAPQ confidence cutoff
+  (\S\ref{ch:mapq}), second-best search threshold factor (\S\ref{sec:match-rest}), and an input to
+  the seed-budget formula (\S\ref{sec:seed-budget}) --- one parameter, three distinct uses. \\
+\code{-o} & max\_overlap & 0.5 & $[0,1]$ & Overlap fraction above which a second-best candidate is
+  rejected as a restatement of the best, \S\ref{sec:overlap-exclusion}. \\
+\code{-m} & metric & Containment & one of \{Containment, Jaccard, bucket\_SH, bucket\_LCS\} &
+  Selects the refinement scoring function, \S\ref{sec:metric-axis},
+  Chapter~\ref{ch:scoring}. \\
+\code{-z} & params (output prefix) & unset & --- & If set: (1) parameters are written to
+  \texttt{<prefix>} as TSV instead of a human-readable dump to stderr; (2) unmapped reads are
+  written to \texttt{<prefix>.unmapped.paf} (\S\ref{sec:unmapped-record}); (3) if \code{-v~2} is
+  also set, ground-truth rows are written to \texttt{<prefix>.paul.tsv}
+  (\S\ref{sec:ground-truth}). \\
+\code{-v} & verbose & 0 & $\{0,1,2\}$ & $0$: silent. $1$: reserved (no distinct behavior beyond
+  0 found). $2$: enables the ground-truth diagnostic path, \S\ref{sec:ground-truth} --- requires
+  reads whose FASTA headers are ground-truth-encoded; using \code{-v~2} on ordinary reads is a
+  usage error (the ground-truth parser will reject the header format; a from-scratch
+  implementation should surface this as a clear error rather than the reference's own
+  undefined/crashing behavior on malformed input in this mode). \\
+\code{-n} & normalize & false & --- & \textbf{Dead/inert}: same status as \code{-S} --- parsed,
+  printed, never read. \\
+\code{-P} & no\_bucket\_pruning & false & --- & Disables seed-heuristic pruning entirely,
+  \S\ref{sec:seed-heuristic-pass}. \\
+\code{-B} & one\_sweep & false & --- & In the reference source: parsed and templated but
+  \emph{never branched on anywhere in the mapper} --- fully dead despite having a descriptive
+  help string (``disregards seed heuristic and runs one sweep on all matches''). This document's
+  companion re-implementation gives it a concrete, best-effort meaning (consume every seed rather
+  than the budget-limited $S$, \S\ref{sec:seed-budget}) since it was asked to make all
+  configuration combinations real; see Chapter~\ref{ch:defects} for the full discussion and why
+  this is explicitly a judgment call rather than a recovered original behavior. \\
+\code{-F} & abs\_pos & false & --- & Selects nucleotide-position vs.\ sketch-index-position
+  coordinate space for bucket/window arithmetic throughout Chapters~\ref{ch:bucketing}--
+  \ref{ch:scoring}. \\
+\code{-a} & sam & false & --- & \textbf{Dead/inert}, and additionally the entire SAM/CIGAR output
+  code path this flag would have selected is itself fully commented out in the reference source
+  (it depends on an edit-distance library that is otherwise unused). A from-scratch
+  implementation targeting only the mapping functionality this document describes should not
+  implement this flag at all. \\
+\bottomrule
+\caption{Every shmap CLI parameter, its validation rule, and its actual (not merely documented)
+effect.}
+\end{longtable}
+
+\section{Parameters not exposed on the CLI but referenced throughout this document}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Symbol} & \textbf{Derived from} & \textbf{Defined in} \\
+\midrule
+$\theta_2$ & $\theta - \mathit{min\_diff}$ & \S\ref{sec:seed-budget}, \S\ref{sec:map-read} \\
+$S$ (seed budget) & $\theta_2$, read sketch size $m$ & \S\ref{sec:seed-budget} \\
+$\ell$ (bucket half-length) & read sketch size $m$ (or read length, if \code{abs\_pos}) &
+  \S\ref{sec:bucket-halflen} \\
+$\ell_{\min}$ & hardcoded constant, $5$ & \S\ref{sec:bucket-halflen} \\
+\bottomrule
+\end{tabularx}
+\end{center}

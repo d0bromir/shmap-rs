@@ -1,0 +1,200 @@
+\documentclass[11pt]{report}
+
+% ---------------------------------------------------------------------
+% Packages
+% ---------------------------------------------------------------------
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,shapes.geometric,calc}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{mdframed}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  citecolor=blue!50!black,
+  urlcolor=blue!50!black,
+  bookmarksopen=true,
+  pdftitle={shmap: Sketch-Based Long-Read Mapping --- Algorithm and Implementation Reference},
+  pdfauthor={Reverse-engineered technical reference}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\nouppercase{\leftmark}}
+\fancyhead[R]{\small shmap algorithm reference}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ---------------------------------------------------------------------
+% Code listing styles
+% ---------------------------------------------------------------------
+\definecolor{codebg}{RGB}{247,247,250}
+\definecolor{codeframe}{RGB}{200,200,210}
+\definecolor{kwcolor}{RGB}{0,90,170}
+\definecolor{strcolor}{RGB}{140,20,20}
+\definecolor{cmtcolor}{RGB}{100,110,100}
+\definecolor{numcolor}{RGB}{130,50,140}
+
+\lstdefinestyle{cppstyle}{
+  language=C++,
+  backgroundcolor=\color{codebg},
+  rulecolor=\color{codeframe},
+  frame=single,
+  framesep=4pt,
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{kwcolor}\bfseries,
+  stringstyle=\color{strcolor},
+  commentstyle=\color{cmtcolor}\itshape,
+  numberstyle=\tiny\color{numcolor},
+  numbers=left,
+  numbersep=6pt,
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  tabsize=2,
+  columns=fullflexible,
+  captionpos=b,
+}
+
+\lstdefinestyle{rststyle}{
+  backgroundcolor=\color{codebg},
+  rulecolor=\color{codeframe},
+  frame=single,
+  framesep=4pt,
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{kwcolor}\bfseries,
+  stringstyle=\color{strcolor},
+  commentstyle=\color{cmtcolor}\itshape,
+  numberstyle=\tiny\color{numcolor},
+  numbers=left,
+  numbersep=6pt,
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  tabsize=2,
+  columns=fullflexible,
+  captionpos=b,
+  morekeywords={impl,pub,fn,struct,enum,match,let,mut,self,Self,while,for,if,else,return,use,mod,const,trait,where,dyn,as},
+}
+
+\lstdefinestyle{pseudostyle}{
+  backgroundcolor=\color{white},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  columns=fullflexible,
+  keywordstyle=\bfseries,
+  morekeywords={function,procedure,return,if,then,else,end,for,in,while,do,break,continue,and,or,not},
+}
+
+% ---------------------------------------------------------------------
+% Pseudocode box (no algorithm2e/algorithmic package available)
+% ---------------------------------------------------------------------
+\newtcolorbox{algobox}[2][]{
+  breakable,
+  enhanced,
+  colback=gray!4,
+  colframe=gray!55!black,
+  boxrule=0.5pt,
+  arc=1.5pt,
+  left=6pt,right=6pt,top=4pt,bottom=4pt,
+  fonttitle=\bfseries\sffamily\small,
+  title={Algorithm: #2},
+  #1
+}
+
+\newtcolorbox{notebox}[1][]{
+  breakable, enhanced,
+  colback=blue!4, colframe=blue!40!black,
+  boxrule=0.4pt, arc=1.5pt,
+  left=6pt,right=6pt,top=3pt,bottom=3pt,
+  fonttitle=\bfseries\sffamily\small,
+  title={Implementation note},
+  #1
+}
+
+\newtcolorbox{bugbox}[1][]{
+  breakable, enhanced,
+  colback=red!4, colframe=red!45!black,
+  boxrule=0.4pt, arc=1.5pt,
+  left=6pt,right=6pt,top=3pt,bottom=3pt,
+  fonttitle=\bfseries\sffamily\small,
+  title={Known defect in the reference implementation},
+  #1
+}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\field}[1]{\texttt{\small #1}}
+
+% ---------------------------------------------------------------------
+\title{
+  \Huge\textbf{shmap}\\[0.3cm]
+  \Large Sketch-Based Long-Read Mapping\\
+  \large Algorithm and Implementation Reference\\[0.5cm]
+  \normalsize From FracMinHash Sketching to Bucketed Seed-and-Extend Mapping
+}
+\author{Technical reference compiled from source analysis and a full independent re-implementation}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent
+This document is a complete algorithmic and implementation reference for \textbf{shmap} (also
+known as \emph{Map-SHmap} / \emph{sweepmap}), a sketch-based long-read mapper. It is written to
+be sufficient, on its own, to re-implement the tool from scratch in any language: every data
+structure, every formula, every loop invariant, and every edge case is specified precisely, with
+excerpts from both the original C++ implementation and an independent Rust re-implementation
+produced during the analysis that underlies this document. The exercise of producing a
+line-for-line port surfaced several defects and dead code paths in the reference implementation;
+these are documented explicitly (in ``Known defect'' boxes) so that a from-scratch implementer can
+make an informed choice about whether to reproduce or correct them.
+
+The document begins with the theoretical background required to understand the algorithm
+(k-mers, canonical strands, minimizer-style sketching, FracMinHash / Mash-style sketching,
+Jaccard and containment similarity, seed-and-extend mapping, longest increasing subsequence
+chaining, and mapping-quality estimation), then describes the system architecture, then proceeds
+module-by-module through the full implementation, and closes with complexity analysis, a full
+end-to-end pseudocode listing, a CLI/parameter reference, and an appendix cataloguing every
+discovered defect.
+\end{abstract}
+
+\tableofcontents
+
+\input{sections/01_introduction}
+\input{sections/02_theory}
+\input{sections/03_architecture}
+\input{sections/04_data_types}
+\input{sections/05_sketching}
+\input{sections/06_indexing}
+\input{sections/07_seeding}
+\input{sections/08_bucketing}
+\input{sections/09_pruning}
+\input{sections/10_scoring}
+\input{sections/11_end_to_end}
+\input{sections/12_mapq}
+\input{sections/13_output}
+\input{sections/14_cli}
+\input{sections/15_complexity}
+\input{sections/16_defects}
+\input{sections/17_appendix}
+
+\end{document}

@@ -1,0 +1,196 @@
+\chapter{Seed-Heuristic Pruning}
+\label{ch:pruning}
+
+This chapter gives the exact implementation of the pruning bound whose theory was developed in
+\S\ref{sec:seed-heuristic-theory}. Three pieces compose: the bound formula itself (\code{hseed}),
+an incremental bucket-extension step (\code{matches\_in\_bucket}) that pulls in \emph{one more}
+seed's worth of information about a specific bucket on demand, and the driving loop
+(\code{seed\_heuristic\_pass}) that alternates ``check the bound'' and ``extend'' until the bucket
+is either proven prunable or fully caught up with all consumed seeds.
+
+\section{\code{hseed}: the bound formula}
+
+\[
+  h_{\mathrm{seed}}(m,\ \mathit{seeds},\ \mathit{matches}) = 1 - \frac{\mathit{seeds} -
+  \mathit{matches}}{m}
+\]
+with $m$ the read's sketch size, and $\mathit{seeds}/\mathit{matches}$ the bucket's own running
+counters (\S\ref{sec:type-bucketcontent}). See \S\ref{sec:seed-heuristic-theory} for the proof
+that this is a valid, monotonically-tightening upper bound on the bucket's final containment
+score.
+
+\section{\code{matches\_in\_bucket}: extending a bucket by one more seed}
+\label{sec:matches-in-bucket}
+
+\paragraph{Input.} The shared \code{Buckets} store (read-only here), a specific
+\code{BucketLoc}, that bucket's own (mutable) running \code{BucketContent}, and the next seed
+\code{s} to check against it.
+
+\paragraph{Output.} None; mutates the passed \code{BucketContent} in place: increments
+\code{.seeds} by \code{s.occs\_in\_p} unconditionally, and increments \code{.matches} (plus
+updates \code{.codirection}/\code{.r\_min}/\code{.r\_max}) by however many of \code{s}'s reference
+hits fall inside this bucket's span.
+
+\begin{algobox}{title={\code{matches\_in\_bucket}(buckets, loc, content, s)}}
+\begin{verbatim}
+content.seeds += s.occs_in_p
+if s.hits_in_t == 0:
+    return                                     # nothing to add
+if s.hits_in_t == 1:
+    hit := index.h2single[s.kmer.h]
+    pos := abs_pos ? hit.r : hit.tpos
+    if buckets.begin(loc) <= pos < buckets.end(loc):
+        content.matches += 1
+        content.codirection += (hit.strand == s.kmer.strand) ? 1 : -1
+        content.r_min := min(content.r_min, hit.r)
+        content.r_max := max(content.r_max, hit.r)
+else:  # s.hits_in_t > 1
+    hits := index.h2multi[s.kmer.h]             # sorted by (segm_id, r); see 6.3
+    start := binary_search first hit with (segm_id, pos) >= (loc.segm_id, buckets.begin(loc))
+    matches := 0
+    for hit in hits[start:]:
+        pos := abs_pos ? hit.r : hit.tpos
+        if not (hit.segm_id == loc.segm_id and pos < buckets.end(loc)):
+            break                                # sorted: no further hit can match either
+        matches += 1
+        content.codirection += (hit.strand == s.kmer.strand) ? 1 : -1
+        content.r_min := min(content.r_min, hit.r)
+        content.r_max := max(content.r_max, hit.r)
+    content.matches += min(matches, s.occs_in_p)  # same per-seed clamp as match_seeds (8.5)
+\end{verbatim}
+\end{algobox}
+
+The multi-hit branch's binary search + early-break scan is exactly why \code{h2multi} lists are
+kept sorted by \code{(segm\_id, r)} (\S\ref{sec:index-sort}): it lets this function cost
+$O(\log d + c)$ (binary search plus $c$ = actual hits found in range) rather than $O(d)$ (scanning
+every one of the seed's $d$ reference occurrences), which matters because this function may be
+called many times per bucket during incremental pruning.
+
+\section{\code{seed\_heuristic\_pass}: the driving loop}
+\label{sec:seed-heuristic-pass}
+
+\paragraph{Input.} The shared \code{Buckets}, the read's full seed list, the read's sketch size
+$m$, the bucket being evaluated (location + its running content, mutable), a mutable slot to
+report the bound value achieved, and the current acceptance threshold \code{thr} (the higher of
+the CLI's $\theta$ and the current best-known score, \S\ref{sec:match-rest}).
+
+\paragraph{Output.} Boolean: \code{true} if the bucket \emph{survives} pruning (its bound stays
+$\ge$ \code{thr} after being extended with every seed consumed so far), \code{false} the instant
+its bound drops below \code{thr}.
+
+\begin{algobox}{title={\code{seed\_heuristic\_pass}(buckets, seeds, m, loc, content, \&sh, thr)}}
+\begin{verbatim}
+if no_bucket_pruning:               # -P flag: pruning disabled entirely
+    return true
+
+loop:
+    sh := hseed(m, content.seeds, content.matches)
+    if sh < thr:
+        return false                              # proven prunable: stop immediately
+    if content.i >= len(seeds):
+        break                                      # caught up with every consumed seed: survives
+    matches_in_bucket(buckets, loc, content, seeds[content.i])
+    content.i += 1
+return true
+\end{verbatim}
+\end{algobox}
+
+\paragraph{Why check the bound \emph{before} each extension, not after.} Checking first means a
+bucket that is already unsalvageable (e.g.\ its very first few seeds were all misses) is rejected
+in $O(1)$ --- zero calls to \code{matches\_in\_bucket} --- rather than paying for at least one
+extension step before discovering the same conclusion. Because \code{hseed} only ever decreases
+or holds steady as \code{content.i} advances (\S\ref{sec:seed-heuristic-theory}), checking first
+never risks accepting a bucket the ``check after'' ordering would have rejected, or vice versa ---
+the two orderings are behaviorally equivalent except for this one-step efficiency difference.
+
+\paragraph{Why \code{content.i} can start anywhere.} Recall from
+\S\ref{sec:bucket-propagate} that every bucket's \code{.i}/\code{.seeds} counters are initialized,
+once, to the \emph{global} cursor value reached after \code{match\_seeds} finished consuming the
+full budget $S$. So the very first call to \code{seed\_heuristic\_pass} for a given bucket starts
+its incremental extension already caught up to $S$ (\code{content.i} $= S$'s position in the seed
+list already, assuming that bucket was touched at all during \code{match\_seeds}) --- extension
+only ever goes \emph{further}, past the seeds that were used to build the buckets in the first
+place, giving each surviving bucket a chance to be confirmed/rejected using \emph{more} evidence
+than the initial seeding pass alone provided, without redoing any of that initial work.
+
+\section{The \code{no\_bucket\_pruning} flag (\code{-P})}
+
+When set, \code{seed\_heuristic\_pass} degenerates to an unconditional \code{return true}: every
+bucket that survived \code{get\_sorted\_buckets} proceeds straight to full refinement
+(Chapter~\ref{ch:scoring}), with no early rejection at all. This is strictly slower and produces
+identical \emph{results} to the pruned path (pruning is provably conservative, per
+\S\ref{sec:seed-heuristic-theory} --- it can only ever discard buckets that could not have won
+anyway) — its purpose is as a ground-truth oracle for testing/benchmarking the pruning logic
+itself, and as a fallback if a from-scratch implementation's pruning bound is ever suspected of a
+bug: run both, and any discrepancy in the winning bucket indicates a pruning bug, not a scoring
+one.
+
+\section{Reference C++ implementation}
+
+\begin{lstlisting}[style=cppstyle,caption={\code{hseed}, \code{matches\_in\_bucket}, \code{seed\_heuristic\_pass}, \texttt{src/shmap.h}}]
+double hseed(qpos_t p, qpos_t seeds, qpos_t matches) {
+    return 1.0 - double(seeds - matches) / p;
+}
+
+void matches_in_bucket(const BucketsType &B, const BucketLoc &b, BucketContent *bucket, const Seed &s) const {
+    bucket->seeds += s.occs_in_p;
+    if (s.hits_in_T == 0) {
+        ;
+    } else if (s.hits_in_T == 1) {
+        const auto &hit = tidx.h2single.at(s.kmer.h);
+        if (abs_pos ? B.begin(b) <= hit.r    && hit.r    < B.end(b)
+                    : B.begin(b) <= hit.tpos && hit.tpos < B.end(b)) {
+            bucket->matches += 1;
+            bucket->codirection += hit.strand == s.kmer.strand ? 1 : -1;
+            bucket->r_min = min(bucket->r_min, hit.r);
+            bucket->r_max = max(bucket->r_max, hit.r);
+        }
+    } else if (s.hits_in_T > 1) {
+        const auto &hits = tidx.h2multi.at(s.kmer.h);
+        auto it = lower_bound(hits.begin(), hits.end(), B.begin(b), [&b](const Hit &hit, rpos_t pos) {
+            if (hit.segm_id != b.segm_id) return hit.segm_id < b.segm_id;
+            return abs_pos ? hit.r < pos : hit.tpos < pos;
+        });
+        rpos_t matches = 0;
+        for (; it != hits.end(); ++it) {
+            if (abs_pos) { if (!(it->segm_id == b.segm_id && it->r < B.end(b))) break; }
+            else         { if (!(it->segm_id == b.segm_id && it->tpos < B.end(b))) break; }
+            matches += 1;
+            bucket->codirection += it->strand == s.kmer.strand ? 1 : -1;
+            bucket->r_min = min(bucket->r_min, it->r);
+            bucket->r_max = max(bucket->r_max, it->r);
+        }
+        bucket->matches += min(matches, s.occs_in_p);
+    }
+}
+
+bool seed_heuristic_pass(const BucketsType &B, const Seeds &p_unique, qpos_t m, const BucketLoc &b,
+                          BucketContent *bucket, double *sh, double thr) {
+    if (!no_bucket_pruning) {
+        while (1) {
+            *sh = hseed(m, bucket->seeds, bucket->matches);
+            if (*sh < thr) return false;
+            if (bucket->i >= (qpos_t)p_unique.size()) break;
+            matches_in_bucket(B, b, bucket, p_unique[bucket->i]);
+            bucket->i++;
+        }
+    }
+    return true;
+}
+\end{lstlisting}
+
+\section{Worked example}
+
+Suppose $m=100$ (read sketch size), $\mathit{thr}=0.9$, and a candidate bucket's running counters
+after seeding are $\mathit{seeds}=40,\ \mathit{matches}=38$. Then $h_{\mathrm{seed}} = 1 -
+(40-38)/100 = 0.98 \ge 0.9$: survives, extend further. Suppose the next three consumed seeds (each
+\code{occs\_in\_p}$=1$) contribute $0, 1, 0$ matches to this bucket respectively:
+after seed 1, $\mathit{seeds}=41,\mathit{matches}=38 \Rightarrow h_{\mathrm{seed}}=0.97$; after
+seed 2, $\mathit{seeds}=42,\mathit{matches}=39 \Rightarrow h_{\mathrm{seed}}=0.97$; after seed 3,
+$\mathit{seeds}=43,\mathit{matches}=39 \Rightarrow h_{\mathrm{seed}}=0.96$ --- still above
+$0.9$, so this bucket keeps surviving each check. If instead six consecutive misses had occurred
+($\mathit{seeds}$ climbing to $46$, $\mathit{matches}$ frozen at $38$), $h_{\mathrm{seed}} = 1 -
+8/100 = 0.92$, still surviving; a seventh miss would give $1-9/100=0.91$, an eighth $0.90$ (still
+$\ge$, survives), a ninth $0.89 < 0.9$: \textbf{pruned} at that point, having spent only 9
+incremental extension calls to conclusively rule out a bucket that (if fully scored) might have
+needed to examine every remaining position in its span.

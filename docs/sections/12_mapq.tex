@@ -1,0 +1,127 @@
+\chapter{Mapping Quality Estimation}
+\label{ch:mapq}
+
+\section{Inputs}
+
+By the time MAPQ is computed, a read has: a best \code{Mapping} with score $f_1 \in [0,1]$ and
+signed same-strand-seed count $\sigma_1$; optionally a second-best \code{Mapping} with score
+$f_2 \le f_1$ (via \code{set\_second\_best}, below); and the run parameters $\theta_2$ (best-minus-
+min\_diff threshold, \S\ref{sec:map-read}) and $\mathit{min\_diff}$ (CLI \code{-d}).
+
+\section{\code{set\_second\_best}}
+
+\begin{algobox}{title={\code{Mapping::set\_second\_best}(m2)}}
+\begin{verbatim}
+self.bucket2        := m2.bucket
+self.intersection2  := m2.intersection
+self.score2         := m2.score()
+self.sigmas_diff    := sigmas_diff(self.intersection2, self.intersection)
+
+function sigmas_diff(X, Y):
+    X := (X == -1) ? 0 : X            # sentinel "no second best" reads as 0
+    Y := (Y == -1) ? 0 : Y
+    return abs(X - Y) / sqrt(X + Y)
+\end{verbatim}
+\end{algobox}
+
+\code{sigmas\_diff} is a diagnostic-only quantity (emitted as the \code{Isdiff:f:} PAF tag,
+\S\ref{ch:output}): treating the intersection counts as approximately Poisson-distributed, $|X-Y|
+/\sqrt{X+Y}$ is the familiar ``number of standard deviations apart'' statistic for a difference of
+two counts with variance $\approx$ their sum --- a quick, cheap significance proxy for how
+distinguishable the best and second-best candidates' match counts are. It does not feed into
+\code{calc\_mapq} itself.
+
+\section{\code{calc\_mapq}: the concrete formula}
+\label{sec:calc-mapq-formula}
+
+\begin{algobox}{title={\code{Mapping::calc\_mapq}($\theta_2$, min\_diff)}}
+\begin{verbatim}
+if score2 < theta2:
+    score2 := theta2                       # clamp: treat "no real 2nd best" as if it were theta2
+frac := 1 - score2 / score()
+# integer division on purpose -- see note below
+mapq_strand := (abs(same_strand_seeds) < intersection / 2) ? 5 : 60
+if frac > min_diff:
+    return min(60, mapq_strand)
+else:
+    return 0
+\end{verbatim}
+\end{algobox}
+
+\paragraph{Reading the formula.} Two independent signals are combined:
+\begin{enumerate}
+  \item \textbf{Score separation:} $\mathit{frac} = 1 - f_2/f_1$ (using the second-best score, or
+    $\theta_2$ if there was no real second-best candidate or it scored below $\theta_2$). Large
+    $\mathit{frac}$ means the best candidate is far ahead of any rival --- confident. The
+    threshold for ``confident enough'' is exactly \code{min\_diff} (CLI \code{-d}): the same
+    parameter that also sizes the seed budget (\S\ref{sec:seed-budget}) and the second-best
+    search's own acceptance threshold (\S\ref{sec:match-rest}) is reused here as the MAPQ
+    confidence cutoff too.
+  \item \textbf{Strand consistency:} \code{same\_strand\_seeds} is the best mapping's own signed
+    codirection tally (\S\ref{sec:type-match}); if fewer than half the matched $k$-mers agree with
+    the reported strand (i.e., the mapping's own internal evidence for its stated orientation is
+    weak), the achievable MAPQ is capped at $5$ rather than $60$, regardless of how good the score
+    separation is.
+\end{enumerate}
+If $\mathit{frac} > \mathit{min\_diff}$: report $\min(60, \mathit{mapq\_strand})$ --- i.e., either
+$60$ (confident, strand-consistent) or $5$ (confident on score alone, but strand-ambiguous). If
+$\mathit{frac} \le \mathit{min\_diff}$: report $0$ unconditionally (not confident) --- notice this
+is an \textbf{all-or-nothing} step function, not a smooth gradient between $0$ and $60$.
+
+\begin{notebox}
+The integer division \code{intersection / 2} in the strand-consistency check is exactly that ---
+integer, truncating division, since \code{intersection} is stored as a 32-bit integer type in the
+reference implementation. A from-scratch implementation that instead computes this comparison
+using floating-point division will disagree with the reference for odd-valued
+\code{intersection} counts (e.g.\ \code{intersection=5}: integer division gives $5/2=2$, so
+\code{same\_strand\_seeds}$\,=2$ evaluates as \emph{not} $<2$, hence \code{mapq\_strand}$=60$;
+floating-point division gives $2.5$, and $2 < 2.5$ evaluates true, hence \code{mapq\_strand}$=5$
+--- a different MAPQ result for the identical input). Preserve integer truncation here.
+\end{notebox}
+
+\section{Two commented-out alternative formulas}
+
+The reference source retains, directly above the live formula and clearly disabled (C++
+\code{//} comments), two alternative MAPQ schemes:
+
+\begin{enumerate}
+  \item A ratio-based scheme using $\mathit{frac} = (1-f_2)/(1-f_1)$ with three tiers (full
+    confidence above a threshold, zero below half that threshold, linear interpolation in
+    between) --- a smoothly graduated version of the same idea, closer in spirit to minimap2's own
+    published MAPQ formula ($40(1-f_2/f_1)\min(1,m/10)\log f_1$, referenced in a comment directly
+    above these alternatives).
+  \item A difference-based scheme using $\mathit{diff} = f_1 - f_2$ directly (rather than a ratio),
+    with the same three-tier linear-interpolation structure.
+\end{enumerate}
+Their presence, never deleted, alongside the currently-live all-or-nothing formula, is evidence
+of active, unfinished tuning rather than a settled design; a from-scratch implementation aiming
+purely to reproduce shmap's \emph{shipped} behavior should implement only the live formula given
+in \S\ref{sec:calc-mapq-formula} above, but an implementation aiming to \emph{improve} on it might
+reasonably start from these alternatives (or from minimap2's own published formula) instead ---
+this is flagged as a design choice, not a defect, since no test or shipped behavior depends on
+which of the three is used going forward.
+
+\section{Reference C++ implementation}
+
+\begin{lstlisting}[style=cppstyle,caption={\code{Mapping::calc\_mapq}, \texttt{src/sketch.h} (live formula; the two commented-out alternatives immediately precede it in the source and are omitted here)}]
+int calc_mapq(double theta2, double min_diff) {
+    if (score2() < theta2) set_score2(theta2);
+    double frac = 1.0 - score2()/score();
+    int mapq_strand = (abs(local_stats.same_strand_seeds) < local_stats.intersection/2) ? 5 : 60;
+    if (frac > min_diff) {
+        return std::min(60, mapq_strand);
+    } else {
+        return 0;
+    }
+}
+\end{lstlisting}
+
+\section{When is \code{calc\_mapq} actually invoked}
+
+Exactly once per \emph{mapped} read, from inside \code{Mapping::set\_global\_stats}
+(\S\ref{sec:map-read-output}), \emph{after} \code{set\_second\_best} has already been called if a
+second-best candidate exists (so that \code{score2()} reflects it) --- if no second-best was
+found at all, \code{score2()} remains at its default sentinel ($-1.0$), which the clamp
+\code{if (score2() < theta2) set\_score2(theta2)} converts into exactly $\theta_2$ before the
+ratio is computed, giving a well-defined, maximally-confident result for uniquely-mapping reads
+without any special-casing needed in the formula itself.

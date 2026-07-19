@@ -1,0 +1,284 @@
+\chapter{FracMinHash Sketching}
+\label{ch:sketching}
+
+This chapter specifies \code{FracMinHash::sketch}, the single most bit-sensitive routine in the
+whole system: every downstream index, seed, and score depends on hashes being computed exactly
+this way, since reference and read sketches must use an \emph{identical} hash function to be
+comparable at all.
+
+\section{Inputs and outputs}
+
+\begin{center}
+\begin{tabular}{@{}p{2.6cm}p{4.5cm}p{7cm}@{}}
+\toprule
+& \textbf{Type} & \textbf{Meaning} \\
+\midrule
+\textit{Input} \code{s} & raw ASCII nucleotide bytes (upper- or lower-case \code{A/C/G/T};
+  anything else, see \S\ref{sec:sketch-nonacgt}) & The sequence to sketch: one reference segment,
+  or one read. \\
+\textit{Config} \code{k} & positive integer & $k$-mer length (CLI \code{-k}, default 15). \\
+\textit{Config} \code{h\_frac} & $r \in (0,1]$ & Keep-fraction of the hash space (CLI \code{-r},
+  default 0.05). \\
+\textit{Output} & \code{Vec<Kmer>} & Every $k$-mer of \code{s} whose canonical hash clears the
+  threshold, in increasing position order, each tagged with its hash and winning strand
+  (\S\ref{sec:type-kmer}). Empty if $|s| < k$. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Lookup tables: per-nucleotide hash contributions}
+\label{sec:sketch-lut}
+
+The rolling hash is built from two 256-entry lookup tables, \code{LUT\_fw} and \code{LUT\_rc},
+indexed by raw ASCII byte value, giving each of the four nucleotides (in both upper and lower
+case) a fixed 64-bit contribution:
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+Base & \code{LUT\_fw} contribution (hex) & \code{LUT\_rc} contribution \\
+\midrule
+A/a & \code{0x3c8bfbb395c60474} & = \code{LUT\_fw['T']} \\
+C/c & \code{0x3193c18562a02b4c} & = \code{LUT\_fw['G']} \\
+G/g & \code{0x20323ed082572324} & = \code{LUT\_fw['C']} \\
+T/t & \code{0x295549f54be24456} & = \code{LUT\_fw['A']} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+That is, a base's reverse-complement contribution is defined as its \emph{complementary} base's
+forward contribution --- exactly encoding the biological complement rule (A$\leftrightarrow$T,
+C$\leftrightarrow$G) at the hash-contribution level, so that no explicit ``complement a
+character'' step is ever needed; complementation falls out of table lookup alone. All other byte
+values (N, ambiguity codes, whitespace, etc.) have \emph{no defined contribution} in the reference
+source.
+
+\begin{bugbox}
+The reference C++ declares \code{LUT\_fw}/\code{LUT\_rc} as plain fixed-size arrays and
+initializes only the 8 entries above; the remaining 248 entries are \textbf{uninitialized stack
+memory} at the time \code{sketch()} first reads them. For any input byte other than
+\texttt{ACGTacgt} (most commonly \texttt{N}), the hash computation silently incorporates garbage.
+This is undefined behavior, not merely ``an unspecified but fixed value'' --- the actual bits
+read depend on whatever happened to be on the stack. \textbf{Recommended fix for a from-scratch
+implementation:} zero-initialize both tables before filling in the 8 real entries, so that any
+non-ACGT byte deterministically contributes a hash of $0$. This changes no behavior for any
+ACGT-only input (which is the overwhelming majority of real sequence data) and removes the UB.
+\end{bugbox}
+
+\section{The position semantics of \code{Kmer.r}}
+\label{sec:sketch-r-semantics}
+
+Before giving the recurrence, it is worth nailing down precisely what value ends up in a produced
+\code{Kmer}'s \code{r} field, since it is easy to get this off by one and it is exercised by the
+reference test suite. For the ($0$-based) $i$-th $k$-mer of a sequence (spanning nucleotide
+positions $[i, i{+}k)$):
+\[
+  \texttt{Kmer.r} = i + k - 1
+\]
+i.e., \textbf{the index of the $k$-mer's last nucleotide}, not the exclusive upper bound of its
+span (despite a doc-comment in the reference source claiming the latter). This is verified by the
+reference test suite itself: for $k=4$ and a 5-character sequence, the two produced $k$-mers (at
+$i=0,1$) have \code{r} $=3,4$ respectively, matching $i+k-1$.
+
+\section{The rolling-hash recurrence}
+\label{sec:fracminhash-hash}
+
+Let $s$ be the input, $k$ the $k$-mer length, and define, for a byte $c$, $\mathrm{fw}(c) =
+\text{\code{LUT\_fw}}[c]$ and $\mathrm{rc}(c) = \text{\code{LUT\_rc}}[c]$. The threshold is
+\[
+  H_{\mathrm{thr}} = \begin{cases} \lfloor r \cdot (2^{64}-1) \rfloor & r < 1 \\ 2^{64}-1 & r = 1
+  \end{cases}
+\]
+computed once via a floating-point multiply-then-truncate (this is the one place floating-point
+rounding can matter at all --- for $r=1$ it is special-cased to the exact maximum, avoiding any
+rounding).
+
+\paragraph{Initialization (first window, $i=0$).} Seed $h_{fw}=h_{rc}=0$, then fold in each of the
+first $k$ bases with a position-dependent rotation:
+\[
+  h_{fw} \mathrel{\oplus}= \mathrm{rotl}\bigl(\mathrm{fw}(s[j]),\; k-j-1\bigr), \qquad
+  h_{rc} \mathrel{\oplus}= \mathrm{rotl}\bigl(\mathrm{rc}(s[j]),\; j\bigr)
+  \qquad\text{for } j = 0,\dots,k-1.
+\]
+(\(\mathrm{rotl}(x,n)\) / \(\mathrm{rotr}(x,n)\) denote 64-bit bitwise left/right rotation.) Note
+the two hashes rotate in \emph{opposite} directions and by \emph{mirrored} amounts ($k{-}j{-}1$
+vs.\ $j$) --- this is precisely what makes $h_{rc}$ equal to the forward hash of the
+reverse-complement string: reversing the string reverses which position gets which rotation
+amount, and complementing each base is handled already by using \code{LUT\_rc} instead of
+\code{LUT\_fw}.
+
+\paragraph{Emitting a $k$-mer.} At every window position (including the very first, before any
+roll), combine the two sides and test the threshold:
+\[
+  h = h_{fw} \oplus h_{rc}, \qquad \text{keep iff } h \le H_{\mathrm{thr}}.
+\]
+If kept, its strand bit is $\;\texttt{strand} = (h_{fw} > h_{rc})\;$ --- i.e., whichever side is
+numerically larger is deemed to have ``won'' and determines orientation. (This is an arbitrary
+but self-consistent convention: swap the comparison and every strand bit flips consistently, with
+no effect on any similarity computation, since those only ever compare two \code{Kmer}s'/\code{
+Hit}s' strand bits to each other, never to an absolute notion of ``forward''.)
+
+\paragraph{Rolling to the next window ($i \to i+1$, incoming base $s[i{+}k]$, outgoing base
+$s[i]$).}
+\[
+  h_{fw} \leftarrow \mathrm{rotl}(h_{fw}, 1) \;\oplus\; \mathrm{rotl}(\mathrm{fw}(s[i]), k)
+  \;\oplus\; \mathrm{fw}(s[i{+}k])
+\]
+\[
+  h_{rc} \leftarrow \mathrm{rotr}(h_{rc}, 1) \;\oplus\; \mathrm{rotr}(\mathrm{rc}(s[i]), 1)
+  \;\oplus\; \mathrm{rotl}(\mathrm{rc}(s[i{+}k]), k-1)
+\]
+Each update: (1) rotates the whole accumulated hash by one position in the direction that side
+rolls, (2) removes the outgoing base's contribution (itself rotated to the position it now needs
+to cancel from), (3) adds the incoming base's contribution at its new position. This is the
+standard structure of an XOR/rotate rolling hash: rotation distributes each base's contribution
+across all 64 bits over the $k$-window it participates in, and since $\mathrm{rotl}$/$\mathrm{rotr}$
+are self-inverse under repeated application by the same total, the outgoing base's contribution
+cancels \emph{exactly} (XOR with itself) once it has rolled all the way through.
+
+\begin{algobox}{title={\code{sketch}(s, k, h\_frac)}}
+\begin{verbatim}
+if len(s) < k: return []
+H_thr := (h_frac < 1) ? floor(h_frac * (2^64 - 1)) : 2^64 - 1
+h_fw, h_rc := 0, 0
+for j in 0..k-1:
+    h_fw ^= rotl(LUT_fw[s[j]], k-j-1)
+    h_rc ^= rotl(LUT_rc[s[j]], j)
+r := k - 1              # position of the k-mer's last base, 0-based
+result := []
+loop:
+    h := h_rc ^ h_fw
+    if h <= H_thr:
+        strand := (h_fw > h_rc)
+        result.append(Kmer{ r: r, h: h, strand: strand })
+    if r + 1 >= len(s): break
+    out_c, in_c := s[r + 1 - k], s[r + 1]
+    h_fw := rotl(h_fw, 1) ^ rotl(LUT_fw[out_c], k) ^ LUT_fw[in_c]
+    h_rc := rotr(h_rc, 1) ^ rotr(LUT_rc[out_c], 1) ^ rotl(LUT_rc[in_c], k-1)
+    r := r + 1
+return result
+\end{verbatim}
+\end{algobox}
+
+\begin{notebox}
+The loop above is written with the loop variable \code{r} directly holding the emitted
+\code{Kmer.r} value at every iteration (equivalent to, but clearer than, the reference source's
+own \code{for(r=0;...) ... push(Kmer(r-1,...))} formulation, which tracks ``one past'' internally
+and subtracts 1 only at emission time). Both are exactly equivalent; verify against
+\S\ref{sec:sketch-r-semantics} if re-deriving independently.
+\end{notebox}
+
+\section{Reference C++ implementation}
+
+\begin{lstlisting}[style=cppstyle,caption={\code{FracMinHash::sketch}, \texttt{src/sketch.h} (verbatim)}]
+const sketch_t sketch(const std::string& s) const {
+    sketch_t kmers;
+    kmers.reserve((rpos_t)(1.1 * (double)s.size() * hFrac));
+    if (rpos_t(s.size()) < k) return kmers;
+
+    hash_t h_fw = 0, h_rc = 0;
+    hash_t hThres = hFrac < 1.0
+        ? hash_t(hFrac * double(std::numeric_limits<hash_t>::max()))
+        : std::numeric_limits<hash_t>::max();
+    rpos_t r;
+
+    for (r=0; r<k; r++) {
+        h_fw ^= std::rotl(LUT_fw[ size_t(s[r]) ], k-r-1);
+        h_rc ^= std::rotl(LUT_rc[ size_t(s[r]) ], r);
+    }
+
+    while(true) {
+        auto h = h_rc ^ h_fw;
+        if (h <= hThres) {
+            const bool strand = h_fw > h_rc;
+            kmers.push_back(Kmer(r-1, h, strand));
+        }
+        if (r >= rpos_t(s.size())) break;
+        h_fw = std::rotl(h_fw, 1) ^ std::rotl(LUT_fw[ size_t(s[r-k]) ], k) ^ LUT_fw[ size_t(s[r]) ];
+        h_rc = std::rotr(h_rc, 1) ^ std::rotr(LUT_rc[ size_t(s[r-k]) ], 1)
+             ^ std::rotl(LUT_rc[ size_t(s[r]) ], k-1);
+        ++r;
+    }
+    return kmers;
+}
+\end{lstlisting}
+
+\section{Rust re-implementation}
+
+\begin{lstlisting}[style=rststyle,caption={\code{FracMinHash::sketch}, Rust port (\texttt{src/sketch.rs})}]
+pub fn sketch(&self, s: &[u8], counters: &mut Counters) -> SketchT {
+    let k = self.k;
+    let mut kmers: SketchT =
+        Vec::with_capacity((1.1 * s.len() as f64 * self.h_frac).max(0.0) as usize);
+    if (s.len() as RPos) < k { return kmers; }
+
+    let h_thres: Hash = if self.h_frac < 1.0 {
+        (self.h_frac * u64::MAX as f64) as u64
+    } else { u64::MAX };
+
+    let mut h_fw: Hash = 0;
+    let mut h_rc: Hash = 0;
+    let mut r: RPos = 0;
+    while r < k {
+        let c = s[r as usize] as usize;
+        h_fw ^= self.lut_fw[c].rotate_left((k - r - 1) as u32);
+        h_rc ^= self.lut_rc[c].rotate_left(r as u32);
+        r += 1;
+    }
+
+    loop {
+        let h = h_rc ^ h_fw;
+        if h <= h_thres {
+            let strand = h_fw > h_rc;
+            kmers.push(Kmer::new(r - 1, h, strand));
+        }
+        if r >= s.len() as RPos { break; }
+        let out_c = s[(r - k) as usize] as usize;
+        let in_c = s[r as usize] as usize;
+        h_fw = h_fw.rotate_left(1) ^ self.lut_fw[out_c].rotate_left(k as u32) ^ self.lut_fw[in_c];
+        h_rc = h_rc.rotate_right(1)
+            ^ self.lut_rc[out_c].rotate_right(1)
+            ^ self.lut_rc[in_c].rotate_left((k - 1) as u32);
+        r += 1;
+    }
+    kmers
+}
+\end{lstlisting}
+
+Note the Rust version zero-initializes both LUTs before filling the 8 real entries (the fix from
+the bug box above); everything else is a direct, bit-for-bit translation --- \code{rotate\_left}/
+\code{rotate\_right} on a \code{u64} are exactly \code{std::rotl}/\code{std::rotr} on
+\code{uint64\_t}, including the fact that both are defined for \emph{any} shift amount (taken mod
+64), so no extra bounds-masking is needed even though $k$ can exceed typical small shift-amount
+assumptions.
+
+\section{Non-ACGT input}
+\label{sec:sketch-nonacgt}
+
+Real sequencing data occasionally contains \texttt{N} (unknown base) or, rarely, IUPAC ambiguity
+codes. As established above, the reference implementation's behavior on these is undefined; the
+recommended, safe, deterministic choice --- adopted by the Rust port --- is that such a byte
+contributes a hash of exactly $0$ on both the forward and reverse-complement side. This is a
+reasonable default because it is simple, deterministic, and does not privilege any particular
+real base; a from-scratch implementation is free to choose a different deterministic convention
+(e.g.\ skip $k$-mers containing any non-ACGT byte entirely, which several other tools do) as long
+as it is applied \emph{identically} when sketching the reference and the reads, since any
+asymmetry there would silently break matching.
+
+\section{Complexity}
+
+Sketching a sequence of length $n$ takes $O(n)$ time (one $O(1)$-amortized rolling-hash step per
+position, after an $O(k)$ initialization) and produces, in expectation, $O(rn)$ output $k$-mers,
+using $O(rn)$ space for the output (input is streamed, not buffered beyond what the caller already
+holds).
+
+\section{Worked example}
+
+For $k=4$, $r=1.0$ (keep everything) and input \texttt{"ACGGT"} (length 5, so 2 $k$-mers), the two
+produced \code{Kmer}s have \code{r} $= 3, 4$ (matching $i+k-1$ for $i=0,1$). Feeding the
+reverse complement of the same underlying sequence, \texttt{"ACCGT"}, produces the \emph{same
+multiset of hashes} in reversed position order and with each \code{strand} bit flipped relative to
+the original --- this symmetry (verified as an automated test in both the C++ and Rust
+implementations) is the single most important sanity check to run against any from-scratch
+reimplementation before trusting it: sketch a string and its reverse complement, reverse one
+result, and confirm the hash sequences match exactly.

@@ -1,0 +1,165 @@
+\chapter{General Architecture}
+\label{ch:architecture}
+
+\section{Two phases: indexing and mapping}
+
+shmap's execution splits into two clearly separated phases, run once per invocation:
+
+\begin{enumerate}
+  \item \textbf{Indexing phase} (Chapter~\ref{ch:indexing}): read the reference FASTA once,
+    FracMinHash-sketch every segment, and build a hash map from $k$-mer hash to the list of
+    reference positions (\emph{hits}) sharing that hash. This is done once regardless of how many
+    reads are mapped afterward.
+  \item \textbf{Mapping phase} (Chapters~\ref{ch:seeding}--\ref{ch:scoring},
+    reassembled end-to-end in Chapter~\ref{ch:end-to-end}): stream the read FASTA/FASTQ one record
+    at a time; for each read, sketch it, seed it against the index, bucket the hits, prune buckets
+    with the seed heuristic, refine survivors, compute MAPQ from the best two survivors, and emit
+    one PAF line.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=7mm and 12mm,
+    every node/.style={font=\small},
+    box/.style={draw, rounded corners, fill=blue!6, minimum height=9mm, text width=32mm, align=center, thick},
+    dbox/.style={draw, rounded corners, fill=orange!10, minimum height=9mm, text width=32mm, align=center, thick},
+    io/.style={draw, dashed, fill=gray!5, minimum height=8mm, text width=28mm, align=center},
+    arr/.style={-{Stealth[length=2.2mm]}, thick}
+  ]
+  % Indexing phase (left column)
+  \node[io] (reffa) {Reference FASTA};
+  \node[box, below=of reffa] (sketchref) {FracMinHash sketch\\ each segment (\S\ref{ch:sketching})};
+  \node[box, below=of sketchref] (index) {Build \code{h2single}/\code{h2multi}\\ hash$\to$hits index (\S\ref{ch:indexing})};
+  \node[io, below=of index] (idx) {SketchIndex};
+
+  \draw[arr] (reffa) -- (sketchref);
+  \draw[arr] (sketchref) -- (index);
+  \draw[arr] (index) -- (idx);
+
+  % Mapping phase (right column), per read
+  \node[io, right=28mm of reffa] (readfa) {Read FASTA/FASTQ\\ (one record)};
+  \node[box, below=of readfa] (sketchread) {FracMinHash sketch\\ the read (\S\ref{ch:sketching})};
+  \node[box, below=of sketchread] (seed) {Group into seeds,\\ rarest-first (\S\ref{ch:seeding})};
+  \node[box, below=of seed] (bucket) {Match seeds into\\ overlapping buckets (\S\ref{ch:bucketing})};
+  \node[dbox, below=of bucket] (prune) {Seed-heuristic pruning\\ (\S\ref{ch:pruning})};
+  \node[box, below=of prune] (score) {Refine survivors:\\ Containment/Jaccard/\\bucket\_SH/bucket\_LCS (\S\ref{ch:scoring})};
+  \node[box, below=of score] (mapq) {Best + 2nd-best $\to$ MAPQ\\ (\S\ref{ch:mapq})};
+  \node[io, below=of mapq] (paf) {PAF line (\S\ref{ch:output})};
+
+  \draw[arr] (readfa) -- (sketchread);
+  \draw[arr] (sketchread) -- (seed);
+  \draw[arr] (seed) -- (bucket);
+  \draw[arr] (bucket) -- (prune);
+  \draw[arr] (prune) -- (score);
+  \draw[arr] (score) -- (mapq);
+  \draw[arr] (mapq) -- (paf);
+
+  \draw[arr] (idx.east) to[out=0,in=180] (bucket.west);
+  \node at ($(idx)!0.5!(bucket)+(0,0)$) {};
+
+  \node[draw, dotted, fit=(reffa)(idx), inner sep=3mm, label={[font=\bfseries\small]above:Indexing phase (once)}] (fitL) {};
+  \node[draw, dotted, fit=(readfa)(paf), inner sep=3mm, label={[font=\bfseries\small]above:Mapping phase (per read)}] (fitR) {};
+\end{tikzpicture}
+\caption{shmap's two-phase pipeline. The indexing phase runs once; the mapping phase repeats for
+every read in the query file, consulting the already-built index.}
+\label{fig:pipeline}
+\end{figure}
+
+\section{Configuration axes: the three compile-time flags}
+\label{sec:config-axes}
+
+The reference C++ implementation parameterizes its core mapper class as a template,
+\code{SHMapper<no\_bucket\_pruning, one\_sweep, abs\_pos>}, over three independent booleans. In
+the original source these are \emph{compile-time} template parameters (so that the compiler can
+specialize/inline branch-free code for whichever combination is selected at build time), but they
+are semantically just three independent feature toggles, exposed at the CLI as \code{-P}, \code{-B},
+\code{-F} respectively:
+
+\begin{center}
+\begin{tabular}{@{}lp{9.5cm}@{}}
+\toprule
+\textbf{Flag / parameter} & \textbf{Effect} \\
+\midrule
+\code{no\_bucket\_pruning} (\code{-P}) &
+  When true, \emph{disables} the seed-heuristic pruning of \S\ref{sec:seed-heuristic-theory}
+  entirely: every candidate bucket is fully scored. Correct but much slower; useful as a
+  ground-truth oracle to verify pruning never discards a bucket it shouldn't. \\
+\code{one\_sweep} (\code{-B}) &
+  Intended (per its own \texttt{-B} help text, ``disregards seed heuristic and runs one sweep on
+  all matches'') to skip the incremental per-bucket seed budget entirely and consider every seed
+  at once. \emph{Chapter~\ref{ch:defects} documents that in the reference source this flag is
+  fully dead: parsed, templated, and printed, but never once branched on inside the mapper.} \\
+\code{abs\_pos} (\code{-F}) &
+  Selects the coordinate space used for bucket indexing and window-size comparisons: \emph{sketch
+  index} (position within the array of sketch $k$-mers, i.e. ``the $i$-th kept $k$-mer'') when
+  false (default), or \emph{absolute nucleotide position} when true. This changes bucket boundary
+  arithmetic throughout Chapters~\ref{ch:bucketing}--\ref{ch:scoring} (every place that reads
+  \emph{``in sketch-index units, or nucleotide units if \code{abs\_pos}''}). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{notebox}
+A from-scratch implementation does not need compile-time specialization to get shmap's
+performance characteristics: these three booleans can equally well be ordinary runtime
+parameters threaded through the mapping functions (this is exactly what the accompanying Rust
+re-implementation does, using const generics only to keep the option of zero-cost specialization
+available, not because runtime dispatch is fundamentally required). What \emph{is} essential to
+preserve is that each one is read consistently by \emph{every} function that needs it --- the
+original source's own bug catalogue (Chapter~\ref{ch:defects}) includes at least one flag that
+looks load-bearing but silently isn't.
+\end{notebox}
+
+\section{The metric axis}
+\label{sec:metric-axis}
+
+Orthogonal to the three structural flags above, a fourth, purely-scoring-level axis selects
+\emph{how} a surviving bucket's similarity score is computed (CLI flag \code{-m}, four values):
+\code{Containment}, \code{Jaccard}, \code{bucket\_SH}, \code{bucket\_LCS}. These map directly onto
+the theory of \S\ref{sec:fracminhash-theory} (containment/Jaccard) and \S\ref{sec:lis-theory}
+(LCS); \code{bucket\_SH} is a degenerate/cheap option that reuses the seed-heuristic bound itself
+as the final score (no refinement sweep at all). Full formulas are in
+\S\ref{sec:metric-variants}.
+
+\section{Data-flow summary: what crosses each module boundary}
+
+\begin{center}
+\begin{tabular}{@{}p{3.1cm}p{4.6cm}p{6cm}@{}}
+\toprule
+\textbf{Stage} & \textbf{Input} & \textbf{Output} \\
+\midrule
+Sketch reference & raw nucleotide bytes per segment & \code{Vec<Kmer>} per segment (position,
+  hash, strand) \\
+Build index & all segments' \code{Vec<Kmer>} & \code{hash} $\to$ \code{Hit} (unique) or
+  \code{hash} $\to$ \code{Vec<Hit>} (repeated), each \code{Hit} carrying segment id + position \\
+Sketch read & raw nucleotide bytes of the read & \code{Vec<Kmer>} \\
+Seed & \code{Vec<Kmer>} of the read & \code{Vec<Seed>}: one entry per distinct hash, with
+  occurrence count in the read and reference hit count, sorted rarest-reference-hit-first \\
+Bucket / match seeds & \code{Vec<Seed>} (budget-limited prefix) + index & per-\code{(segment,
+  bucket)} running \code{BucketContent} (seed count, match count, codirection, position range) \\
+Prune & sorted buckets (most-matches-first) + remaining unconsumed seeds & surviving buckets only
+  (most are discarded using $O(1)$ arithmetic per extension step) \\
+Refine & one surviving bucket + the read's seed table & one \code{Mapping} (score, matched
+  interval, strand, intersection count) \\
+Best/second-best & every refined \code{Mapping} & the two highest, non-overlapping,
+  \code{Mapping}s \\
+MAPQ & best two scores + same-strand-seed counts & integer MAPQ in $\{0,5,60\}$ (shmap's concrete
+  range; see Chapter~\ref{ch:mapq}) \\
+Output & final \code{Mapping} (+ globally accumulated counters) & one PAF text line with custom
+  tags \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Complexity at a glance}
+
+Let $n = |T|$ (total reference length), $m$ = a read's sketch size ($\approx r\cdot|P|$), and $S
+\le m$ the seed budget actually consumed for that read (\S\ref{sec:seed-budget}). Indexing is
+$O(n)$ time (one rolling-hash pass) and $O(rn)$ space (the kept fraction of $k$-mers). Per read:
+seeding/sorting is $O(m\log m)$; seed matching against the index is $O(S \cdot \bar d)$ where
+$\bar d$ is the average number of reference hits per consumed seed (bounded above by \code{-M},
+the max-matches-per-kmer cap, \S\ref{sec:max-matches}); bucket pruning is, in the typical case
+where most buckets are eliminated in $O(1)$ extensions, sublinear in the number of buckets touched;
+and refinement of each surviving bucket costs $O(|\text{bucket}|)$ (a single linear sweep). Full
+derivations are in Chapter~\ref{ch:complexity}.

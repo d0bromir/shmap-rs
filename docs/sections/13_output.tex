@@ -1,0 +1,206 @@
+\chapter{Output Format}
+\label{ch:output}
+
+shmap emits one line per \emph{mapped} read to standard output, in an extended PAF format:
+12 mandatory tab-separated PAF columns, followed by a long tail of \code{name:type:value}
+optional tags in the SAM-style convention (\code{type} one of \code{i} integer, \code{f} float,
+\code{s} string). Unmapped reads are written, one per line, to a separate \code{.unmapped.paf}
+file (only created at all if an output prefix was configured, CLI \code{-z}).
+
+\section{The 12 mandatory PAF columns}
+
+\begin{center}
+\begin{tabular}{@{}cllp{6.6cm}@{}}
+\toprule
+\# & Column & Source field & Meaning \\
+\midrule
+1 & query name & \code{query\_id} & Read id (FASTA header, truncated at first whitespace). \\
+2 & query length & \code{p\_sz} & Read length in nucleotides. \\
+3 & query start & \code{p\_start} & Always $0$ (shmap does not clip/trim the query side). \\
+4 & query end & \code{p\_end} & Always \code{p\_sz}$-1$ under the current implementation --- see
+  the note below; effectively always the full read length. \\
+5 & strand & \code{strand} & \code{+} if the mapping's \code{same\_strand\_seeds} tally is
+  positive, \code{-} otherwise. \\
+6 & target name & \code{segm\_name} & Reference segment name (FASTA header). \\
+7 & target length & \code{segm\_sz} & Reference segment length in nucleotides. \\
+8 & target start & \code{t\_l} & Leftmost matched reference nucleotide position. \\
+9 & target end & \code{t\_r} & Rightmost matched reference nucleotide position. \\
+10 & \# matches & \code{p\_sz} (!) & See defect note below --- this column is supposed to be the
+  actual residue-match count but instead always repeats the query-length column. \\
+11 & block length & \code{p\_sz} (!) & Same defect: supposed to be the alignment block length,
+  instead repeats query length. \\
+12 & mapping quality & \code{mapq} & Chapter~\ref{ch:mapq}'s output, $\{0,5,60\}$ (or $255$ for
+  ``not yet computed'', never actually observed in emitted output). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{bugbox}
+Columns 10 and 11 (``number of residue matches'' and ``alignment block length'' in the PAF
+specification) are, in the reference source, both hardcoded to repeat column 2 (query length)
+rather than reporting the mapper's own computed intersection/span --- marked with a
+\code{// TODO: fix} comment in the source itself. A from-scratch implementation aiming for a
+\emph{spec-conformant} PAF file (e.g.\ for compatibility with downstream tools that read these
+columns meaningfully, such as coverage calculators) should populate column 10 with the mapping's
+\code{intersection} count and column 11 with its matched span (\code{t\_r - t\_l + 1}); one aiming
+purely to reproduce shmap's own shipped output byte-for-byte should keep the repeated-query-length
+placeholder.
+\end{bugbox}
+
+\section{Custom diagnostic tags (mapped reads)}
+
+Appended, in this exact order, after the 12 mandatory columns. All tags below are always present
+on every mapped-read output line (none are conditional).
+
+\subsection{Per-candidate tags (\code{LocalMappingStats})}
+
+\begin{center}
+\begin{tabular}{@{}llp{8.6cm}@{}}
+\toprule
+Tag & Type & Meaning \\
+\midrule
+\code{p:i:} & int & Sketch size ($m$) considered for this read. \\
+\code{s:i:} & int & Matched reference span (nucleotides or sketch-index units, per
+  \code{abs\_pos}). \\
+\code{I:i:} & int & Best mapping's intersection (matched $k$-mer) count. \\
+\code{I2:i:} & int & Second-best mapping's intersection count ($-1$ sentinel if none). \\
+\code{Idiff:i:} & int & \code{I} $-$ \code{I2} (note: if \code{I2} is the $-1$ sentinel, this is
+  \code{I}$-(-1)=$\code{I}$+1$, \emph{not} \code{I}, since the raw sentinel value --- not the
+  ``treat as 0'' convention used by \code{sigmas\_diff}, \S\ref{ch:mapq} --- is used directly
+  here). \\
+\code{Isdiff:f:} & float & \code{sigmas\_diff(I2, I)} (\S\ref{ch:mapq}; here the $-1\to0$
+  convention \emph{does} apply, since it's computed by that function). \\
+\code{J:f:} & float & Best mapping's score (whichever metric was selected, CLI \code{-m}). \\
+\code{J2:f:} & float & Second-best score ($-1$ sentinel if none, \emph{not} clamped to $\theta_2$
+  here --- that clamping is a side effect specific to \code{calc\_mapq}'s own internal
+  computation, and by the time \code{calc\_mapq} runs it has already mutated \code{J2} in place,
+  so in practice this tag \emph{does} show the clamped value whenever a MAPQ was computed with no
+  real second-best; only relevant if reimplementing without that in-place mutation). \\
+\code{Jdiff:f:} & float & \code{J} $-$ \code{J2}. \\
+\code{sh:f:} & float & The seed-heuristic value ($h_{\mathrm{seed}}$, \S
+  \ref{sec:seed-heuristic-theory}) at the moment this bucket was accepted. \\
+\code{strand:i:} & int & \code{same\_strand\_seeds} signed tally (\S\ref{sec:type-match}). \\
+\code{t:f:} & float & Wall-clock seconds spent mapping this read (never reproducible run-to-run;
+  exclude when diffing output against a golden/reference file). \\
+\code{b:s:} & string & Best mapping's bucket location, formatted \code{(segm\_id,b)}. \\
+\code{b2:s:} & string & Second-best's bucket location, or the sentinel \code{(-1,-1)}
+  (\S\ref{sec:type-bucketloc}) if none. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Run-wide/per-read summary tags (\code{GlobalMappingStats})}
+
+\begin{center}
+\begin{tabular}{@{}llp{8.6cm}@{}}
+\toprule
+Tag & Type & Meaning \\
+\midrule
+\code{k:i:} & int & $k$-mer length used (CLI \code{-k}). \\
+\code{gt\_J:f:}, \code{gt\_C:f:}, \code{gt\_C\_bucket:f:} & float & Ground-truth
+  Jaccard/containment fields --- \textbf{always} $-1.0$; declared and printed but never actually
+  computed anywhere in the reference source (the real ground-truth comparison output is the
+  entirely separate \code{-v~2} tag block, \S\ref{sec:ground-truth}, not these three). Kept as
+  permanent $-1.0$ placeholders for output-format fidelity. \\
+\code{seeds:i:} & int & Seed budget $S$ actually used for this read (\S\ref{sec:seed-budget}). \\
+\code{max\_seed\_matches:i:} & int & Largest \code{hits\_in\_t} among any seed consumed this read.
+\\
+\code{seed\_matches:i:} & int & Total reference hits examined while matching seeds this read. \\
+\code{total\_matches:i:} & int & Same as \code{seed\_matches:i:} at present (both are incremented
+  together in \code{match\_seeds}; kept as two separately-named counters for forward
+  compatibility with a scheme that might one day count additional non-seed matches separately). \\
+\code{match\_inefficiency:f:} & float & \code{total\_matches / intersection} --- how many
+  candidate-match examinations were needed per $k$-mer that actually ended up in the reported
+  mapping; a rough proxy for how much the seed heuristic saved (lower is better; the reference
+  tool's own runtime warning system, \S\ref{sec:runtime-warnings}, flags a run where this ratio
+  implies the heuristic isn't earning its keep). \\
+\code{seeded\_buckets:i:} & int & Distinct buckets touched by \code{match\_seeds} this read. \\
+\code{final\_buckets:i:} & int & Buckets that survived pruning \emph{and} beat the running
+  threshold at least once during \code{match\_rest} (counted across \emph{both} the best- and
+  second-best search passes). \\
+\code{FPTP:f:} & float & Always $-1.0$ --- a false-discovery-rate calculation that exists in the
+  source as a fully commented-out, never-invoked function (\code{calc\_FDR}); kept as a permanent
+  placeholder for the same reason as \code{gt\_J}/\code{gt\_C} above. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Ground-truth diagnostic tags (\code{-v 2} only)}
+\label{sec:ground-truth}
+
+When run with \code{-v~2} against \emph{simulated} reads whose FASTA header encodes the true
+origin (format: \emph{anything}\code{!}\emph{segment\_name}\code{!}\emph{start}\code{!}
+\emph{end}\code{!}\emph{strand}, e.g.\ \texttt{S1\_21!NC\_060948.1!57693539!57715501!+} --- exactly
+5 \code{!}-separated fields), an additional block of tags is appended, and (if an output prefix
+was configured) a parallel, more detailed TSV file (\code{<prefix>.paul.tsv}) is written, one row
+per read, both mapped and unmapped.
+
+\begin{center}
+\begin{tabular}{@{}llp{8.4cm}@{}}
+\toprule
+Tag & Type & Meaning \\
+\midrule
+\code{gt\_segm:s:} & string & True segment name (parsed from the read name). \\
+\code{gt\_start\_nucl:i:}, \code{gt\_end\_nucl:i:} & int & True start/end nucleotide positions
+  (parsed from the read name). \\
+\code{bucket\_l:i:} & int & This read's bucket half-length $\ell$. \\
+\code{gt\_b\_l:s:}, \code{gt\_b\_r:s:}, \code{gt\_b\_next:s:} & string & The three buckets
+  straddling the true position: one half-length before, at, and one half-length after
+  $\lfloor \mathit{start}/\ell\rfloor$. \\
+\code{gt\_M\_l:i:}, \code{gt\_M\_r:i:}, \code{gt\_M\_next:i:} & int & Number of (seed, hit) matches
+  collected in each of those three buckets. \\
+\code{gt\_J\_l:f:}, \code{gt\_J\_r:f:}, \code{gt\_J\_next:f:} & float & Best included-Jaccard
+  score (\S\ref{sec:matcher-best-fixed-length}) achievable in each of those buckets, restricted to
+  windows near the true span's length. \\
+\code{gt\_C\_l:f:}, \code{gt\_C\_r:f:}, \code{gt\_C\_next:f:} & float & Best containment score in
+  each, using the (dead-parameter, see Chapter~\ref{ch:defects}) ground-truth
+  \code{bestFixedLength}. \\
+\code{gt\_C\_l\_lmax:f:} & float & Numerically identical to \code{gt\_C\_l:f:} --- both call sites
+  pass different values for a parameter the callee never reads (Chapter~\ref{ch:defects}). \\
+\code{gt\_C\_r\_lmax:f:} & float & \textbf{Always} $-1.0$: declared, printed, but never assigned
+  in the constructor at all (a distinct defect from the \code{gt\_C\_l\_lmax} redundancy above ---
+  this one is a genuinely missing assignment, not a no-op parameter). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The parallel \code{.paul.tsv} file additionally reports, per read: the count of buckets whose
+included-Jaccard / containment score clears $\theta$ at all (\code{\#J>theta}, \code{\#C>theta}),
+a bracketed listing of exactly which buckets those are with their individual scores
+(\code{J>theta}, \code{C>theta}), the maximum score seen across all buckets
+(\code{maxJ}, \code{maxC}), and the read's own raw sequence (\code{P}, the final column) --- this
+file is intended for offline analysis of pruning/scoring quality against known-correct answers,
+not for routine use.
+
+\section{Unmapped-read record}
+\label{sec:unmapped-record}
+
+Per the fix recorded in Chapter~\ref{ch:defects}/\ref{ch:end-to-end}, an unmapped read is written
+as a minimal, well-defined 12-column PAF-shaped line (broadly following the samtools/minimap2
+convention for ``no alignment''):
+\[
+  \texttt{query\_id}\ \ \texttt{read\_len}\ \ 0\ \ 0\ \ \texttt{*}\ \ \texttt{*}\ \ 0\ \ 0\ \ 0\ \
+  0\ \ 0\ \ 0
+\]
+i.e., query name and length populated, strand and target name as \code{*} (unknown), every other
+numeric field zero. No diagnostic tags are appended for unmapped reads (there is no candidate
+mapping to describe). This record is only ever written to the \code{.unmapped.paf} file
+described above, which itself is only created when an output prefix (CLI \code{-z}) is given.
+
+\section{Run-wide summary printed to stderr}
+\label{sec:runtime-warnings}
+
+At the end of a run, three human-readable reports are printed to standard error (never standard
+output, so they never interleave with PAF data): (1) per-read averages/percentages for
+kmer/match/bucket counts, mirroring the \code{GlobalMappingStats} tag definitions above but
+aggregated across the whole run; (2) a timing breakdown (seconds and percentage-of-total spent in
+each pipeline stage, plus a ``range ratio'' = slowest read / fastest read for that stage, useful
+for spotting pathological reads); and (3) a short list of heuristic warnings (highlighted in
+color) triggered when: fewer than 95\% of reads mapped; \code{match\_inefficiency} implies the
+seed heuristic isn't paying for itself (average possible-matches-to-total-matches ratio below
+10$\times$); more reads got \code{mapq=60} than \code{mapq=0} is \emph{violated} (i.e.\ a warning
+fires when low-confidence mappings outnumber high-confidence ones); or any single pipeline stage
+(seed matching, refinement, or specifically the second-best search within refinement) consumes
+an outsized share of total runtime. These are operational/performance diagnostics, not part of
+the mapping algorithm proper, and are safe to omit or reshape freely in a from-scratch
+implementation.

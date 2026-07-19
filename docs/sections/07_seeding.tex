@@ -1,0 +1,165 @@
+\chapter{Seeding}
+\label{ch:seeding}
+
+Seeding turns a read's raw sketch (a flat list of $k$-mers, with repeats) into an ordered list of
+\emph{seeds} --- one entry per distinct hash --- ready to be consumed budget-first against the
+index. This chapter covers \code{unique\_elements\_with\_info} (grouping) and the derivation of
+the seed budget $S$ used by the caller.
+
+\section{Grouping: \code{unique\_elements\_with\_info}}
+\label{sec:seeding-grouping}
+
+\paragraph{Input.} \code{p}: the read's sketch, \code{Vec<Kmer>} (Chapter~\ref{ch:sketching}),
+mutable (it is sorted in place). \emph{Implicit input:} the reference index, queried once per
+distinct hash.
+
+\paragraph{Output.} \code{Vec<Seed>} (\S\ref{sec:type-seed}), one per distinct hash value present
+in \code{p}, \textbf{sorted ascending by \code{hits\_in\_t}} (rarest-in-reference first). Also
+has the side effect of updating the \code{kmers\_notmatched} diagnostic counter
+(\S\ref{sec:defect-notmatched} documents a bug in how the reference computes this specific
+counter --- it does not affect any other output).
+
+\begin{algobox}{title={\code{unique\_elements\_with\_info}(p)}}
+\begin{verbatim}
+# Step 1: group equal hashes together, and within a group, order by
+# *decreasing* read position (this ordering becomes each seed's pmatches
+# list, which the bucket_LCS metric consumes directly, see 10.4).
+sort p by (h ascending, r descending)
+
+# Step 2: walk the sorted list, closing out a group whenever the hash changes.
+p_unique := []
+strike := 0                 # occurrences seen in the current group so far
+matches := []                # positions seen in the current group so far
+for pos in 0 .. len(p)-1:
+    strike += 1
+    matches.append(p[pos].r)
+    if pos == len(p)-1 or p[pos].h != p[pos+1].h:
+        hits_in_t := index.count(p[pos].h)                # Section 6.4
+        p_unique.append(Seed{
+            kmer: p[pos], hits_in_t: hits_in_t,
+            occs_in_p: strike, seed_num: len(p_unique),
+            pmatches: copy(matches),
+        })
+        strike := 0
+        matches := []
+
+# Step 3: seeds are consumed rarest-reference-hit-first.
+sort p_unique by hits_in_t ascending
+return p_unique
+\end{verbatim}
+\end{algobox}
+
+\paragraph{Why sort by \code{hits\_in\_t} ascending.} A $k$-mer that occurs rarely in the
+reference is far more discriminative than a common one: matching it narrows the candidate set of
+buckets dramatically, whereas matching a $k$-mer with thousands of reference occurrences adds
+thousands of (mostly irrelevant) candidate hits for very little narrowing benefit. Consuming
+seeds rarest-first under a fixed budget $S$ (\S\ref{sec:seed-budget}) maximizes the discriminative
+value extracted from that budget.
+
+\paragraph{Why sort the group by decreasing position.} \code{Seed.pmatches} ends up populated in
+the same order the group was scanned, i.e.\ decreasing read position --- this specific order is
+required by \code{lcs\_get\_lis} (\S\ref{sec:lcs-implementation}), which needs \code{pmatches} in
+a defined order to reconstruct multiplicities correctly across repeated seeds when computing a
+longest increasing subsequence.
+
+\subsection{Reference C++ implementation}
+
+\begin{lstlisting}[style=cppstyle,caption={\code{unique\_elements\_with\_info}, \texttt{src/shmap.h}}]
+Seeds unique_elements_with_info(sketch_t& p) {
+    sort(p.begin(), p.end(), [](const Kmer &a, const Kmer &b) {
+        if (a.h != b.h) return a.h < b.h;
+        return a.r > b.r;                 // reverse order of inclusion; needed for LCS
+    });
+
+    Seeds p_unique;
+    qpos_t strike = 0;
+    vector<qpos_t> matches;
+    for (size_t ppos = 0; ppos < p.size(); ++ppos) {
+        ++strike;
+        matches.push_back(p[ppos].r);
+        if (ppos == p.size()-1 || p[ppos].h != p[ppos+1].h) {
+            rpos_t hits_in_t = tidx.count(p[ppos].h);
+            p_unique.emplace_back(p[ppos], hits_in_t, strike, p_unique.size(), matches);
+            strike = 0;
+            matches.clear();
+        }
+    }
+
+    sort(p_unique.begin(), p_unique.end(), [](const Seed &a, const Seed &b) {
+        return a.hits_in_T < b.hits_in_T;
+    });
+    return p_unique;
+}
+\end{lstlisting}
+
+\begin{bugbox}
+\label{sec:defect-notmatched}
+The reference C++ additionally maintains a \code{nonzero} counter meant to track how many
+\emph{read positions} (counting multiplicity) belong to seeds that do have at least one reference
+hit, so that the diagnostic \code{kmers\_notmatched} stat can report ``sketch size minus
+matched positions''. The increment is written as \code{if (hits\_in\_t > 0) nonzero += strike;}
+placed \emph{after} \code{strike} has already been reset to $0$ for the next group two lines
+above it --- so it always adds $0$, and \code{kmers\_notmatched} always reports the entire sketch
+size regardless of how many $k$-mers actually matched. This affects \emph{only} a cosmetic,
+end-of-run diagnostic percentage; it has no effect on any mapping decision, score, or PAF field.
+A from-scratch implementation should compute the increment \emph{before} resetting \code{strike}
+(or reorder the two statements), which is the obviously-intended behavior.
+\end{bugbox}
+
+\section{The seed budget $S$}
+\label{sec:seed-budget}
+
+Not every seed is necessarily consumed --- seeding stops once a budget $S$ of seed
+\emph{occurrences} (not distinct seeds; a repeated $k$-mer with \code{occs\_in\_p}$=3$ counts as
+$3$ against the budget when consumed, all at once, \S\ref{sec:match-seeds}) has been spent. $S$ is
+derived once per read from the acceptance threshold $\theta$ (CLI \code{-t}) and the
+minimum-score-gap parameter (CLI \code{-d}, used here as a safety margin, not in its other role
+computing the second-best threshold in Chapter~\ref{ch:end-to-end}):
+\[
+  \theta_2 = \theta - \mathit{min\_diff}, \qquad
+  S = \left\lfloor (1-\theta_2)\cdot m \right\rfloor + 1
+\]
+where $m$ is the read's full sketch size. \textbf{Interpretation:} $S$ is exactly the smallest
+seed-occurrence budget for which it is still \emph{possible}, in principle, for a bucket to reach
+score $\theta_2$ even if literally every consumed seed occurrence that has a reference hit at all
+ends up matching the same bucket: the seed-heuristic bound (\S\ref{sec:seed-heuristic-theory})
+for a bucket that has consumed all $S$ seed occurrences and matched every one of them is exactly
+$h_{\mathrm{seed}} = 1 - 0/m$, and the bound only starts to allow room for \emph{misses} once more
+than $(1-\theta_2)m$ occurrences have been consumed --- so $S$ is the minimum budget that gives the
+pruning bound any chance of staying above $\theta_2$ for a maximally-good bucket, with $+1$
+guaranteeing at least one seed is always consumed even when $\theta_2 \to 1$.
+
+\begin{notebox}
+This is a heuristic sizing choice, not a hard correctness requirement in either direction: seeds
+\emph{beyond} $S$ might still have found valuable matches (this is a real, accepted
+recall/speed trade-off, and is exactly the knob CLI flag \code{-t} tunes indirectly through
+$\theta_2$); a from-scratch implementation experimenting with alternative sizing should keep in
+mind that $S$ only bounds how many seed \emph{occurrences} are matched against the index at all
+--- it does not, by itself, bound the pruning behavior described in Chapter~\ref{ch:pruning},
+which operates independently per bucket using whatever prefix of seeds \emph{has} been consumed
+so far.
+\end{notebox}
+
+\section{\code{more\_seeds\_if\_cheap}: opportunistic budget extension (dead code)}
+
+\begin{algobox}{title={\code{more\_seeds\_if\_cheap}(S, seeds)}}
+\begin{verbatim}
+original_S := S
+while S < len(seeds) and seeds[S].hits_in_t <= 1:
+    S += 1
+return S
+\end{verbatim}
+\end{algobox}
+
+This extends the budget past $S$ for free whenever the next seed(s) are (almost) unique in the
+reference (\code{hits\_in\_t} $\le 1$): such seeds are essentially free to consume (at most one
+reference hit to check) and maximally discriminative, so there's no real cost/benefit trade-off in
+including them.
+
+\begin{bugbox}
+This function is fully implemented and unit-testable, but its only call site in the reference C++
+\code{map\_read} is commented out (\code{//S = more\_seeds\_if\_cheap(S, p\_unique);}) --- it is
+never actually invoked by the shipped tool. A from-scratch implementation may freely choose to
+wire it in (it is a strict improvement in recall at negligible extra cost) or leave it unused to
+match the reference binary's actual observed behavior exactly.
+\end{bugbox}

@@ -1,0 +1,97 @@
+\chapter{Complexity Analysis}
+\label{ch:complexity}
+
+Notation: $n$ = total reference length (nucleotides); $r$ = FracMinHash keep-fraction (\code{-r});
+$|P|$ = one read's length; $m = |\hat P| \approx r|P|$ = its sketch size; $S\le m$ = seed budget
+actually consumed (\S\ref{sec:seed-budget}); $d$ = a consumed seed's reference-hit count (capped
+by \code{-M} when set, \S\ref{sec:max-matches}); $u$ = number of distinct buckets touched by one
+read; $N$ = number of reads.
+
+\section{Indexing (once per run)}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Step} & \textbf{Time} & \textbf{Space} \\
+\midrule
+Sketch every segment (Ch.\ 5) & $O(n)$ & $O(rn)$ (the kept $k$-mers) \\
+Populate \code{h2single}/\code{h2multi} (Ch.\ 6) & $O(rn)$ amortized & $O(rn)$ \\
+Sort each multi-hit list (Ch.\ 6) & $O\!\left(\sum_h d_h \log d_h\right) \le O(rn \log d_{\max})$
+  & in place \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Total: $O(n + rn\log d_{\max})$ time, $O(rn)$ space, independent of the number of reads that will
+subsequently be mapped.
+
+\section{Per read}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Step} & \textbf{Time} & \textbf{Notes} \\
+\midrule
+Sketch the read (Ch.\ 5) & $O(|P|)$ & \\
+Group into seeds (Ch.\ 7) & $O(m\log m)$ & two sorts of size $m$ \\
+Match seeds into buckets (Ch.\ 8) & $O(S\cdot \bar d)$ & $\bar d$ = avg.\ hit count of a consumed
+  seed, $\le$ \code{-M} cap \\
+Sort/dedup touched buckets (Ch.\ 8) & $O(u\log u)$ & $u\ll n/\ell$ in practice \\
+Seed-heuristic pruning (Ch.\ 9) & $O(u)$ amortized, typically $O(1)$ per pruned bucket & see
+  discussion below \\
+Refine surviving buckets (Ch.\ 10) & $O(\ell)$ per surviving bucket & $\ell$ = bucket half-length
+  $\approx m$ \\
+MAPQ (Ch.\ 12) & $O(1)$ & \\
+Emit PAF line (Ch.\ 13) & $O(1)$ & \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\paragraph{Why pruning is (empirically) sublinear in the number of candidate buckets.} The
+seed-heuristic bound (\S\ref{sec:seed-heuristic-theory}) only needs a bucket's running
+\code{(seeds, matches)} counters, and tightens monotonically as more seeds are examined. In the
+common case where a repetitive genome generates many candidate buckets but only one (or a
+handful) is the true origin, every wrong bucket accumulates ``known misses'' quickly (most
+consumed seeds simply do not have a reference hit inside a wrong bucket's span), so its bound
+drops below $\theta$ after only a small, effectively $O(1)$-in-practice number of extension steps
+--- this is an empirical/probabilistic claim (it depends on the genome's repeat structure and
+$\theta$), not a worst-case guarantee: an adversarial input (e.g.\ a reference consisting almost
+entirely of one repeated motif) can force every bucket to survive many extension rounds before
+being resolved, degrading toward the $O(u \cdot m)$ worst case of exhaustively extending every
+bucket with every seed.
+
+\paragraph{Total per-read cost.} Combining the above, and noting $u$ is typically small relative
+to $n/\ell$ (only a minority of possible bucket positions are ever touched by any real read's
+seeds), a read's total mapping cost is, in the typical case, dominated by $O(m\log m)$ (seeding)
+plus $O(\ell)$ (refining the eventual winner and perhaps a few near-misses) --- i.e.\
+\textbf{roughly independent of total reference size $n$} once the index is built, which is
+exactly the scaling property that makes sketch-based mapping practical at genome scale. Over $N$
+reads: $O\bigl(n + rn\log d_{\max} + N(m\log m + \ell)\bigr)$ total.
+
+\section{Memory}
+
+Peak memory is dominated by the index: $O(rn)$ for the stored per-segment sketches
+(\code{RefSegment.kmers}) plus $O(rn)$ for the hash maps (\code{h2single}/\code{h2multi}, one
+entry per kept $k$-mer occurrence, with \code{h2multi} paying a small constant-factor overhead
+per entry for its vector-of-hits indirection). Per-read working memory (seed table,
+\code{diff\_hist}, touched-bucket list) is $O(m + u)$ and is released (or reused, in the
+reference/port's actual implementation, which clears rather than reallocates,
+\S\ref{sec:buckets-clear}) between reads, so it does not accumulate across a run.
+
+\section{Practical scaling knobs}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Parameter} & \textbf{Increasing it\ldots} & \textbf{\ldots trades against} \\
+\midrule
+\code{-r} (keep fraction) & more sensitivity (finds weaker true matches) & linearly more index
+  memory, more seeds per read, more refinement work per bucket \\
+\code{-k} ($k$-mer length) & fewer spurious matches (larger alphabet space per $k$-mer) & more
+  reads/regions missed entirely if error rate $\times k$ approaches 1 \\
+\code{-t} (threshold $\theta$) & fewer accepted mappings, smaller seed budget $S$ & lower recall
+  in genuinely divergent regions \\
+\code{-M} (max\_matches cap) & fewer index entries scanned per common $k$-mer & silently drops
+  legitimate signal from extremely repetitive true loci once capped \\
+\bottomrule
+\end{tabularx}
+\end{center}

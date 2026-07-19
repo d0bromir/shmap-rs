@@ -1,0 +1,334 @@
+\chapter{Refinement and Scoring}
+\label{ch:scoring}
+
+Buckets that survive pruning (Chapter~\ref{ch:pruning}) are handed to \emph{refinement}: compute
+an exact similarity score, and the precise matched sub-interval, for the bucket. This chapter
+covers all four scoring metrics (\S\ref{sec:metric-axis}), the two-pointer sliding-window sweep
+that underlies \code{Containment}/\code{Jaccard} scoring, the LCS-based alternative, and
+\code{match\_rest}, the procedure that ties refinement into a best/second-best search over all of
+a read's surviving buckets.
+
+\section{The \code{diff\_hist} bookkeeping device}
+\label{sec:scoring-sliding-window}
+
+Every sliding-window sweep in this chapter maintains a shared per-read map \code{diff\_hist}:
+\code{hash} $\to$ \code{remaining budget}, initialized once per read from each seed's
+\code{occs\_in\_p} (how many times that $k$-mer occurs in the read). As the sweep's right (or
+left) boundary crosses a reference position whose $k$-mer hash is a read seed, the corresponding
+budget entry is decremented (window grows) or incremented (window shrinks) by exactly one, and
+the \emph{sign} of the result after a decrement determines whether that occurrence is
+countable as part of the intersection:
+\begin{itemize}[nosep]
+  \item Decrementing (window grows, position enters): if the value \emph{after} decrementing is
+    still $\ge 0$, this occurrence is a legitimate, not-yet-used match --- count it, and record
+    that it was counted (so the corresponding increment, when the window later shrinks past it,
+    knows to un-count it).
+  \item Incrementing (window shrinks, position leaves): if the value \emph{after} incrementing is
+    $\ge 1$, this position had previously been counted --- un-count it.
+\end{itemize}
+This lets a sliding window maintain an exact intersection-with-multiplicity count in $O(1)$
+amortized per boundary move, correctly handling repeated $k$-mers (a hash occurring 3 times in
+the read can be ``used up'' by at most 3 reference positions inside the current window, no
+matter how many more copies of that hash the reference bucket actually contains) --- this is the
+\emph{multiset} intersection a containment/Jaccard estimate needs (\S\ref{sec:fracminhash-theory}),
+not a plain set intersection.
+
+\begin{notebox}
+Because a window can shrink and regrow over the same reference position multiple times as the
+sweep's left boundary advances, \code{diff\_hist} values legitimately go negative
+\emph{transiently} (a decrement can push a shared hash's budget below what's currently
+``available'' if multiple reference positions inside the window share that hash but the read only
+has fewer occurrences) --- this is expected and exactly what the $\ge 0$ / $\ge 1$ sign checks are
+designed to handle correctly; do not add an assertion that rejects negative values.
+\end{notebox}
+
+\section{\code{SHMapper}'s own \code{bestFixedLength}: the main refinement sweep}
+\label{sec:best-fixed-length}
+
+This is the function that actually refines \code{Containment}/\code{Jaccard} buckets in the main
+mapping path (there is a second, differently-shaped function with the same name used only by the
+ground-truth diagnostic path, \S\ref{sec:matcher-best-fixed-length} --- keep them distinct).
+
+\paragraph{Input.} The reference segment (its full sketch), a window \code{[from, to)} to sweep
+(the bucket's own span, from \code{buckets.begin}/\code{end}), the read's seed lookup table
+(hash $\to$ \code{Seed}), \code{diff\_hist} (mutable, shared across the whole read's refinement
+calls), the read length minus $k$ (used as the PAF end-coordinate, not a window bound), the window
+\emph{width} bound $m$ (confusingly, at the call site this is actually the read's containing
+$\ell$/\code{lmax} value, not the sketch size --- see the note below), and the metric
+(\code{Containment} or \code{Jaccard}).
+
+\paragraph{Output.} A \code{Mapping} (\S\ref{sec:type-mapping}): the best-scoring sub-window
+found anywhere inside \code{[from, to)}.
+
+\begin{algobox}{title={\code{bestFixedLength}(segm, from, to, seed\_table, diff\_hist, p\_sz, m, metric)}}
+\begin{verbatim}
+t := segm.kmers
+l := max(from, 0)
+r := l
+end := min(len(t), to)
+best := Mapping::default()          # score = -1, beaten by any real candidate
+
+while l < end:
+    while r < end:
+        # window-width check, in whichever coordinate space abs_pos selects
+        if abs_pos:  if not (t[r].r < t[l].r + m): break
+        else:        if not (r < l + m):           break
+        if t[r].h in seed_table:
+            same_strand += codirection(seed_table[t[r].h].kmer, t[r])
+            if (--diff_hist[t[r].h]) >= 0:
+                intersection += 1
+        r += 1
+    # r is now exactly one past the last position included in this window
+    # for the CURRENT l -- this is the point at which it is safe to score,
+    # since r has already been advanced past every included element.
+    s_kmers := r - l
+    score := mappingScore(intersection, m, s_kmers, metric)       # 10.2 below
+    if l < r and score > best.score():
+        best.update(p_start=0, p_end=p_sz-1, t_l=t[l].r, t_r=t[r-1].r,
+                    segm=segm, intersection=intersection, score=score,
+                    same_strand=same_strand, span=t[r-1].r - t[l].r + 1)
+    if t[l].h in seed_table:
+        same_strand -= codirection(seed_table[t[l].h].kmer, t[l])
+        if (++diff_hist[t[l].h]) >= 1:
+            intersection -= 1
+    l += 1
+return best
+\end{verbatim}
+\end{algobox}
+
+\paragraph{\code{mappingScore}:}
+\[
+  \mathrm{mappingScore}(\mathit{intersection}, m, s\_sz, \mathtt{Jaccard}) =
+    \frac{\mathit{intersection}}{m + s\_sz - \mathit{intersection}}, \qquad
+  \mathrm{mappingScore}(\mathit{intersection}, m, s\_sz, \mathtt{Containment}) =
+    \frac{\mathit{intersection}}{m}.
+\]
+These are exactly the FracMinHash Jaccard/containment estimators of
+\S\ref{sec:fracminhash-theory}, with $m$ the read's sketch size and $s\_sz$ the current window's
+$k$-mer count.
+
+\begin{notebox}
+\label{sec:m-vs-psz-confusion}
+At the actual call site (\S\ref{sec:find-best-mapping}), this function's \code{p\_sz} parameter
+receives \emph{read length minus $k$}, and its \code{m} parameter receives $\mathit{lmax}$ (the
+bucket half-length $\ell$), \emph{not} the read's sketch size in either case, despite parameter
+names that suggest otherwise at a casual read. This is not a bug --- $\ell$ was chosen
+(\S\ref{sec:bucket-halflen}) to equal the read's sketch size in the default (non-\code{abs\_pos})
+configuration, so the values coincide numerically for the common case, but a from-scratch
+implementation should pass the value that is actually semantically the ``window-width bound and
+Jaccard/containment denominator'' at this call site, not necessarily whatever local variable
+happens to be named \code{m} in a hasty transcription. Name the parameter for what it does,
+not what one caller happens to pass.
+\end{notebox}
+
+\paragraph{Why scoring happens \emph{after} the inner \code{while} loop exits, not inside it.}
+This is the single most important structural detail in this function, and the source of a real
+bug in the ground-truth-only sibling function discussed in \S\ref{sec:matcher-best-fixed-length}:
+after the inner loop's normal exit, \code{r} is \emph{exactly one past} the last position that
+was ever included in the window for the current \code{l} (standard half-open-range convention:
+the loop only stops once its own condition fails, having already processed and advanced past
+every element that satisfied it). So \code{t[r-1]} unambiguously means ``the last element
+actually in the window'', consistent with what \code{intersection} counts. Any refinement sweep
+that instead scores \emph{mid-loop} (before the equivalent exit has happened) must use the
+\emph{current}, not-yet-advanced index for both the score's span \emph{and} its use of
+\code{intersection}, or the two will disagree --- see \S\ref{sec:matcher-best-fixed-length} for a
+concrete case where the reference implementation gets exactly this wrong.
+
+\section{\code{findBestMapping}: dispatching on metric}
+\label{sec:find-best-mapping}
+
+\begin{algobox}{title={\code{findBestMapping}(buckets, loc, content, seed\_table, diff\_hist, p\_sz, m, lmax, sh, metric, k)}}
+\begin{verbatim}
+switch metric:
+  case bucket_SH:
+    # Degenerate/cheap: reuse the seed-heuristic bound itself as the score,
+    # with the bucket's own tracked position range as the matched interval.
+    # No refinement sweep at all -- O(1) given the bucket's content.
+    best := Mapping(p_start=0, p_end=p_sz-1, t_l=content.r_min, t_r=content.r_max,
+                    segm=ref_segment(loc.segm_id), intersection=content.matches,
+                    score=sh, same_strand=content.codirection,
+                    span=content.r_max - content.r_min)
+
+  case bucket_LCS:
+    lcs_len := lcs(ref_segment(loc.segm_id).kmers, buckets, loc, seed_table)   # 10.4
+    score := lcs_len / m
+    best := Mapping(p_start=0, p_end=p_sz-1, t_l=content.r_min, t_r=content.r_max,
+                    segm=ref_segment(loc.segm_id), intersection=content.matches,
+                    score=score, same_strand=content.codirection,
+                    span=content.r_max - content.r_min)
+
+  case Containment or Jaccard:
+    best := bestFixedLength(ref_segment(loc.segm_id), buckets.begin(loc), buckets.end(loc),
+                             seed_table, diff_hist, p_sz - k, lmax, metric)
+
+best.set_bucket(loc)
+best.set_sh(sh)
+return best
+\end{verbatim}
+\end{algobox}
+
+\section{The \code{bucket\_LCS} metric: longest common subsequence chain score}
+\label{sec:lcs-implementation}
+
+\paragraph{Motivation.} Containment/Jaccard scoring treats every matched $k$-mer equally,
+regardless of whether the matches are mutually \emph{co-linear} (consistent with one real
+alignment) or scattered (an artifact of repeats). \code{bucket\_LCS} instead scores a bucket by
+how long a co-linear chain of matches it contains, per \S\ref{sec:lis-theory}.
+
+\subsection{\code{lcs\_get\_ppos\_in\_t}: collecting the position sequence}
+
+\begin{algobox}{title={\code{lcs\_get\_ppos\_in\_t}(t, buckets, loc, seed\_table)}}
+\begin{verbatim}
+ppos_in_t := []
+for l in buckets.begin(loc) .. min(len(t), buckets.end(loc)) - 1:
+    if t[l].h in seed_table:
+        for ppos in seed_table[t[l].h].pmatches:      # Section 4.4: all read positions sharing this hash
+            ppos_in_t.append(ppos)
+return ppos_in_t
+\end{verbatim}
+\end{algobox}
+
+This produces, in increasing reference-position order, the sequence of read-side positions that
+each reference $k$-mer inside the bucket matches (with repetition, if a hash occurs multiple times
+in the read). A long increasing run in this sequence is a long co-linear chain.
+
+\subsection{\code{lcs\_get\_lis}: patience-sorting LIS length}
+\label{sec:lcs-lis}
+
+Exactly the classic $O(n\log n)$ algorithm of \S\ref{sec:lis-theory}:
+
+\begin{algobox}{title={\code{lcs\_get\_lis}(ppos\_in\_t)}}
+\begin{verbatim}
+tails := []                       # tails[i] = smallest tail of an increasing run of length i+1
+for x in ppos_in_t:
+    lo, hi := -1, len(tails)
+    while lo + 1 < hi:
+        mid := (lo + hi) / 2
+        if tails[mid] < x: lo := mid
+        else:              hi := mid
+    if hi == len(tails): tails.append(x)
+    else:                 tails[hi] := x
+return tails                       # len(tails) is the LIS length
+\end{verbatim}
+\end{algobox}
+
+\subsection{\code{lcs}: combining forward and reverse}
+
+\begin{algobox}{title={\code{lcs}(t, buckets, loc, seed\_table)}}
+\begin{verbatim}
+ppos_in_t := lcs_get_ppos_in_t(t, buckets, loc, seed_table)
+forward_len := len(lcs_get_lis(ppos_in_t))
+reverse(ppos_in_t)
+reverse_len := len(lcs_get_lis(ppos_in_t))
+return max(forward_len, reverse_len)
+\end{verbatim}
+\end{algobox}
+
+Running LIS on the \emph{reversed} position sequence finds the longest \emph{decreasing} run of
+the original --- i.e., the longest chain co-linear on the opposite strand. Taking the max of both
+directions makes this metric strand-agnostic without needing to know the winning strand ahead of
+time.
+
+\section{\code{match\_rest}: best and second-best search}
+\label{sec:match-rest}
+
+\paragraph{Input.} All of a read's sorted, surviving buckets; the read's seed list, seed table,
+and \code{diff\_hist}; an acceptance threshold \code{thr}; an optional ``forbidden'' \code{Mapping}
+(when searching for the second-best, this is the best mapping already found, so that a
+near-duplicate of it is excluded, \S\ref{sec:overlap-exclusion}); and \code{max\_overlap} (CLI
+\code{-o}).
+
+\paragraph{Output.} The single best \code{Mapping} across all surviving buckets that both beats
+\code{thr} and (if \code{forbidden} is given) does not overlap it by more than
+\code{max\_overlap}; or none, if no bucket qualifies.
+
+\begin{algobox}{title={\code{match\_rest}(p\_sz, m, lmax, seeds, buckets, sorted\_buckets, diff\_hist, seed\_table, thr, forbidden, max\_overlap, metric, k)}}
+\begin{verbatim}
+best := None
+for (loc, content) in sorted_buckets:              # most-matches-first, Section 8.6
+    sh := 1.0
+    if seed_heuristic_pass(buckets, seeds, m, loc, content, &sh, thr):   # Chapter 9
+        candidate := findBestMapping(buckets, loc, content, seed_table, diff_hist,
+                                      p_sz, m, lmax, sh, metric, k)
+        if candidate.score() > thr:
+            if forbidden is None or overlap(candidate, forbidden) < max_overlap:
+                thr := candidate.score()            # raise the bar for subsequent buckets
+                best := candidate
+return best
+\end{verbatim}
+\end{algobox}
+
+\subsection{Overlap exclusion}
+\label{sec:overlap-exclusion}
+
+\[
+  \mathrm{overlap}(a, b) = \begin{cases} -0.0 & \text{different segments} \\
+  \dfrac{\max(0,\ \min(a.t_r,b.t_r) - \max(a.t_l,b.t_l))}{\max(a.t_r,b.t_r) - \min(a.t_l,b.t_l)}
+  & \text{same segment} \end{cases}
+\]
+i.e., intersection-over-union of the two candidates' matched reference intervals, restricted to
+same-segment pairs. A second-best candidate search rejects any bucket whose refined interval
+overlaps the already-found best by $\ge \mathit{max\_overlap}$ --- without this, the ``second
+best'' would routinely just be a slightly-shifted restatement of the exact same true alignment
+(since neighboring, heavily-overlapping buckets, per \S\ref{sec:bucket-geometry}, often all score
+similarly well against the same true locus), which would make MAPQ (Chapter~\ref{ch:mapq})
+uselessly report low confidence for essentially every uniquely-mapping read.
+
+\subsection{How the caller invokes \code{match\_rest} twice}
+
+The per-read driver (fully assembled in Chapter~\ref{ch:end-to-end}) calls \code{match\_rest}
+exactly twice: once with \code{thr}$=\theta$ (the CLI acceptance threshold) and
+\code{forbidden}$=$\code{None} to find the best mapping; then, only if a best mapping was found,
+a second time with \code{thr} $= \mathit{best.score()} \times (1 - \mathit{min\_diff})$ and
+\code{forbidden}$=$\code{best} to find the second-best. Both calls sweep the \emph{same} sorted
+bucket list and share the \emph{same} \code{diff\_hist} (which is why every refinement sweep is
+required to leave \code{diff\_hist} in exactly the state it found it, \S
+\ref{sec:scoring-sliding-window} --- the second call depends on that invariant holding after the
+first).
+
+\section{The ground-truth-only sibling functions, and a genuine bug}
+\label{sec:matcher-best-fixed-length}
+
+A second, narrower set of functions (grouped under a type usually called \code{Matcher}) exists
+solely to support the \emph{verbose ground-truth diagnostic} output (\S\ref{sec:ground-truth},
+used only with \code{-v~2}, never in the main scoring path above). It re-implements
+\code{collect\_matches} (turn a bucket into an explicit list of \code{Match}es, rather than
+sweeping the reference sketch directly), a \code{bestFixedLength} that sweeps that explicit list
+using \code{hit.r <= l.hit.r + p\_sz} as its window bound (notably \emph{not} respecting an
+\code{lmax} parameter it is nonetheless passed --- see the dead-parameter note in
+Chapter~\ref{ch:defects}), and a \code{bestIncludedJaccard} that finds the best-scoring window
+whose length falls within an explicit $[\ell_{\min}, \ell_{\max}]$ range (used to check, precisely,
+what score the ground-truth region itself would have achieved).
+
+\begin{bugbox}
+\label{sec:defect-prevr}
+\code{bestIncludedJaccard}'s two-pointer sweep scores \emph{mid-loop}, immediately after growing
+the window's right boundary by one, using the position \emph{one before} the just-processed
+element (an iterator idiom equivalent to \code{prev(r)}) for both the matched span and the
+reported right boundary --- while \code{intersection} at that exact point \emph{already} reflects
+the just-processed (current, not ``previous'') element. This is an internal inconsistency: the
+score's span excludes an element that the match count includes, which can and does produce
+\code{intersection > span}, violating the metric's own well-formedness invariant
+($\mathit{intersection} \le s\_sz$ must hold for a containment/Jaccard ratio to stay in $[0,1]$).
+The original source itself carries a \texttt{// TODO: should it be prev(r) instead?} comment on
+this exact line, i.e.\ the original author flagged this specific spot as unsettled. Confirmed by
+constructing a small worked example (a $\sim$50bp read against a $\sim$200bp synthetic reference)
+that reliably triggers the invariant violation. Because this path has \emph{zero} automated test
+coverage in the reference codebase and only ever affects a diagnostic tag (never the main PAF
+output), there is no existing oracle to defer to; the internally consistent fix --- score using
+the \emph{current}, just-processed right-boundary element throughout, matching what
+\code{intersection} already counts, exactly as \S\ref{sec:best-fixed-length}'s ``score after the
+loop exits'' pattern already does correctly --- is the recommended behavior for a from-scratch
+implementation of this diagnostic feature. See Chapter~\ref{ch:defects} for the full write-up.
+\end{bugbox}
+
+\section{Complexity}
+
+Each refinement sweep (\code{bestFixedLength} or \code{lcs}) costs $O(|\mathrm{bucket}|)$: one
+linear pass over the bucket's span of the reference sketch, with $O(1)$ amortized work per
+position via the \code{diff\_hist} device (\S\ref{sec:scoring-sliding-window}) or, for LCS,
+$O(|\mathrm{bucket}|\log|\mathrm{bucket}|)$ owing to the patience-sorting binary search. Summed
+over all buckets that survive pruning (Chapter~\ref{ch:pruning}), and since pruning is designed
+to make that survivor count small and roughly independent of total reference size, total
+refinement cost per read is, in practice, far closer to $O(\ell)$ (one bucket's worth of work)
+than to $O(n)$ (the whole reference).

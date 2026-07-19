@@ -1,0 +1,79 @@
+\chapter{Introduction}
+
+\section{The long-read mapping problem}
+
+Given a \emph{reference} sequence (or a set of reference segments, e.g.\ chromosomes/contigs)
+$T = T_1, \dots, T_s$ over the alphabet $\Sigma = \{A, C, G, T\}$, and a \emph{query} read $P$
+(typically $1$--$100+$\,kbp for long-read sequencing technologies such as PacBio HiFi or Oxford
+Nanopore), the mapping problem is: find the location(s) $(i, [l, r))$ --- segment index $i$ and
+half-open interval $[l, r) \subseteq [0, |T_i|)$ --- such that $T_i[l..r)$ is the region of the
+reference that $P$ most likely originated from, together with a confidence score (mapping
+quality, MAPQ).
+
+This differs from \emph{alignment}: mapping only needs to find the correct region and strand, not
+compute a base-level edit script (CIGAR). Mapping is the first, and usually the computational
+bottleneck, phase of most long-read tools (minimap2, Winnowmap, MashMap, mapquik, and shmap all
+separate mapping from an optional downstream alignment phase).
+
+The naive solution --- align $P$ against every possible substring of $T$ with a full dynamic
+program (edit distance / Smith--Waterman) --- costs $O(|T|\cdot|P|)$ per read and is many orders
+of magnitude too slow for genome-scale references ($|T| \sim 10^9$--$10^{10}$) and
+population-scale read sets ($10^5$--$10^7$ reads). All practical long-read mappers instead use a
+\textbf{seed-and-extend} (or \emph{seed-chain-extend}) strategy: cheaply find a small number of
+short, exact-matching anchors (\emph{seeds}) between $P$ and $T$, then use only the anchors'
+positions --- not the sequence content --- to decide where $P$ came from.
+
+\section{shmap's approach in one paragraph}
+
+shmap represents both the reference and each read as a \textbf{FracMinHash sketch}: a
+size-proportional, hash-thresholded subset of the sequence's $k$-mers (Chapter~\ref{ch:theory}
+develops this precisely). Reference $k$-mers are indexed once into a hash table mapping
+$k$-mer hash $\to$ list of reference positions. For each read, its own sketch is grouped into
+\emph{seeds} (rarest $k$-mers first) and matched against the index; matches are accumulated into
+overlapping, fixed-length \emph{buckets} along each reference segment. A cheap, provably-safe
+\emph{seed heuristic} upper bound is used to prune buckets that cannot possibly beat the current
+best candidate before any expensive refinement is attempted on them. Buckets that survive pruning
+are refined with an exact two-pointer / sliding-window sweep (or, in alternate configurations, a
+longest-common-subsequence chain) to produce a Jaccard or containment similarity score; the best
+and second-best surviving mappings are used to compute a mapping-quality estimate; and the result
+is emitted in PAF format with a rich set of custom diagnostic tags.
+
+Two design choices set shmap apart from more familiar tools like minimap2:
+\begin{enumerate}
+  \item \textbf{FracMinHash sketching instead of minimizer windows.} Rather than picking one
+    minimal-hash $k$-mer per sliding window (a \emph{minimizer} scheme), shmap keeps every k-mer
+    whose hash falls below a fixed fraction of the hash space. This makes sketch size
+    \emph{proportional to sequence length} with a tunable ratio $r$ (flag \code{-r}), rather than
+    proportional to (length / window size); see \S\ref{sec:fracminhash-vs-minimizer}.
+  \item \textbf{Score-bound-driven bucket pruning instead of chaining every anchor.} Instead of
+    running a full co-linear chaining dynamic program over every seed hit (as minimap2 does),
+    shmap only ever considers small, fixed-geometry \emph{buckets} of the reference, and prunes
+    the overwhelming majority of them using a cheap closed-form upper bound on the score they
+    could possibly achieve, before doing any real work on them. This is the ``SH'' (seed
+    heuristic) in the tool's Map-SHmap name.
+\end{enumerate}
+
+\section{How to use this document}
+
+The chapters are ordered so that a reader with no prior background in sketch-based mapping can
+start at Chapter~\ref{ch:theory} and, by the time they reach the per-module chapters
+(Chapters~\ref{ch:sketching}--\ref{ch:scoring}), already understand \emph{why} every formula and
+data structure exists, not just \emph{what} it computes. Each per-module chapter gives:
+\begin{itemize}[nosep]
+  \item the exact input/output contract of every function (types, units, invariants assumed and
+    guaranteed);
+  \item a boxed pseudocode listing that is language-independent and directly implementable;
+  \item excerpts of the original C++ (from the \texttt{shmap} repository, files under
+    \texttt{src/}) and of an independent Rust re-implementation, side by side, wherever the exact
+    bit-level or control-flow behavior matters;
+  \item worked numeric examples for the trickiest arithmetic (bucket geometry, the FracMinHash
+    rolling hash, the seed-heuristic bound);
+  \item boxed notes on defects discovered by cross-checking the two implementations against each
+    other and against the algorithm's own stated invariants --- several of which are not merely
+    cosmetic (Chapter~\ref{ch:defects} collects all of them with full detail).
+\end{itemize}
+
+Chapter~\ref{ch:end-to-end} then reassembles every module into one top-to-bottom pseudocode
+listing of the per-read mapping routine, which is the single most useful reference for a
+from-scratch implementation. Chapter~\ref{ch:appendix} collects notation, a symbol table, and a
+condensed algorithm index for quick lookup while implementing.

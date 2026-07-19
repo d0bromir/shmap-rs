@@ -1,0 +1,307 @@
+\chapter{Core Data Types}
+\label{ch:data-types}
+
+This chapter specifies every value type used throughout the pipeline: its fields, the exact unit
+and range of each field, and the invariants callers may assume. All positions use \textbf{signed}
+32-bit integers throughout the reference implementation (a legacy of an earlier dependency on
+\texttt{klib}, which does not support 64-bit positions) --- a from-scratch implementation
+targeting references larger than $2^{31}$ bases should widen these, but should otherwise preserve
+signedness, since several computations (bucket predecessor indices, sentinel $-1$ values)
+rely on it.
+
+\section{Scalar type aliases}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Alias} & \textbf{Underlying type} & \textbf{Meaning} \\
+\midrule
+\code{hash\_t} & \code{uint64\_t} & A $k$-mer's (canonical, XOR-combined) hash value. \\
+\code{rpos\_t} & \code{int32\_t} & A position in the \emph{reference}: either a nucleotide offset
+  or a sketch-array index, depending on context (see \code{abs\_pos}, \S\ref{sec:config-axes}). \\
+\code{qpos\_t} & \code{int32\_t} & A position/count in the \emph{query} (read): nucleotide offset,
+  sketch-array index, or a plain count (occurrence counts, seed budgets). \\
+\code{segm\_t} & \code{int32\_t} & Index of a reference segment (0-based, in FASTA record order).
+\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{notebox}
+\code{rpos\_t} and \code{qpos\_t} are both plain 32-bit signed integers with no type-level
+distinction in the original C++ (they are both \code{typedef}s for the same underlying type) ---
+the split is purely for reader clarity about which ``space'' a value lives in. A from-scratch
+implementation may use one integer type for both, but keeping the naming distinction in comments
+is strongly recommended: several bugs found in the reference source (Chapter~\ref{ch:defects})
+stem exactly from a value computed as a query-space quantity being fed into a
+reference-space-typed slot, or vice versa.
+\end{notebox}
+
+\section{\code{Kmer}}
+\label{sec:type-kmer}
+
+A single sketched $k$-mer: its position, hash, and strand.
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Meaning} \\
+\midrule
+\code{r} & \code{rpos\_t} & \textbf{Zero-based index of the $k$-mer's last (rightmost) nucleotide}
+  in its source sequence. \emph{Not} the exclusive right boundary of the half-open window, despite
+  what an earlier version of the source's own doc-comment claims --- verified precisely in
+  \S\ref{sec:sketch-r-semantics}: for the $i$-th ($0$-based) $k$-mer of a sequence, $r = i+k-1$. \\
+\code{h} & \code{hash\_t} & Canonical hash (XOR of forward and reverse-complement rolling hashes;
+  \S\ref{sec:fracminhash-hash}). \\
+\code{strand} & \code{bool} & \code{false} = forward strand ``won'' the hash comparison, \code{true}
+  = reverse-complement did. See \S\ref{sec:fracminhash-hash} for exactly how this is decided. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Equality on \code{Kmer} (where defined at all) compares \emph{only} \code{h}; no code path in the
+reference implementation actually calls it, however (confirmed by exhaustive cross-reference
+during the Rust port) --- every equality check in the real algorithm compares \code{.h} fields
+directly.
+
+\section{\code{Hit}}
+\label{sec:type-hit}
+
+A \code{Kmer}'s occurrence \emph{in the reference}, with its reference-relative metadata attached.
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Meaning} \\
+\midrule
+\code{r} & \code{rpos\_t} & Copied from the source \code{Kmer.r} (absolute nucleotide position
+  of the hit's last base within its segment). \\
+\code{tpos} & \code{rpos\_t} & Index of this hit \emph{within the segment's own sketch array}
+  (i.e., ``this is the \code{tpos}-th kept $k$-mer of this reference segment''). \\
+\code{strand} & \code{bool} & Copied from the source \code{Kmer.strand}. \\
+\code{segm\_id} & \code{segm\_t} & Which reference segment this hit belongs to. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Constructed as \code{Hit(kmer, tpos, segm\_id)} --- \code{r} and \code{strand} are always copied
+straight from the source \code{Kmer}; only \code{tpos} and \code{segm\_id} are supplied
+independently.
+
+\section{\code{Seed}}
+\label{sec:type-seed}
+
+One \emph{distinct} $k$-mer hash from a read's sketch, with everything the mapper needs to know
+about how it behaves both in the read and in the reference.
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Meaning} \\
+\midrule
+\code{kmer} & \code{Kmer} & One representative occurrence of this hash in the read (position
+  is that of the \emph{first}, in sort order, occurrence --- see \S\ref{sec:seeding-grouping}). \\
+\code{hits\_in\_t} & \code{rpos\_t} & Total number of times this hash occurs \emph{anywhere in the
+  whole reference} (looked up via \code{SketchIndex::count}, \S\ref{sec:index-count}). Zero if
+  the hash never occurs in the reference at all. \\
+\code{occs\_in\_p} & \code{qpos\_t} & Number of times this hash occurs \emph{in the read itself}
+  (i.e., the multiplicity of a repeated $k$-mer within one read). \\
+\code{seed\_num} & \code{qpos\_t} & 0-based rank of this seed among all distinct seeds of the read,
+  \emph{after} sorting rarest-reference-hit-first (\S\ref{sec:seeding-sort}) --- i.e., the order
+  seeds are actually consumed in. \\
+\code{pmatches} & \code{Vec<qpos\_t>} & \emph{Every} position in the read where this hash occurs,
+  \textbf{sorted in decreasing order} (a direct consequence of the grouping sort's tie-break, \S
+  \ref{sec:seeding-grouping}). Used only by the \code{bucket\_LCS} metric
+  (\S\ref{sec:lcs-implementation}). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{\code{Match}}
+\label{sec:type-match}
+
+A pairing of one \code{Seed} (from the read) with one \code{Hit} (in the reference) that share a
+hash.
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Meaning} \\
+\midrule
+\code{seed} & \code{Seed} (by value in C++; by reference in the Rust port, see below) & The
+  matched read-side seed. \\
+\code{hit} & \code{Hit} & The matched reference-side hit. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\code{Match} additionally exposes \code{codirection()}, returning $+1$ if
+\code{seed.kmer.strand == hit.strand} (the read and reference agree on strand at this $k$-mer) and
+$-1$ otherwise; summing this over a candidate's matches is how strand (forward vs.\ reverse
+complement) is inferred for the final PAF strand column.
+
+\begin{notebox}
+\textbf{Ownership matters here.} The C++ \code{Match} \emph{copies} the entire matched
+\code{Seed} --- including its heap-allocated \code{pmatches} vector --- into itself, and
+\code{Match} objects are constructed in the thousands per read (once per (seed, hit) pair
+scanned during bucket collection and both refinement sweeps). This is a real, measurable cost in
+the reference binary. The Rust re-implementation instead gives \code{Match} a borrow,
+\code{seed: \&'p Seed}, tied to the lifetime of the read-scoped seed table it is built from ---
+every \code{Vec<Match>} in the algorithm is constructed, consumed, and dropped within the
+processing of a single read, so this lifetime is trivially satisfiable and eliminates the
+per-match deep copy entirely. A future from-scratch implementation in a garbage-collected
+language should simply share/reference the \code{Seed}, not clone it, for the same reason.
+\end{notebox}
+
+\section{\code{BucketLoc}}
+\label{sec:type-bucketloc}
+
+The coordinate of one bucket: which segment, and which half-length slot.
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Meaning} \\
+\midrule
+\code{segm\_id} & \code{segm\_t} & Reference segment index. \\
+\code{b} & \code{rpos\_t} & Bucket slot index; slot $b$ spans reference positions
+  $[b\cdot\ell, (b{+}2)\cdot\ell)$ where $\ell$ is the current read's bucket half-length
+  (\S\ref{sec:bucket-geometry}). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The default/sentinel value is $(-1,-1)$, used to mean ``no second-best bucket found yet'' in
+output. This sentinel is part of the \emph{observable output format} (it is printed literally as
+\code{(-1,-1)} in the \code{b2:s:} PAF tag when a read has no second-best mapping), so a
+from-scratch implementation that wants byte-compatible output should preserve it as a real
+sentinel value rather than, say, an optional/nullable type whose absence is rendered differently.
+
+\section{\code{BucketContent}}
+\label{sec:type-bucketcontent}
+
+The running accumulator attached to each bucket as seeds are matched into it.
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}lllX@{}}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Default} & \textbf{Meaning} \\
+\midrule
+\code{i} & \code{int} & $-1$ & Index of the next \emph{seed} (into the read's sorted seed list) to
+  extend this bucket with, during incremental pruning (\S\ref{sec:seed-heuristic-pass}). \\
+\code{seeds} & \code{qpos\_t} & $0$ & Seed \emph{occurrences} attributed to this bucket so far
+  (\S\ref{sec:seed-heuristic-theory}). \\
+\code{matches} & \code{qpos\_t} & $0$ & Of those, how many actually landed a hit in this bucket. \\
+\code{codirection} & \code{int} & $0$ & Running sum of $\pm1$ per matched hit
+  (\S\ref{sec:type-match}); sign indicates the dominant strand. \\
+\code{r\_min}, \code{r\_max} & \code{rpos\_t} & $+\infty$, $-1$ & Smallest/largest nucleotide
+  position (\code{Hit.r}) seen among this bucket's matches so far --- used directly as the
+  candidate's reported boundary by the \code{bucket\_SH} metric. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\code{BucketContent} supports an additive merge (\code{operator+=} in C++, an \code{AddAssign}
+impl in Rust) that sums \code{matches}/\code{seeds}/\code{codirection} and takes the
+componentwise min/max of the position range --- used whenever two partial accumulations of the
+same bucket need combining (e.g.\ a hit contributing to both bucket $b$ and its overlapping
+neighbor $b{-}1$, \S\ref{sec:bucket-geometry}).
+
+\section{\code{RefSegment}}
+\label{sec:type-refsegment}
+
+One indexed reference sequence (e.g.\ one chromosome/contig).
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Meaning} \\
+\midrule
+\code{kmers} & \code{Vec<Kmer>} & This segment's full FracMinHash sketch, in increasing position
+  order. \\
+\code{name} & \code{String} & FASTA record id (used as the PAF target-name column and for
+  ground-truth segment lookup, \S\ref{sec:ground-truth}). \\
+\code{sz} & \code{rpos\_t} & Segment length in nucleotides (PAF target-length column). \\
+\code{id} & \code{segm\_t} & This segment's own index (redundant with its position in the
+  segment array, kept for convenience). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{notebox}
+The C++ \code{RefSegment} additionally stores the segment's full raw nucleotide sequence
+(\code{seq}), intended for a SAM/CIGAR alignment feature that is entirely commented out and
+unreachable in the shipped tool. Retaining it roughly doubles index memory for zero functional
+benefit; a from-scratch implementation targeting only the mapping (not alignment) functionality
+described in this document should omit it.
+\end{notebox}
+
+\section{Hash-map type aliases}
+
+Four hash-map shapes recur throughout the algorithm; a from-scratch implementation may use any
+hash map with average $O(1)$ get/insert (the reference C++ uses two different fast open-addressing
+hash map libraries; the choice is a pure performance detail with no semantic effect):
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Alias} & \textbf{Shape} & \textbf{Populated in / used by} \\
+\midrule
+\code{h2single} & \code{hash\_t} $\to$ \code{Hit} & Reference index, $k$-mers with exactly one
+  occurrence (\S\ref{ch:indexing}). \\
+\code{h2multi} & \code{hash\_t} $\to$ \code{Vec<Hit>} & Reference index, $k$-mers with $\ge 2$
+  occurrences, each list sorted by \code{(segm\_id, r)} for binary search
+  (\S\ref{sec:index-sort}). \\
+\code{h2seed\_t} & \code{hash\_t} $\to$ \code{Seed} & Per-read seed lookup table, built once per
+  read from its unique seeds (\S\ref{sec:seeding-grouping}). \\
+\code{h2cnt} & \code{hash\_t} $\to$ \code{qpos\_t} & Per-read ``remaining occurrence budget''
+  table (\code{diff\_hist}), decremented/incremented as a sliding window consumes/releases matches
+  of a given hash during refinement (\S\ref{sec:scoring-sliding-window}); values may legitimately
+  go negative transiently (see that section for why). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{\code{Mapping} and its stats sub-structures}
+\label{sec:type-mapping}
+
+A \code{Mapping} is the algorithm's single ``current best candidate'' record: it behaves like a
+running maximum, only ever overwritten by \code{update(...)} when a strictly higher score is
+found (initial score is the sentinel $-1.0$, guaranteed to lose to any real, non-negative
+similarity score). It bundles three logical groups of fields:
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Group} & \textbf{Represents} & \textbf{Key fields} \\
+\midrule
+\code{MappingPaf} & The 12 mandatory PAF columns (\S\ref{ch:output}) & \code{p\_start,p\_end,
+  strand,segm\_name,segm\_sz,segm\_id,t\_l,t\_r,mapq,query\_id,p\_sz} \\
+\code{LocalMappingStats} & Per-read/per-candidate diagnostics, always populated & \code{s\_sz}
+  (matched reference span), \code{intersection}, \code{j}/\code{j2} (best/2nd-best score),
+  \code{sh} (seed-heuristic value at acceptance), \code{bucket}/\code{bucket2} \\
+\code{GlobalMappingStats} & Run-wide diagnostics, populated once per read only if a mapping was
+  found & \code{seeds}, \code{total\_matches}, \code{seeded\_buckets}, \code{final\_buckets},
+  \code{match\_inefficiency} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Full field-by-field definitions, exact default/sentinel values, and the precise PAF/tag text
+each one is rendered as are given together with the output format in Chapter~\ref{ch:output},
+since their only purpose is serialization; the \emph{algorithmic} methods that live on
+\code{Mapping} (\code{update}, \code{set\_second\_best}, \code{calc\_mapq},
+\code{overlap}) are specified where they are actually invoked: \code{update} in
+Chapter~\ref{ch:scoring}, \code{set\_second\_best}/\code{overlap} in
+Chapter~\ref{ch:end-to-end}, and \code{calc\_mapq} in Chapter~\ref{ch:mapq}.
+
+\begin{notebox}
+Two of \code{Mapping}'s stats fields deserve an early flag because they affect how a
+from-scratch implementer should read every later chapter's arithmetic: \code{intersection2}
+(second-best match count) and \code{bucket2} default to the sentinel values $-1$ and $(-1,-1)$
+respectively, and \emph{stay there} for any read with no viable second-best candidate --- this is
+a normal, expected, frequently-occurring output state (a uniquely-mapping read), not an error
+state, and downstream formulas (notably \code{sigmas\_diff} and \code{calc\_mapq} in
+Chapter~\ref{ch:mapq}) are specifically written to treat the sentinel $-1$ as ``$0$'' rather than
+its literal value.
+\end{notebox}

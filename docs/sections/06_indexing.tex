@@ -1,0 +1,186 @@
+\chapter{Reference Indexing}
+\label{ch:indexing}
+
+The index (\code{SketchIndex}) is built exactly once per run, from the reference FASTA, before any
+read is processed. Its job is to answer, in $O(1)$ average time, two questions for any $k$-mer
+hash $h$: \emph{how many times does $h$ occur in the reference} (\S\ref{sec:index-count}), and
+\emph{at which (segment, position) pairs} (used throughout bucketing/scoring).
+
+\section{Data owned by the index}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Meaning} \\
+\midrule
+\code{segments} & \code{Vec<RefSegment>} & One entry per FASTA record, in file order
+  (\S\ref{sec:type-refsegment}). \\
+\code{h2single} & \code{hash\_t} $\to$ \code{Hit} & $k$-mers occurring \emph{exactly once} across
+  the whole reference. \\
+\code{h2multi} & \code{hash\_t} $\to$ \code{Vec<Hit>} & $k$-mers occurring \emph{two or more}
+  times, each list sorted (\S\ref{sec:index-sort}). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Splitting single- vs.\ multi-occurrence $k$-mers into two separate maps (rather than one map to
+always-a-list) is a memory/speed optimization: the overwhelming majority of $k$-mers in a
+non-repetitive genome occur exactly once, so storing those as a bare \code{Hit} (no vector
+indirection/allocation) rather than a one-element \code{Vec<Hit>} meaningfully reduces both memory
+and pointer-chasing.
+
+\section{Building the index: \code{build\_index}}
+
+\begin{algobox}{title={\code{build\_index}(t\_file, k, h\_frac, max\_matches)}}
+\begin{verbatim}
+for (segm_name, seq) in read_fasta(t_file):
+    sketch := FracMinHash.sketch(seq, k, h_frac)          # Chapter 5
+    segm_id := len(segments)
+    segments.append(RefSegment{ kmers: sketch, name: segm_name,
+                                 sz: len(seq), id: segm_id })
+    populate_h2pos(sketch, segm_id)                        # below
+
+# migrate any hash that ended up in BOTH maps fully into h2multi
+for (h, hits) in h2multi:
+    if h in h2single:
+        hits.append(h2single.remove(h))
+    sort hits by (segm_id, r)                               # enables binary search later
+
+if max_matches is set:
+    erase_frequent_kmers(max_matches)                       # below
+\end{verbatim}
+\end{algobox}
+
+\subsection{\code{populate\_h2pos}: routing each hit to the right map}
+\label{sec:index-populate}
+
+\begin{algobox}{title={\code{populate\_h2pos}(sketch, segm\_id)}}
+\begin{verbatim}
+for tpos, kmer in enumerate(sketch):
+    hit := Hit(kmer, tpos, segm_id)
+    if kmer.h not in h2single:
+        h2single[kmer.h] := hit                 # first-ever occurrence: goes to h2single
+    else:
+        # second-or-later occurrence: goes to h2multi (h2single's own
+        # earlier entry is migrated into h2multi at the *end* of indexing,
+        # not immediately -- see build_index above)
+        if max_matches is unset or len(h2multi[kmer.h]) < max_matches + 1:
+            h2multi[kmer.h].append(hit)
+\end{verbatim}
+\end{algobox}
+
+\begin{notebox}
+Note the asymmetry this creates \emph{during} indexing (before the end-of-\code{build\_index}
+migration step runs): a hash with exactly 2 occurrences temporarily has its \emph{first}
+occurrence sitting in \code{h2single} and only its \emph{second} occurrence in \code{h2multi} ---
+\code{h2multi[h]} would report length 1, not 2, if queried mid-build. This is why the migration
+step (moving \code{h2single}'s entry into \code{h2multi} and \emph{erasing} it from
+\code{h2single}) must run once, after all segments have been sketched, before the index is
+considered complete and used for querying.
+\end{notebox}
+
+The \code{max\_matches + 1} cap during population (rather than exactly \code{max\_matches}) is
+deliberate slack: it lets \code{erase\_frequent\_kmers} (below) later distinguish ``exactly at the
+cap'' from ``over the cap'' after the single-entry migration adds one more; in practice, since
+\code{erase\_frequent\_kmers} deletes any hash whose \emph{final} count exceeds \code{max\_matches}
+outright, the effect is simply an upper bound on wasted work spent appending hits for a hash that
+is going to be discarded anyway.
+
+\subsection{Sorting multi-hit lists}
+\label{sec:index-sort}
+
+Each \code{h2multi} list is sorted by \code{(segm\_id, r)} lexicographically. Because $r$ (a
+hit's nucleotide position) and $\mathit{tpos}$ (its index into the segment's own sketch array)
+increase together within one segment (the sketch is built and stored in increasing position
+order, \S\ref{sec:type-refsegment}), sorting by $r$ \emph{also} sorts by $\mathit{tpos}$
+consistently --- so binary search by either coordinate space works correctly against the same
+sorted list, which matters because bucket/window boundary checks are expressed in \emph{either}
+space depending on the \code{abs\_pos} flag (\S\ref{sec:config-axes}).
+
+\subsection{\code{erase\_frequent\_kmers}: capping pathologically repetitive $k$-mers}
+\label{sec:max-matches}
+
+CLI flag \code{-M} sets \code{max\_matches}, an optional hard cap on how many reference
+occurrences a single $k$-mer hash is allowed to have before it is discarded from the index
+entirely (treated thereafter as if it never occurred in the reference at all, i.e.\
+\code{hits\_in\_t} $=0$ for it). This exists because extremely repetitive $k$-mers (satellite
+repeats, low-complexity runs) contribute enormous numbers of hits that are almost never
+informative for mapping but are expensive to iterate during seeding/bucketing --- capping them is
+a standard technique shared with essentially every other $k$-mer-based mapper (minimap2's
+\texttt{-f}, Winnowmap's repetitive-$k$-mer blacklist, etc.).
+
+\begin{algobox}{title={\code{erase\_frequent\_kmers}(max\_matches)}}
+\begin{verbatim}
+for (h, hits) in h2multi:
+    if len(hits) > max_matches:
+        delete h2multi[h]
+\end{verbatim}
+\end{algobox}
+
+Note this only prunes \code{h2multi} (by construction, \code{h2single} entries always have exactly
+one occurrence, so they can never exceed any cap $\ge 1$).
+
+\section{\code{count(h)}: reference occurrence count for a hash}
+\label{sec:index-count}
+
+\begin{algobox}{title={\code{count}(h)}}
+\begin{verbatim}
+if h in h2single: return 1
+if h in h2multi:  return len(h2multi[h])
+return 0
+\end{verbatim}
+\end{algobox}
+
+This is the function seeding (Chapter~\ref{ch:seeding}) calls once per distinct read $k$-mer to
+determine \code{hits\_in\_t} (\S\ref{sec:type-seed}) --- it is the quantity seeds are sorted by
+(rarest first) and the input to the seed-heuristic bound's implicit assumption that
+\code{hits\_in\_t}$=0$ seeds contribute nothing.
+
+\section{Reference C++ implementation}
+
+\begin{lstlisting}[style=cppstyle,caption={Core of \code{SketchIndex}, \texttt{src/index.h}}]
+inline rpos_t count(hash_t h) const {
+    if (auto it = h2single.find(h); it != h2single.end()) return 1;
+    if (auto it = h2multi.find(h); it != h2multi.end()) return it->second.size();
+    return 0;
+}
+
+void populate_h2pos(const sketch_t& sketch, segm_t segm_id) {
+    for (size_t tpos = 0; tpos < sketch.size(); ++tpos) {
+        const Kmer& kmer = sketch[tpos];
+        const auto hit = Hit(kmer, tpos, segm_id);
+        if (!h2single.contains(kmer.h))
+            h2single[kmer.h] = hit;
+        else if (H->params.max_matches == -1
+                 || (rpos_t)h2multi[kmer.h].size() < H->params.max_matches + 1)
+            h2multi[kmer.h].push_back(hit);
+    }
+}
+
+void build_index(const std::string &tFile) {
+    read_fasta_klib(tFile, [this](const string &segm_name, const string &T, float) {
+        sketch_t t = H->sketcher.sketch(T);
+        add_segment(segm_name, T, t);   // pushes RefSegment, calls populate_h2pos
+    });
+
+    for (auto &[h, hits] : h2multi) {
+        if (h2single.contains(h)) {
+            hits.push_back(h2single.at(h));
+            h2single.erase(h);
+        }
+        sort(hits.begin(), hits.end(), [](const Hit &a, const Hit &b) {
+            if (a.segm_id != b.segm_id) return a.segm_id < b.segm_id;
+            return a.r < b.r;
+        });
+    }
+    if (H->params.max_matches != -1) erase_frequent_kmers();
+}
+\end{lstlisting}
+
+\section{Complexity and memory}
+
+Indexing costs $O(n)$ time for sketching (Chapter~\ref{ch:sketching}) plus $O(rn \log d)$ for
+sorting, where $rn$ is the total number of kept $k$-mers and $d$ is the maximum multiplicity of
+any single hash (the sort is per-hash, so the $\log d$ factor applies independently to each
+list, not globally). Memory is $O(rn)$: one map entry per distinct occurrence, plus $O(rn)$ for the
+stored per-segment sketches themselves (each \code{RefSegment.kmers}).

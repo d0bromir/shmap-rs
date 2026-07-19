@@ -1,0 +1,258 @@
+\chapter{End-to-End Algorithm}
+\label{ch:end-to-end}
+
+This chapter reassembles every module from Chapters~\ref{ch:sketching}--\ref{ch:scoring} into the
+two top-level routines that actually run: \code{map\_reads} (once per program invocation) and
+\code{map\_read} (once per read). This is the single most useful reference for a from-scratch
+implementation, and is written in its \emph{corrected} form (i.e., incorporating the fixes from
+Chapter~\ref{ch:defects} where they affect observable behavior) with explicit call-outs at every
+point a decision was made about a defect in the reference source.
+
+\section{\code{map\_reads}: the outer loop}
+
+\begin{algobox}{title={\code{map\_reads}(index, reads\_file, params)}}
+\begin{verbatim}
+open unmapped_out  := params.params_file + ".unmapped.paf"  if params.params_file is set else None
+open paulout       := params.params_file + ".paul.tsv"      if params.params_file is set
+                                                                and params.verbose >= 2 else None
+buckets := Buckets::new(index)             # allocated once, cleared per read (Section 8.2.1)
+run_wide_counters := Counters::new()
+run_wide_timers   := Timers::new()
+
+for (query_id, read_seq) in read_fasta(reads_file):
+    run_wide_counters.inc("reads")
+    per_read_counters, per_read_timers := map_read(index, params, read_seq, query_id,
+                                                     buckets, unmapped_out, paulout)
+    run_wide_counters += per_read_counters      # accumulate into run totals
+    run_wide_timers   += per_read_timers
+
+print_summary_statistics(run_wide_counters, run_wide_timers)
+\end{verbatim}
+\end{algobox}
+
+\begin{notebox}
+Each read is processed with its own fresh, fully-reset per-read counters (see the boxed
+correction in \S\ref{sec:map-read-counters} below) that are merged into the run-wide totals
+\emph{after} that read finishes --- this merge-after-each-read pattern is what lets a single PAF
+line's diagnostic tags (\S\ref{ch:output}) report purely this-read quantities while the
+end-of-run summary still reports correct totals across all reads.
+\end{notebox}
+
+\section{\code{map\_read}: per-read driver}
+\label{sec:map-read}
+
+\subsection{Counter initialization}
+\label{sec:map-read-counters}
+
+\begin{bugbox}
+The reference C++ does \emph{not} actually reset its per-read counters object between reads: the
+call that would clear it (\code{C.clear()}) is commented out, and the subsequent
+re-initialization list names only a subset of the counters the function goes on to increment ---
+seven counters, including \code{total\_matches} (which feeds directly into the \emph{live}
+\code{total\_matches:i:}/\code{match\_inefficiency:f:} PAF tags, not just an end-of-run summary),
+are left to accumulate, unreset, across every read a single mapper instance processes, compounding
+further every time the (also unreset) running total is merged into the run-wide counters after
+each read. The correct, obviously-intended behavior --- and the one specified below --- is to
+\textbf{fully reset all per-read counters at the start of every read}, with every counter name the
+function goes on to touch pre-registered at zero (so that end-of-read diagnostic reads never fail
+on a genuinely-never-incremented counter, e.g.\ \code{mapq60} for a read with a low-confidence
+mapping). See Chapter~\ref{ch:defects} for the full analysis and the complete list of affected
+counter names.
+\end{bugbox}
+
+\begin{algobox}{title={\code{map\_read} --- part 1: sketch, seed, prepare}}
+\begin{verbatim}
+C := Counters::new()                 # fresh, fully-reset every read (see box above)
+T := Timers::new()
+buckets.clear()
+
+p := sketcher.sketch(read_seq)                       # Chapter 5
+m := len(p)                                            # read's sketch size
+C.inc("read_len", len(read_seq))
+
+p_unique := unique_elements_with_info(p)              # Chapter 7; rarest-hit-first
+
+seed_table := {}          # hash -> Seed
+diff_hist  := {}          # hash -> remaining occurrence budget
+possible_matches := 0
+for seed in p_unique:
+    seed_table[seed.kmer.h] := seed
+    diff_hist[seed.kmer.h]  := seed.occs_in_p
+    possible_matches += seed.hits_in_t
+C.inc("possible_matches", possible_matches)
+
+lmax   := m
+theta  := params.theta
+theta2 := theta - params.min_diff
+S := one_sweep ? len(p_unique)                        # best-effort -B interpretation, Ch.16
+              : floor((1 - theta2) * m) + 1           # Section 7.2
+
+if abs_pos: buckets.set_halflen(len(read_seq))
+else:       buckets.set_halflen(m)
+if buckets.halflen < MIN_HALFLEN:
+    goto unmapped                                      # read too short to bucket meaningfully
+\end{verbatim}
+\end{algobox}
+
+\begin{algobox}{title={\code{map\_read} --- part 2: match seeds, prune, refine}}
+\begin{verbatim}
+match_seeds(p_unique, buckets, S)                      # Chapter 8
+buckets.propagate_seeds_to_buckets()
+sorted_buckets := buckets.get_sorted_buckets()          # most-matches-first
+C.inc("seeded_buckets", len(sorted_buckets))
+
+best := match_rest(len(read_seq), m, lmax, p_unique, buckets, sorted_buckets, diff_hist,
+                    seed_table, theta, forbidden=None, params.max_overlap, params.metric, params.k)
+
+best2 := None
+if best is not None:
+    second_best_thr := best.score() * (1 - params.min_diff)
+    best2 := match_rest(len(read_seq), m, lmax, p_unique, buckets, sorted_buckets, diff_hist,
+                         seed_table, second_best_thr, forbidden=best, params.max_overlap,
+                         params.metric, params.k)
+\end{verbatim}
+\end{algobox}
+
+\subsection{Output: mapped vs.\ unmapped}
+\label{sec:map-read-output}
+
+\begin{bugbox}
+The reference C++ calls \code{best->set\_global\_stats(...)} and \code{best->print\_paf(...)}
+\textbf{unconditionally}, even when \code{best} is empty (every unmapped read) --- dereferencing
+an empty \code{std::optional}, undefined behavior in C++ (and simply un-representable against a
+proper optional/\code{Option} type in a memory-safe language, since there is no value to
+dereference). Per the decision recorded for this document's companion re-implementation, unmapped
+reads should instead get a well-defined, minimal record: write \code{query\_id}, read length, and
+\code{*}/zero placeholder fields for the alignment-specific columns to the ``unmapped'' output
+stream (only opened at all if a params-file/output prefix was configured, matching the
+reference's own gating for that stream). See Chapter~\ref{ch:defects} for the full discussion of
+why this specific choice (rather than, say, silently skipping unmapped reads entirely) was made.
+\end{bugbox}
+
+\begin{algobox}{title={\code{map\_read} --- part 3: emit result}}
+\begin{verbatim}
+if best is not None:
+    if best2 is not None:
+        best.set_second_best(best2)              # Chapter 12: feeds MAPQ
+    C.inc("matches_in_reported_mappings", best.intersection())
+    C.inc("J_best", round(10000 * best.score()))
+    C.inc("mappings"); C.inc("mapped_reads")
+
+    best.set_global_stats(theta2, params.min_diff, sketch_size=m, query_id, read_len=len(read_seq),
+                           params.k, seeds=S, C.total_matches, C.max_seed_matches, C.seed_matches,
+                           C.seeded_buckets, C.final_buckets, fptp=-1.0, map_time=T.secs("query_mapping"))
+                            # ^ calc_mapq() runs inside set_global_stats; Chapter 12
+    emit_paf_line(stdout, best)                    # Chapter 13
+    if best.mapq() == 60: C.inc("mapq60")
+    if best.mapq() == 0:  C.inc("mapq0")
+
+    if params.verbose >= 2:
+        gt := AnalyseSimulatedReads(query_id, read_seq, diff_hist, m, seed_table, index,
+                                     buckets, params.theta)                 # Section 13.x / ground truth
+        emit_paf_ground_truth_tags(stdout, gt, best)
+        if paulout is not None: gt.print_tsv(paulout)
+else:
+    emit_minimal_unmapped_record(unmapped_out, query_id, len(read_seq))   # the fix above
+    if params.verbose >= 2 and paulout is not None:
+        gt := AnalyseSimulatedReads(query_id, read_seq, diff_hist, m, seed_table, index,
+                                     buckets, params.theta)
+        gt.print_tsv(paulout)
+
+return C, T
+\end{verbatim}
+\end{algobox}
+
+\section{Full call graph}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=5mm and 8mm,
+    every node/.style={font=\scriptsize},
+    n/.style={draw, rounded corners, fill=blue!5, minimum height=7mm, text width=27mm, align=center},
+    arr/.style={-{Stealth[length=2mm]}, thin}
+  ]
+  \node[n] (mr) {map\_read};
+  \node[n, below left=of mr] (sketch) {sketch (Ch.5)};
+  \node[n, below=of mr] (seed) {unique\_elements\_with\_info (Ch.7)};
+  \node[n, below right=of mr] (ms) {match\_seeds (Ch.8)};
+  \node[n, below=of ms] (gsb) {get\_sorted\_buckets};
+  \node[n, below=of gsb] (mrest) {match\_rest $\times 2$ (best, 2nd-best)};
+  \node[n, below left=of mrest] (shp) {seed\_heuristic\_pass (Ch.9)};
+  \node[n, below right=of mrest] (fbm) {findBestMapping (Ch.10)};
+  \node[n, below=of fbm] (score) {bestFixedLength / lcs};
+  \node[n, below=of mrest] (mapq) {calc\_mapq (Ch.12)};
+  \node[n, below=of mapq] (out) {emit PAF (Ch.13)};
+
+  \draw[arr] (mr) -- (sketch);
+  \draw[arr] (mr) -- (seed);
+  \draw[arr] (mr) -- (ms);
+  \draw[arr] (ms) -- (gsb);
+  \draw[arr] (gsb) -- (mrest);
+  \draw[arr] (mrest) -- (shp);
+  \draw[arr] (mrest) -- (fbm);
+  \draw[arr] (fbm) -- (score);
+  \draw[arr] (mrest) -- (mapq);
+  \draw[arr] (mapq) -- (out);
+\end{tikzpicture}
+\caption{Call graph of one \code{map\_read} invocation.}
+\end{figure}
+
+\section{Reference C++ implementation (annotated)}
+
+\begin{lstlisting}[style=cppstyle,caption={\code{map\_read}, \texttt{src/shmap.h} --- core structure (elided: verbose-mode/diagnostic branches, identical in spirit to the pseudocode above)}]
+inline void map_read(const params_t &params, const FracMinHash &sketcher,
+                      ofstream &paulout, ofstream &unmapped_out,
+                      const string &query_id, const string &P, BucketsType &B) {
+    T.clear();
+    B.clear();
+    // NOTE: see Chapter 16 -- C.clear() is missing here in the reference source.
+
+    sketch_t p = sketcher.sketch(P);
+    qpos_t m = p.size();
+    C.inc("read_len", P.size());
+
+    Seeds p_unique = unique_elements_with_info(p);
+
+    h2seed_t p_ht; h2cnt diff_hist; rpos_t possible_matches(0);
+    for (const auto &kmer: p_unique) {
+        p_ht.insert(make_pair(kmer.kmer.h, kmer));
+        diff_hist[kmer.kmer.h] = kmer.occs_in_p;
+        possible_matches += kmer.hits_in_T;
+    }
+
+    auto lmax = m;
+    auto theta = params.theta;
+    double theta2 = theta - params.min_diff;
+    qpos_t S = qpos_t((1.0 - theta2) * m) + 1;
+
+    if (abs_pos) B.set_halflen(P.size()); else B.set_halflen(m);
+
+    match_seeds(p_unique, B, S);
+    B.propagate_seeds_to_buckets();
+    auto sorted_buckets = B.get_sorted_buckets();
+
+    std::optional<Mapping> best, best2;
+    best = match_rest(P.size(), m, lmax, p_unique, B, sorted_buckets, diff_hist, p_ht,
+                       theta, std::nullopt, query_id, &lost_on_pruning, params.max_overlap);
+    if (best) {
+        double second_best_thr = best->score() * (1.0 - params.min_diff);
+        best2 = match_rest(P.size(), m, lmax, p_unique, B, sorted_buckets, diff_hist, p_ht,
+                            second_best_thr, best, query_id, &lost_on_pruning, params.max_overlap);
+    }
+
+    if (best) {
+        if (best2) best->set_second_best(best2.value());
+        os = &cout;
+    } else {
+        os = &unmapped_out;
+    }
+    // NOTE: see Chapter 16 -- the following two calls are unconditional in the reference
+    // source even when `best` is empty; this listing shows the corrected, guarded form.
+    best->set_global_stats(theta2, params.min_diff, m, query_id.c_str(), P.size(), params.k,
+                            S, C.count("total_matches"), C.count("max_seed_matches"),
+                            C.count("seed_matches"), C.count("seeded_buckets"),
+                            C.count("final_buckets"), -1.0, T.secs("query_mapping"));
+    best->print_paf(*os);
+}
+\end{lstlisting}
