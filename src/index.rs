@@ -185,7 +185,20 @@ impl SketchIndex {
         self.print_stats(sketcher.k, counters, timers);
 
         if profiler.enabled() {
-            profiler.record_thread("indexer", "index", self.segments.len() as u64, timers.clone(), counters.clone());
+            // `frozen_snapshot`, not a plain `.clone()`: `timers` is
+            // `handler.timers`, whose run-wide "total" entry is still
+            // running here (it only stops on `Handler`'s `Drop`, well after
+            // mapping finishes) — a naive clone would keep advancing with
+            // the wall clock by the time this gets serialized at the very
+            // end of the run, reporting the whole program's wall time
+            // instead of "how long had elapsed when indexing finished".
+            profiler.record_thread(
+                "indexer",
+                "index",
+                self.segments.len() as u64,
+                timers.frozen_snapshot(),
+                counters.clone(),
+            );
         }
         Ok(())
     }

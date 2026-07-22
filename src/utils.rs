@@ -94,6 +94,26 @@ impl Timer {
         );
         self.max / self.min
     }
+
+    /// A copy frozen at its elapsed value *right now*. A plain `#[derive(Clone)]`
+    /// of a still-running timer keeps the original `start_time`, so a later
+    /// `.secs()` call on that clone keeps advancing with the wall clock instead
+    /// of reporting the value at clone time — exactly wrong for a snapshot meant
+    /// to be serialized much later (e.g. [`crate::profiling`] capturing the
+    /// run-wide "total" timer, still running, as part of an early per-phase
+    /// thread snapshot). This bakes the current elapsed time in as `accumulated`
+    /// and marks the copy stopped, so its `.secs()` never changes again.
+    pub fn frozen(&self) -> Timer {
+        let mut t = self.clone();
+        if t.running {
+            let secs_now = self.secs();
+            t.accumulated = secs_now;
+            t.running = false;
+            t.start_time = None;
+            t.update_range(secs_now);
+        }
+        t
+    }
 }
 
 impl AddAssign<&Timer> for Timer {
@@ -187,6 +207,19 @@ impl Timers {
     /// without needing to know the names in advance.
     pub fn iter_secs(&self) -> impl Iterator<Item = (&str, f64)> + '_ {
         self.timers.iter().map(|(name, t)| (name.as_str(), t.secs()))
+    }
+
+    /// A copy where every timer is [`Timer::frozen`] at its value right now.
+    /// Use this instead of a plain `.clone()` when capturing a `Timers` set
+    /// for later serialization/inspection while the original might still
+    /// have running timers (e.g. taking a per-phase snapshot of a `Handler`'s
+    /// `Timers` while its run-wide "total" timer is still running) — a naive
+    /// clone would silently keep advancing when `.secs()` is eventually
+    /// called on it, instead of reporting the value at snapshot time.
+    pub fn frozen_snapshot(&self) -> Timers {
+        Timers {
+            timers: self.timers.iter().map(|(name, t)| (name.clone(), t.frozen())).collect(),
+        }
     }
 }
 
@@ -445,6 +478,52 @@ mod tests {
         sleep(Duration::from_millis(20));
         t.stop();
         assert!(approx(t.range_ratio(), 2.0, 0.3));
+    }
+
+    #[test]
+    fn frozen_stops_a_running_timer_from_advancing_further() {
+        let mut t = Timer::new();
+        t.start();
+        sleep(Duration::from_millis(10));
+        let frozen = t.frozen();
+        sleep(Duration::from_millis(30));
+
+        // A plain clone shares `start_time`, so its `.secs()` keeps advancing
+        // with the wall clock even after the clone was taken -- exactly the
+        // bug `frozen()` exists to avoid.
+        let naive_clone = t.clone();
+        assert!(approx(naive_clone.secs(), 0.04, 0.02));
+
+        // The frozen copy stays at its value from the moment it was taken,
+        // regardless of how much more time passes (or whether the original
+        // timer is ever stopped).
+        assert!(approx(frozen.secs(), 0.01, 0.02));
+        sleep(Duration::from_millis(20));
+        assert!(approx(frozen.secs(), 0.01, 0.02));
+
+        t.stop();
+    }
+
+    #[test]
+    fn frozen_snapshot_freezes_only_running_timers() {
+        let mut t = Timers::new();
+        t.start("stopped");
+        sleep(Duration::from_millis(10));
+        t.stop("stopped");
+
+        t.start("running");
+        sleep(Duration::from_millis(10));
+        let snap = t.frozen_snapshot();
+        sleep(Duration::from_millis(30));
+
+        // The already-stopped timer's value is identical either way.
+        assert!(approx(snap.secs("stopped"), t.secs("stopped"), 1e-9));
+        // The still-running one is frozen in the snapshot but keeps
+        // advancing in the original.
+        assert!(approx(snap.secs("running"), 0.01, 0.02));
+        assert!(approx(t.secs("running"), 0.05, 0.03));
+
+        t.stop("running");
     }
 
     #[test]
