@@ -5,6 +5,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::io::read_fasta;
+use crate::profiling::Profiler;
 use crate::sketch::{FracMinHash, RefSegment, SketchT};
 use crate::types::{Hash, Hit, RPos, SegmId};
 use crate::utils::{Counters, ProgressBar, Timers};
@@ -128,6 +129,7 @@ impl SketchIndex {
         max_matches: Option<i32>,
         counters: &mut Counters,
         timers: &mut Timers,
+        profiler: &Profiler,
     ) -> anyhow::Result<()> {
         let progress_bar = ProgressBar::new("Indexing");
 
@@ -181,6 +183,10 @@ impl SketchIndex {
             self.erase_frequent_kmers(max_matches, counters);
         }
         self.print_stats(sketcher.k, counters, timers);
+
+        if profiler.enabled() {
+            profiler.record_thread("indexer", "index", self.segments.len() as u64, timers.clone(), counters.clone());
+        }
         Ok(())
     }
 
@@ -241,8 +247,15 @@ mod tests {
         let mut counters = Counters::new();
         let mut timers = Timers::new();
         let mut tidx = SketchIndex::new();
-        tidx.build_index(f.path().to_str().unwrap(), &sketcher, None, &mut counters, &mut timers)
-            .unwrap();
+        tidx.build_index(
+            f.path().to_str().unwrap(),
+            &sketcher,
+            None,
+            &mut counters,
+            &mut timers,
+            &Profiler::new(false),
+        )
+        .unwrap();
 
         let t = sketcher.sketch(b"ACCAGTACCA", &mut Counters::new());
         assert_eq!(t.len(), 7);
@@ -261,8 +274,15 @@ mod tests {
         let mut counters = Counters::new();
         let mut timers = Timers::new();
         let mut tidx = SketchIndex::new();
-        tidx.build_index(f.path().to_str().unwrap(), &sketcher, None, &mut counters, &mut timers)
-            .unwrap();
+        tidx.build_index(
+            f.path().to_str().unwrap(),
+            &sketcher,
+            None,
+            &mut counters,
+            &mut timers,
+            &Profiler::new(false),
+        )
+        .unwrap();
 
         let t1 = sketcher.sketch(b"ACCAGTACCA", &mut Counters::new());
         assert_eq!(t1.len(), 7);

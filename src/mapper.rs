@@ -9,15 +9,16 @@
 
 use crate::handler::Handler;
 use crate::index::SketchIndex;
+use crate::profiling::Profiler;
 use crate::shmap::SHMapper;
 
 pub trait Mapper {
-    fn map_reads(&mut self, handler: &mut Handler, p_file: &str) -> anyhow::Result<()>;
+    fn map_reads(&mut self, handler: &mut Handler, p_file: &str, profiler: &Profiler) -> anyhow::Result<()>;
 }
 
 impl<'idx, const NBP: bool, const OS: bool, const AP: bool> Mapper for SHMapper<'idx, NBP, OS, AP> {
-    fn map_reads(&mut self, handler: &mut Handler, p_file: &str) -> anyhow::Result<()> {
-        SHMapper::map_reads(self, handler, p_file)
+    fn map_reads(&mut self, handler: &mut Handler, p_file: &str, profiler: &Profiler) -> anyhow::Result<()> {
+        SHMapper::map_reads(self, handler, p_file, profiler)
     }
 }
 

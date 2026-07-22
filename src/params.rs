@@ -90,6 +90,19 @@ pub struct Params {
     /// Number of mapping threads (positive integer)
     #[arg(short = '@', long = "threads", default_value_t = 1)]
     pub threads: usize,
+
+    /// Enables profiling instrumentation: per-stage timings, a per-thread
+    /// breakdown, and memory-usage sampling, written once (as JSON) to
+    /// `--profile-log` at the end of the run. Off by default so normal runs
+    /// pay none of its cost; see `crate::profiling`.
+    #[arg(short = 'x', long = "profile")]
+    pub profile: bool,
+
+    /// Where to write the profiling report when `-x`/`--profile` is set.
+    /// Defaults to `<params_file>.profile.json` if `-z`/`--params` is
+    /// given, otherwise `shmap.profile.json` in the working directory.
+    #[arg(long = "profile-log")]
+    pub profile_log: Option<String>,
 }
 
 impl Params {
@@ -131,6 +144,19 @@ impl Params {
             bail!("The number of threads (-@) should be positive. You provided {}.", self.threads);
         }
         Ok(())
+    }
+
+    /// Resolves where the profiling report should be written; see
+    /// `profile_log`'s doc comment for the default rule.
+    pub fn profile_log_path(&self) -> String {
+        if let Some(p) = &self.profile_log {
+            return p.clone();
+        }
+        if !self.params_file.is_empty() {
+            format!("{}.profile.json", self.params_file)
+        } else {
+            "shmap.profile.json".to_string()
+        }
     }
 
     fn fields(&self) -> Vec<(&'static str, String)> {

@@ -28,6 +28,13 @@ INF = 999999
 SHMAP_NOINDEX?=0
 SHMAP_ARGS?=
 
+# Set PROFILE=1 to have eval_shmap pass -x/--profile, writing a per-stage
+# timing + per-thread + memory-usage JSON report to $(SHMAP_PREF).profile.json
+# alongside the usual .paf/.log/.eval outputs. Off by default (0) so normal
+# eval_shmap runs pay none of the (small but nonzero) profiling cost.
+PROFILE?=0
+PROFILE_ARGS = $(if $(filter 1,$(PROFILE)),-x --profile-log $(SHMAP_PREF).profile.json,)
+
 REFNAME ?= chm13-chr1
 READSIM_REFNAME ?= $(REFNAME)
 ACCURACY ?= ?
@@ -189,6 +196,10 @@ eval_max_overlaps: gen_reads
 eval_sketching_on_datasets:
 	make eval_sketching ALLOUT_DIR=$(DIR)/out_small	REFNAME=chm13   READSIM_REFNAME=hg002   DEPTH=0.1
 
+# Note: the bare `-x` below now enables profiling (writing shmap.profile.json
+# in the working directory each run, since no -z/--profile-log is passed) —
+# see PROFILE/PROFILE_ARGS above for the opt-in-per-run alternative used by
+# eval_shmap.
 eval_thinning: build gen_reads
 	@DIR=$(OUTDIR)/thinning; \
 	mkdir -p $${DIR}; \
@@ -217,7 +228,7 @@ eval_shmap: $(SHMAP_BIN) gen_reads
 	sudo $(TIME_CMD) -o $(SHMAP_PREF).time bash -c '\
 		taskset -c 0 chrt -f 99 $(SHMAP_BIN) \
 		-s $(REF) -p $(READS) -z $(SHMAP_PREF).params \
-		-k $(K) -r $(R) -t $(T) -d $(MIN_DIFF) -o $(MAX_OVERLAP) -m $(METRIC) $(SHMAP_ARGS) \
+		-k $(K) -r $(R) -t $(T) -d $(MIN_DIFF) -o $(MAX_OVERLAP) -m $(METRIC) $(PROFILE_ARGS) $(SHMAP_ARGS) \
 		2> >(tee $(SHMAP_PREF).log >&2) > $(SHMAP_PREF).paf'
 	$(PAFTOOLS) mapeval -r 0.1 $(SHMAP_PREF).paf 2>/dev/null | tee $(SHMAP_PREF).eval || true
 	$(PAFTOOLS) mapeval -r 0.1 -Q 0 $(SHMAP_PREF).paf > $(SHMAP_PREF).wrong 2>/dev/null || true

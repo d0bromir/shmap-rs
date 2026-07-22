@@ -72,6 +72,7 @@ use crate::handler::Handler;
 use crate::io::read_fasta;
 use crate::mapping::{Mapping, MappingPaf};
 use crate::params::Params;
+use crate::profiling::Profiler;
 use crate::sketch::FracMinHash;
 use crate::types::{H2Cnt, H2Seed, QPos};
 use crate::utils::{Counters, ProgressBar, Timers};
@@ -188,7 +189,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     /// if `-z`/`params_file` was given, matching the C++). Runs the
     /// reader/workers/collector pipeline described in the module doc
     /// comment, with `params.threads.max(1)` worker threads.
-    pub fn map_reads(&mut self, handler: &mut Handler, p_file: &str) -> anyhow::Result<()> {
+    pub fn map_reads(&mut self, handler: &mut Handler, p_file: &str, profiler: &Profiler) -> anyhow::Result<()> {
         handler.counters.init(&["reads"]);
         eprintln!("Mapping reads using SHmap...");
         let progress_bar = ProgressBar::new("Mapping");
@@ -210,6 +211,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         let mut paulout_is_first_row = true;
 
         handler.timers.start("mapping");
+        profiler.mem_mark("mapping_start");
 
         let n_threads = handler.params.threads.max(1);
         let tidx = self.tidx;
@@ -241,16 +243,29 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 
         let mut read_err: Option<anyhow::Error> = None;
         std::thread::scope(|scope| -> anyhow::Result<()> {
-            for _ in 0..n_threads {
+            for worker_idx in 0..n_threads {
                 let job_rx = &job_rx;
                 let done_tx = done_tx.clone();
                 scope.spawn(move || {
                     let mut worker: SHMapper<'_, NBP, OS, AP> = SHMapper::new(tidx);
                     let mut buckets: Buckets<'_, AP> = Buckets::new(tidx);
+                    // This thread's own cumulative timers/counters, distinct
+                    // from `worker.timers`/`worker.counters` (which
+                    // `map_read` clears and reinitializes every call) —
+                    // reported once as a whole-thread profile below, so a
+                    // profiling run can see per-worker load balance.
+                    let mut thread_timers = Timers::new();
+                    let mut thread_counters = Counters::new();
+                    let mut jobs_done: u64 = 0;
                     loop {
                         let job = job_rx.lock().unwrap().recv();
                         let Ok(job) = job else { break };
                         let result = worker.map_read(sketcher, params, &job.query_id, &job.seq, &mut buckets);
+                        if profiler.enabled() {
+                            thread_timers += &worker.timers;
+                            thread_counters += &worker.counters;
+                            jobs_done += 1;
+                        }
                         let done = Done {
                             idx: job.idx,
                             progress: job.progress,
@@ -261,6 +276,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         if done_tx.send(done).is_err() {
                             break;
                         }
+                    }
+                    if profiler.enabled() {
+                        profiler.record_thread(format!("worker-{worker_idx}"), "map", jobs_done, thread_timers, thread_counters);
                     }
                 });
             }
@@ -287,14 +305,25 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     timers.start("query_reading");
                 })?;
                 timers.stop("query_reading");
+                if profiler.enabled() {
+                    profiler.record_thread("reader", "io", idx, timers.clone(), Counters::new());
+                }
                 Ok(timers)
             });
 
             let mut next_idx = 0u64;
             let mut pending: HashMap<u64, Done> = HashMap::new();
+            let mut collector_timers = Timers::new();
+            let mut collector_counters = Counters::new();
             while let Ok(done) = done_rx.recv() {
                 pending.insert(done.idx, done);
+                if profiler.enabled() {
+                    collector_counters.update_max("max_pending_reorder_buffer", pending.len() as i64);
+                }
                 while let Some(done) = pending.remove(&next_idx) {
+                    if profiler.enabled() {
+                        collector_timers.start("collector_busy");
+                    }
                     handler.counters.inc1("reads");
                     handler.counters += &done.counters;
                     handler.timers += &done.timers;
@@ -314,7 +343,13 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         progress_bar.update(done.progress as f64);
                     }
                     next_idx += 1;
+                    if profiler.enabled() {
+                        collector_timers.stop("collector_busy");
+                    }
                 }
+            }
+            if profiler.enabled() {
+                profiler.record_thread("collector", "output", handler.counters.count("reads") as u64, collector_timers, collector_counters);
             }
 
             let reader_timers = reader.join().expect("reader thread panicked")?;
@@ -326,6 +361,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         }
 
         handler.timers.stop("mapping");
+        profiler.mem_mark("mapping_end");
         eprintln!();
 
         self.print_stats(handler);
@@ -604,18 +640,20 @@ mod integration_tests {
 
         let mut handler = Handler::new(params).unwrap();
         let mut tidx = SketchIndex::new();
+        let profiler = Profiler::new(false);
         tidx.build_index(
             &handler.params.t_file.clone(),
             &handler.sketcher,
             handler.params.max_matches,
             &mut handler.counters,
             &mut handler.timers,
+            &profiler,
         )
         .unwrap();
 
         let mut mapper: SHMapper<NBP, OS, AP> = SHMapper::new(&tidx);
         let p_file = handler.params.p_file.clone();
-        mapper.map_reads(&mut handler, &p_file).unwrap();
+        mapper.map_reads(&mut handler, &p_file, &profiler).unwrap();
     }
 
     const REF: &str = ">ref\nACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\n";
@@ -671,18 +709,20 @@ mod integration_tests {
 
         let mut handler = Handler::new(params).unwrap();
         let mut tidx = SketchIndex::new();
+        let profiler = Profiler::new(true);
         tidx.build_index(
             &handler.params.t_file.clone(),
             &handler.sketcher,
             handler.params.max_matches,
             &mut handler.counters,
             &mut handler.timers,
+            &profiler,
         )
         .unwrap();
 
         let mut mapper: SHMapper<false, false, false> = SHMapper::new(&tidx);
         let p_file = handler.params.p_file.clone();
-        mapper.map_reads(&mut handler, &p_file).unwrap();
+        mapper.map_reads(&mut handler, &p_file, &profiler).unwrap();
 
         let paul_tsv = std::fs::read_to_string(format!("{params_prefix}.paul.tsv")).unwrap();
         assert!(paul_tsv.starts_with("query_id\t"));
@@ -694,7 +734,15 @@ mod integration_tests {
         let unmapped_paf = std::fs::read_to_string(format!("{params_prefix}.unmapped.paf")).unwrap();
         assert!(unmapped_paf.contains("unmapped_sim!chr1!0!10!+"));
 
+        let profile_path = format!("{params_prefix}.profile.json");
+        profiler.finish_and_write(&profile_path, &handler.timers, &handler.counters).unwrap();
+        let profile_json = std::fs::read_to_string(&profile_path).unwrap();
+        assert!(profile_json.contains("\"threads\""));
+        assert!(profile_json.contains("\"reader\""));
+        assert!(profile_json.contains("\"worker-0\""));
+
         let _ = std::fs::remove_file(format!("{params_prefix}.paul.tsv"));
         let _ = std::fs::remove_file(format!("{params_prefix}.unmapped.paf"));
+        let _ = std::fs::remove_file(&profile_path);
     }
 }

@@ -180,6 +180,14 @@ impl Timers {
     pub fn clear(&mut self) {
         self.timers.clear();
     }
+
+    /// Every registered timer's name and accumulated seconds (a running
+    /// timer's partial elapsed time is included, matching [`Timer::secs`]).
+    /// Used by [`crate::profiling`] to serialize a whole `Timers` set
+    /// without needing to know the names in advance.
+    pub fn iter_secs(&self) -> impl Iterator<Item = (&str, f64)> + '_ {
+        self.timers.iter().map(|(name, t)| (name.as_str(), t.secs()))
+    }
 }
 
 impl AddAssign<&Timers> for Timers {
@@ -264,6 +272,13 @@ impl Counters {
 
     pub fn clear(&mut self) {
         self.counters.clear();
+    }
+
+    /// Every registered counter's name and value. Used by
+    /// [`crate::profiling`] to serialize a whole `Counters` set without
+    /// needing to know the names in advance.
+    pub fn iter_counts(&self) -> impl Iterator<Item = (&str, i64)> + '_ {
+        self.counters.iter().map(|(name, c)| (name.as_str(), c.count()))
     }
 
     /// `counters[name] = max(counters[name], value)`, auto-vivifying

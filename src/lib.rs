@@ -10,6 +10,7 @@ pub mod io;
 pub mod mapper;
 pub mod mapping;
 pub mod params;
+pub mod profiling;
 pub mod refine;
 pub mod shmap;
 pub mod sketch;

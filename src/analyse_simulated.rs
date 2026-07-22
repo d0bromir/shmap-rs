@@ -357,6 +357,7 @@ mod tests {
             handler.params.max_matches,
             &mut handler.counters,
             &mut handler.timers,
+            &crate::profiling::Profiler::new(false),
         )
         .unwrap();
 
