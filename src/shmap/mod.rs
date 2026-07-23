@@ -247,8 +247,6 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 let job_rx = &job_rx;
                 let done_tx = done_tx.clone();
                 scope.spawn(move || {
-                    let mut worker: SHMapper<'_, NBP, OS, AP> = SHMapper::new(tidx);
-                    let mut buckets: Buckets<'_, AP> = Buckets::new(tidx);
                     // This thread's own cumulative timers/counters, distinct
                     // from `worker.timers`/`worker.counters` (which
                     // `map_read` clears and reinitializes every call) —
@@ -257,6 +255,24 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     let mut thread_timers = Timers::new();
                     let mut thread_counters = Counters::new();
                     let mut jobs_done: u64 = 0;
+
+                    // `Buckets::new` allocates one `Vec<BucketContent>` per
+                    // reference segment, sized from the *whole reference*
+                    // (see its doc comment) — for a multi-Gbp genome this is
+                    // itself a multi-GB, multi-second allocation+zero-init,
+                    // done once per worker before any per-read timer starts.
+                    // Left untimed, that cost silently inflated the gap
+                    // between the `mapping` phase bracket and every named
+                    // per-read timer summed together; timing it here closes
+                    // that blind spot.
+                    if profiler.enabled() {
+                        thread_timers.start("worker_setup");
+                    }
+                    let mut worker: SHMapper<'_, NBP, OS, AP> = SHMapper::new(tidx);
+                    let mut buckets: Buckets<'_, AP> = Buckets::new(tidx);
+                    if profiler.enabled() {
+                        thread_timers.stop("worker_setup");
+                    }
                     loop {
                         let job = job_rx.lock().unwrap().recv();
                         let Ok(job) = job else { break };
