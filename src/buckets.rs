@@ -9,7 +9,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::index::SketchIndex;
-use crate::types::{BucketContent, BucketLoc, Hit, QPos, RPos, SegmId};
+use crate::types::{BucketContent, BucketLoc, Hit, QPos, RPos};
 
 /// Smallest allowed bucket half-length.
 pub const MIN_HALFLEN: QPos = 5;
@@ -58,51 +58,70 @@ impl<const AP: bool> BucketsHash<AP> {
                 .or_default() += content;
         }
     }
+
+    /// Empties the map for reuse as the next seed's scratch space, keeping
+    /// its already-allocated capacity — lets a single `BucketsHash` be
+    /// reused across every multi-hit seed in a read (`match_seeds`) instead
+    /// of allocating a fresh one per seed.
+    pub fn clear(&mut self) {
+        self.buckets.clear();
+    }
 }
 
-/// The mapper's primary bucket storage: one flat `Vec<BucketContent>` per
-/// reference segment, indexed by `tpos / halflen` (or `r / halflen` when
-/// `AP`), sized once up front from the segment's length.
+/// The mapper's primary bucket storage, keyed by `BucketLoc` (segment +
+/// `tpos / halflen`, or `r / halflen` when `AP`) rather than a flat,
+/// reference-sized array.
 ///
-/// The C++ caps this at `MAX_SEGMENTS = 100`, throwing at construction for
-/// larger references — that reads as an arbitrary implementation limit
-/// rather than an intentional one (draft/scaffolded assemblies routinely
-/// exceed 100 contigs), so this port sizes to the reference's actual
-/// segment count instead.
+/// This used to be one dense `Vec<BucketContent>` per reference segment,
+/// sized up front from the segment's length (`sz / MIN_HALFLEN + 2` slots) —
+/// for a multi-Gbp genome that's a ~15 GB allocation *per worker thread*,
+/// re-zeroed on every `clear()`-tracked touch but otherwise sitting almost
+/// entirely idle (a read only ever touches a handful of buckets near where
+/// it maps). Profiling that one-time allocation+zero-init (see
+/// `PROFILING.md`) found it costs 7-21+ seconds per worker depending on how
+/// many other workers are doing the same thing concurrently — the single
+/// largest hidden cost in the whole mapper, and the direct cause of
+/// multithreaded whole-genome runs sometimes getting *slower* with more
+/// threads (workers that finish this allocation last can end up with zero
+/// reads by the time they're ready).
+///
+/// Every operation here already only ever touches buckets recorded in
+/// `non_empty_buckets_with_repeats` — never a scan of the whole store — so
+/// switching to a sparse `FxHashMap` (the same backing type
+/// [`BucketsHash`] above already uses as per-seed scratch space) needs no
+/// algorithmic change, just a storage swap: memory now scales with how many
+/// buckets a worker's reads actually touch, not with reference size, and
+/// there's no more up-front allocation to pay for at all.
 pub struct Buckets<'idx, const AP: bool> {
     tidx: &'idx SketchIndex,
     pub halflen: QPos,
     pub i: i32,
     pub seeds: i32,
-    buckets: Vec<Vec<BucketContent>>,
+    buckets: FxHashMap<BucketLoc, BucketContent>,
     pub non_empty_buckets_with_repeats: Vec<BucketLoc>,
 }
 
 impl<'idx, const AP: bool> Buckets<'idx, AP> {
     pub fn new(tidx: &'idx SketchIndex) -> Self {
-        let buckets = (0..tidx.segments_len())
-            .map(|i| {
-                let sz = tidx.get_segment(i as SegmId).sz;
-                vec![BucketContent::default(); (sz / MIN_HALFLEN + 2) as usize]
-            })
-            .collect();
         Buckets {
             tidx,
             halflen: -1,
             i: 0,
             seeds: 0,
-            buckets,
+            buckets: FxHashMap::default(),
             non_empty_buckets_with_repeats: Vec::new(),
         }
     }
 
-    /// Resets all buckets touched since the last `clear()` back to their
-    /// default (empty) content, and resets the shared seed-index cursor.
+    /// Removes all buckets touched since the last `clear()` (rather than
+    /// resetting them to default in place) so the map's size tracks "buckets
+    /// touched by the most recent read(s)", not every bucket ever touched
+    /// across this worker's whole lifetime.
     pub fn clear(&mut self) {
         self.i = 0;
         self.seeds = 0;
         for loc in self.non_empty_buckets_with_repeats.drain(..) {
-            self.buckets[loc.segm_id as usize][loc.b as usize] = BucketContent::default();
+            self.buckets.remove(&loc);
         }
     }
 
@@ -124,7 +143,10 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
 
     pub fn propagate_seeds_to_buckets(&mut self) {
         for loc in &self.non_empty_buckets_with_repeats {
-            let bc = &mut self.buckets[loc.segm_id as usize][loc.b as usize];
+            let bc = self
+                .buckets
+                .get_mut(loc)
+                .expect("non_empty_buckets_with_repeats loc must have a bucket entry");
             bc.i = self.i;
             bc.seeds = self.seeds;
         }
@@ -133,19 +155,18 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
     pub fn add_to_pos(&mut self, hit: &Hit, content: BucketContent) {
         let b = (if AP { hit.r } else { hit.tpos }) / self.halflen;
         debug_assert!((hit.segm_id as usize) < self.tidx.segments_len());
-        debug_assert!((b as usize) < self.buckets[hit.segm_id as usize].len());
-        self.buckets[hit.segm_id as usize][b as usize] += content;
-        self.non_empty_buckets_with_repeats
-            .push(BucketLoc::new(hit.segm_id, b));
+        let loc = BucketLoc::new(hit.segm_id, b);
+        *self.buckets.entry(loc).or_default() += content;
+        self.non_empty_buckets_with_repeats.push(loc);
         if b > 0 {
-            self.buckets[hit.segm_id as usize][(b - 1) as usize] += content;
-            self.non_empty_buckets_with_repeats
-                .push(BucketLoc::new(hit.segm_id, b - 1));
+            let prev_loc = BucketLoc::new(hit.segm_id, b - 1);
+            *self.buckets.entry(prev_loc).or_default() += content;
+            self.non_empty_buckets_with_repeats.push(prev_loc);
         }
     }
 
     pub fn add_to_bucket(&mut self, b: BucketLoc, content: BucketContent) {
-        self.buckets[b.segm_id as usize][b.b as usize] += content;
+        *self.buckets.entry(b).or_default() += content;
         self.non_empty_buckets_with_repeats.push(b);
     }
 
@@ -166,7 +187,7 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         let mut sorted_buckets: Vec<(BucketLoc, BucketContent)> = self
             .non_empty_buckets_with_repeats
             .iter()
-            .map(|loc| (*loc, self.buckets[loc.segm_id as usize][loc.b as usize]))
+            .map(|loc| (*loc, self.buckets[loc]))
             .collect();
         sorted_buckets.sort_by(|a, b| b.1.matches.cmp(&a.1.matches));
         sorted_buckets
@@ -177,7 +198,7 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
 mod tests {
     use super::*;
     use crate::sketch::RefSegment;
-    use crate::types::Kmer;
+    use crate::types::{Kmer, SegmId};
 
     fn tidx_with_one_segment(sz: RPos) -> SketchIndex {
         let mut tidx = SketchIndex::new();

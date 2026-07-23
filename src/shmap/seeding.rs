@@ -80,6 +80,11 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     /// against the index, accumulating hit counts into `buckets`.
     pub fn match_seeds(&mut self, p_unique: &Seeds, buckets: &mut Buckets<'idx, AP>, s: QPos) {
         let mut seed_matches: RPos = 0;
+        // Reused as scratch space across every multi-hit seed below instead
+        // of allocating a fresh `BucketsHash` per seed — `match_seeds` runs
+        // once per read and a read can have many multi-hit seeds, so this
+        // was previously one hashmap allocation per such seed.
+        let mut b2m: BucketsHash<AP> = BucketsHash::new(buckets.halflen);
         while (buckets.i as usize) < p_unique.len() && buckets.seeds < s {
             let seed = &p_unique[buckets.i as usize];
             if seed.hits_in_t > 0 {
@@ -97,7 +102,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     );
                     buckets.add_to_pos(&hit, content);
                 } else {
-                    let mut b2m: BucketsHash<AP> = BucketsHash::new(buckets.halflen);
+                    b2m.clear();
                     for hit in &self.tidx.h2multi[&seed.kmer.h] {
                         let content = BucketContent::new(
                             1,

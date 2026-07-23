@@ -206,14 +206,24 @@ fn catch_read_panic<'idx, const NBP: bool, const OS: bool, const AP: bool>(
 /// actually touches stdout/the unmapped-PAF file/`paul.tsv` during mapping.
 /// Must be called strictly in original read order for output to match a
 /// single-threaded run.
+///
+/// `stdout` is a caller-owned, already-locked buffered writer rather than a
+/// bare `print!()` per call: `print!`/`io::stdout()` write through a
+/// `LineWriter`, which flushes on every `\n` — since every PAF line ends in
+/// one, that meant a lock-and-flush (effectively a syscall) *per read*.
+/// Holding one `BufWriter` open for the whole collector loop instead batches
+/// many reads' output into each underlying write, which matters most on
+/// fast/small datasets at high thread counts, where profiling showed the
+/// collector's own share of time growing fastest (see `PROFILING.md`).
 fn apply_read_output(
     output: &ReadOutput,
+    stdout: &mut impl std::io::Write,
     unmapped_out: Option<&mut std::fs::File>,
     paulout: Option<&mut std::fs::File>,
     paulout_is_first_row: &mut bool,
 ) -> anyhow::Result<()> {
     if !output.stdout.is_empty() {
-        print!("{}", output.stdout);
+        stdout.write_all(output.stdout.as_bytes())?;
     }
     if let Some(line) = &output.unmapped_line
         && let Some(f) = unmapped_out
@@ -290,6 +300,11 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             None
         };
         let mut paulout_is_first_row = true;
+        // Locked once and held for the whole collector loop (see
+        // `apply_read_output`'s doc comment) instead of relocking/flushing
+        // stdout on every single read.
+        let stdout = std::io::stdout();
+        let mut stdout_writer = std::io::BufWriter::new(stdout.lock());
 
         handler.timers.start("mapping");
         profiler.mem_mark("mapping_start");
@@ -427,7 +442,13 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 
                     match done.result {
                         Ok(output) => {
-                            apply_read_output(&output, unmapped_out.as_mut(), paulout.as_mut(), &mut paulout_is_first_row)?;
+                            apply_read_output(
+                                &output,
+                                &mut stdout_writer,
+                                unmapped_out.as_mut(),
+                                paulout.as_mut(),
+                                &mut paulout_is_first_row,
+                            )?;
                         }
                         Err(e) => {
                             if read_err.is_none() {
@@ -453,6 +474,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             handler.timers += &reader_timers;
             Ok(())
         })?;
+        stdout_writer.flush()?;
         if let Some(e) = read_err {
             return Err(e);
         }
