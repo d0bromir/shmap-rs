@@ -40,7 +40,7 @@ impl fmt::Display for Kmer {
 }
 
 /// A k-mer hit in the reference T.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Hit {
     /// Right end of the k-mer `[l, r)`.
     pub r: RPos,

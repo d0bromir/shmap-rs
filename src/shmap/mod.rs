@@ -775,6 +775,7 @@ mod integration_tests {
             &mut handler.counters,
             &mut handler.timers,
             &profiler,
+            handler.params.threads,
         )
         .unwrap();
 
@@ -844,6 +845,7 @@ mod integration_tests {
             &mut handler.counters,
             &mut handler.timers,
             &profiler,
+            handler.params.threads,
         )
         .unwrap();
 
@@ -924,6 +926,7 @@ mod integration_tests {
             &mut handler.counters,
             &mut handler.timers,
             &profiler,
+            handler.params.threads,
         )
         .unwrap();
 

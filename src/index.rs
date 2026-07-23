@@ -1,6 +1,34 @@
 //! Reference k-mer index.
 //!
 //! Port of `shmap/src/index.h`.
+//!
+//! # Multithreaded sketching (`-@`/`--threads`)
+//!
+//! Not present upstream (indexing is entirely single-threaded there); added
+//! because profiling (`PROFILING.md`) found reference indexing to be a fixed
+//! serial floor that dominates whole-genome + few-reads workloads (~21s for
+//! the full CHM13 genome, ~70% of total wall time on a 2000-read run against
+//! it), the single biggest remaining lever once the `Buckets`-allocation fix
+//! landed. `build_index` uses the same reader/worker-pool/collector pipeline
+//! as `SHMapper::map_reads` (see that module's doc comment): one reader
+//! thread streams segments off disk over a bounded channel, `threads`
+//! worker threads sketch them in parallel (the actual FracMinHash k-mer
+//! selection — independent per segment, so embarrassingly parallel), and the
+//! scope's own thread collects completions and applies them
+//! ([`SketchIndex::add_segment`]) strictly in original file order.
+//!
+//! That last part matters for determinism, not just style: `segm_id` is
+//! assigned as `self.segments.len()` at the moment a segment is applied, and
+//! `populate_h2pos`'s `max_matches` cap keeps only the first `m+1` hits it
+//! sees for an over-frequent k-mer — both depend on *processing* order, not
+//! just final content. Applying completed sketches in strict file order
+//! (regardless of which order the worker threads actually finish sketching
+//! them in) keeps both exactly matching the single-threaded result, the same
+//! guarantee `map_reads` already provides for mapping output.
+
+use std::collections::HashMap;
+use std::sync::mpsc;
+use std::sync::Mutex;
 
 use rustc_hash::FxHashMap;
 
@@ -122,6 +150,11 @@ impl SketchIndex {
     }
 
     /// Reads `t_file`, sketches each segment, and populates the index.
+    /// `threads` (`params.threads`, the same knob `-@` uses for mapping)
+    /// parallelizes the sketching step across segments — see the module
+    /// doc comment for the pipeline shape and why it's still
+    /// thread-count-independent/deterministic.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_index(
         &mut self,
         t_file: &str,
@@ -130,6 +163,7 @@ impl SketchIndex {
         counters: &mut Counters,
         timers: &mut Timers,
         profiler: &Profiler,
+        threads: usize,
     ) -> anyhow::Result<()> {
         let progress_bar = ProgressBar::new("Indexing");
 
@@ -139,27 +173,121 @@ impl SketchIndex {
 
         timers.start("indexing");
         eprintln!("Indexing {t_file}...");
-        timers.start("index_reading");
 
-        read_fasta(t_file, |segm_name, seq, indexing_progress| {
-            timers.stop("index_reading");
-            timers.start("index_sketching");
-            let sketch = sketcher.sketch(seq, counters);
-            timers.stop("index_sketching");
+        let n_threads = threads.max(1);
 
-            timers.start("index_initializing");
-            self.add_segment(
-                segm_name.to_string(),
-                seq.len() as RPos,
-                sketch,
-                max_matches,
-                counters,
-            );
-            timers.stop("index_initializing");
+        struct SegJob {
+            idx: u64,
+            segm_name: String,
+            seq: Vec<u8>,
+            progress: f32,
+        }
+        struct SegDone {
+            idx: u64,
+            segm_name: String,
+            seq_len: RPos,
+            sketch: SketchT,
+            progress: f32,
+            counters: Counters,
+            timers: Timers,
+        }
 
-            progress_bar.update(indexing_progress as f64);
+        // Bounded for the same reason as `map_reads`'s job channel: caps how
+        // far the reader can get ahead of the sketching workers.
+        let (job_tx, job_rx) = mpsc::sync_channel::<SegJob>(n_threads * 4);
+        let job_rx = Mutex::new(job_rx);
+        let (done_tx, done_rx) = mpsc::channel::<SegDone>();
 
-            timers.start("index_reading");
+        std::thread::scope(|scope| -> anyhow::Result<()> {
+            for worker_idx in 0..n_threads {
+                let job_rx = &job_rx;
+                let done_tx = done_tx.clone();
+                scope.spawn(move || {
+                    let mut thread_timers = Timers::new();
+                    let mut thread_counters = Counters::new();
+                    let mut jobs_done: u64 = 0;
+                    loop {
+                        let job = job_rx.lock().unwrap().recv();
+                        let Ok(job) = job else { break };
+                        let mut seg_counters = Counters::new();
+                        let mut seg_timers = Timers::new();
+                        seg_timers.start("index_sketching");
+                        let sketch = sketcher.sketch(&job.seq, &mut seg_counters);
+                        seg_timers.stop("index_sketching");
+                        if profiler.enabled() {
+                            thread_timers += &seg_timers;
+                            thread_counters += &seg_counters;
+                            jobs_done += 1;
+                        }
+                        let done = SegDone {
+                            idx: job.idx,
+                            segm_name: job.segm_name,
+                            seq_len: job.seq.len() as RPos,
+                            sketch,
+                            progress: job.progress,
+                            counters: seg_counters,
+                            timers: seg_timers,
+                        };
+                        if done_tx.send(done).is_err() {
+                            break;
+                        }
+                    }
+                    if profiler.enabled() {
+                        profiler.record_thread(
+                            format!("index-worker-{worker_idx}"),
+                            "index_sketch",
+                            jobs_done,
+                            thread_timers,
+                            thread_counters,
+                        );
+                    }
+                });
+            }
+            drop(done_tx);
+
+            let reader = scope.spawn(move || -> anyhow::Result<Timers> {
+                let mut r_timers = Timers::new();
+                r_timers.init(&["index_reading"]);
+                r_timers.start("index_reading");
+                let mut idx = 0u64;
+                read_fasta(t_file, |segm_name, seq, progress| {
+                    r_timers.stop("index_reading");
+                    let _ = job_tx.send(SegJob {
+                        idx,
+                        segm_name: segm_name.to_string(),
+                        seq: seq.to_vec(),
+                        progress,
+                    });
+                    idx += 1;
+                    r_timers.start("index_reading");
+                })?;
+                r_timers.stop("index_reading");
+                Ok(r_timers)
+            });
+
+            // Applies each segment's already-computed sketch strictly in
+            // original file order (never in whatever order workers actually
+            // finish sketching) — see the module doc comment for why this
+            // is required for determinism, not just for a stable progress
+            // bar.
+            let mut next_idx = 0u64;
+            let mut pending: HashMap<u64, SegDone> = HashMap::new();
+            while let Ok(done) = done_rx.recv() {
+                pending.insert(done.idx, done);
+                while let Some(done) = pending.remove(&next_idx) {
+                    *counters += &done.counters;
+                    timers.start("index_initializing");
+                    self.add_segment(done.segm_name, done.seq_len, done.sketch, max_matches, counters);
+                    timers.stop("index_initializing");
+                    *timers += &done.timers;
+                    progress_bar.update(done.progress as f64);
+                    next_idx += 1;
+                }
+            }
+
+            let reader_timers = reader.join().expect("index reader thread panicked")?;
+            *timers += &reader_timers;
+            Ok(())
         })?;
         eprintln!();
 
@@ -173,7 +301,6 @@ impl SketchIndex {
             }
             hits.sort_by(|a, b| a.segm_id.cmp(&b.segm_id).then(a.r.cmp(&b.r)));
         }
-        timers.stop("index_reading");
         timers.stop("indexing");
 
         self.get_kmer_stats(counters);
@@ -267,6 +394,7 @@ mod tests {
             &mut counters,
             &mut timers,
             &Profiler::new(false),
+            1,
         )
         .unwrap();
 
@@ -294,6 +422,7 @@ mod tests {
             &mut counters,
             &mut timers,
             &Profiler::new(false),
+            1,
         )
         .unwrap();
 
@@ -305,5 +434,74 @@ mod tests {
         }
         assert_eq!(counters.count("indexed_hits"), 10);
         assert_eq!(counters.count("indexed_kmers"), 8);
+    }
+
+    /// Regression test for the determinism `build_index`'s module doc
+    /// comment claims: segments are assigned `segm_id`s by file order and
+    /// `max_matches` caps the *first* `m+1` hits seen for an over-frequent
+    /// k-mer, both of which depend on processing order, not just final
+    /// content -- so building the same reference at `-@ 1` vs `-@ 8` must
+    /// still apply completed sketches in strict file order rather than
+    /// whatever order the worker threads happen to finish sketching in.
+    /// Many segments share a common prefix (so plenty of k-mers land in
+    /// `h2multi` across segment boundaries) with a small `max_matches` (so
+    /// the order-sensitive cap actually triggers), specifically to give a
+    /// wrong merge order a real chance to produce a different index.
+    #[test]
+    fn multithreaded_indexing_matches_single_threaded_indexing() {
+        let repeated = "ACGTACGTACGTACGTACGT";
+        let mut content = String::new();
+        for i in 0..10 {
+            content.push_str(&format!(">segm{i}\n{repeated}TTTTGGGGCCCCAAAA{i}\n"));
+        }
+        let f = fasta_file(&content);
+        let sketcher = FracMinHash::new(6, 1.0);
+        let max_matches = Some(3);
+
+        let mut counters1 = Counters::new();
+        let mut timers1 = Timers::new();
+        let mut tidx1 = SketchIndex::new();
+        tidx1
+            .build_index(
+                f.path().to_str().unwrap(),
+                &sketcher,
+                max_matches,
+                &mut counters1,
+                &mut timers1,
+                &Profiler::new(false),
+                1,
+            )
+            .unwrap();
+
+        let mut counters8 = Counters::new();
+        let mut timers8 = Timers::new();
+        let mut tidx8 = SketchIndex::new();
+        tidx8
+            .build_index(
+                f.path().to_str().unwrap(),
+                &sketcher,
+                max_matches,
+                &mut counters8,
+                &mut timers8,
+                &Profiler::new(false),
+                8,
+            )
+            .unwrap();
+
+        // Sanity: the shared prefix actually produced an over-frequent k-mer
+        // for `max_matches` to blacklist, i.e. this test is actually
+        // exercising the order-sensitive path and not vacuously passing.
+        assert!(counters1.count("blacklisted_kmers") > 0);
+
+        assert_eq!(
+            tidx1.segments.iter().map(|s| (s.name.clone(), s.sz)).collect::<Vec<_>>(),
+            tidx8.segments.iter().map(|s| (s.name.clone(), s.sz)).collect::<Vec<_>>(),
+            "segm_id assignment (file order) diverged between thread counts"
+        );
+        assert_eq!(tidx1.h2single, tidx8.h2single, "h2single diverged between thread counts");
+        assert_eq!(tidx1.h2multi, tidx8.h2multi, "h2multi diverged between thread counts");
+        assert_eq!(counters1.count("indexed_hits"), counters8.count("indexed_hits"));
+        assert_eq!(counters1.count("indexed_kmers"), counters8.count("indexed_kmers"));
+        assert_eq!(counters1.count("blacklisted_kmers"), counters8.count("blacklisted_kmers"));
     }
 }

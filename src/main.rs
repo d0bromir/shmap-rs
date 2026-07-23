@@ -47,6 +47,7 @@ fn main() -> anyhow::Result<()> {
         &mut handler.counters,
         &mut handler.timers,
         &profiler,
+        handler.params.threads,
     )
     .with_context(|| format!("failed to build index from {t_file}"))?;
     profiler.mem_mark("after_index");

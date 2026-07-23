@@ -358,6 +358,7 @@ mod tests {
             &mut handler.counters,
             &mut handler.timers,
             &crate::profiling::Profiler::new(false),
+            1,
         )
         .unwrap();
 
