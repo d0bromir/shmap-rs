@@ -574,7 +574,15 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         params.theta,
                     );
                     let mut buf = Vec::new();
-                    gt.print_paf(&mut buf)?;
+                    // `buf` is a `Vec<u8>`, whose `io::Write` impl cannot
+                    // fail -- `.unwrap()`, not `?`, so a hypothetical future
+                    // fallible sink here can't silently return early from
+                    // between `self.timers.start("output")` (above) and
+                    // `.stop("output")` (below) and leave that timer running
+                    // forever inside this per-read `Timers` (see the
+                    // `Timer::frozen`/`frozen_snapshot` fix this module
+                    // already needed for a similar still-running-timer bug).
+                    gt.print_paf(&mut buf).unwrap();
                     stdout.push_str(&String::from_utf8_lossy(&buf));
                     let gt_overlap = Mapping::overlap(&gt.gt_mapping, &best);
                     write!(
