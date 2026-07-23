@@ -34,6 +34,17 @@ impl RefSegment {
 pub struct FracMinHash {
     lut_fw: [Hash; 256],
     lut_rc: [Hash; 256],
+    /// Per-base contributions with the fixed rotates the rolling update
+    /// applies to the *outgoing*/*incoming* base baked in, so the hot loop
+    /// does a plain table load instead of a load+rotate each. Since these
+    /// rotate amounts (`k`, `1`, `k-1`) are the same for every base, this
+    /// removes 3 of the 5 per-base rotates over the whole reference — see
+    /// [`FracMinHash::sketch`]. `lut_fw_k[c] = lut_fw[c].rotate_left(k)`,
+    /// `lut_rc_r1[c] = lut_rc[c].rotate_right(1)`,
+    /// `lut_rc_k1[c] = lut_rc[c].rotate_left(k-1)`.
+    lut_fw_k: [Hash; 256],
+    lut_rc_r1: [Hash; 256],
+    lut_rc_k1: [Hash; 256],
     pub k: i32,
     pub h_frac: f64,
 }
@@ -66,9 +77,21 @@ impl FracMinHash {
             lut_rc[upper as usize] = lut_fw[complement as usize];
         }
 
+        let mut lut_fw_k = [0u64; 256];
+        let mut lut_rc_r1 = [0u64; 256];
+        let mut lut_rc_k1 = [0u64; 256];
+        for c in 0..256 {
+            lut_fw_k[c] = lut_fw[c].rotate_left(k as u32);
+            lut_rc_r1[c] = lut_rc[c].rotate_right(1);
+            lut_rc_k1[c] = lut_rc[c].rotate_left((k - 1) as u32);
+        }
+
         FracMinHash {
             lut_fw,
             lut_rc,
+            lut_fw_k,
+            lut_rc_r1,
+            lut_rc_k1,
             k,
             h_frac,
         }
@@ -116,10 +139,11 @@ impl FracMinHash {
 
             let out_c = s[(r - k) as usize] as usize;
             let in_c = s[r as usize] as usize;
-            h_fw = h_fw.rotate_left(1) ^ self.lut_fw[out_c].rotate_left(k as u32) ^ self.lut_fw[in_c];
-            h_rc = h_rc.rotate_right(1)
-                ^ self.lut_rc[out_c].rotate_right(1)
-                ^ self.lut_rc[in_c].rotate_left((k - 1) as u32);
+            // Identical arithmetic to the pre-baked form (see the LUT doc
+            // comment) — the three fixed rotates on LUT values are now
+            // precomputed, leaving only the two accumulator rotates here.
+            h_fw = h_fw.rotate_left(1) ^ self.lut_fw_k[out_c] ^ self.lut_fw[in_c];
+            h_rc = h_rc.rotate_right(1) ^ self.lut_rc_r1[out_c] ^ self.lut_rc_k1[in_c];
 
             r += 1;
         }

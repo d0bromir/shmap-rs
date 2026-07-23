@@ -399,9 +399,15 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             let reader = scope.spawn(move || -> anyhow::Result<Timers> {
                 let mut timers = Timers::new();
                 timers.init(&["query_reading"]);
+                // Separate object: `read_fasta` needs its own `&mut Timers`
+                // for its internal fasta_parse_next/fasta_extract sub-stage
+                // timers, which would otherwise alias the callback's own
+                // mutable capture of `timers` below. Merged in once `read_fasta`
+                // returns so both end up in the same report.
+                let mut fasta_timers = Timers::new();
                 timers.start("query_reading");
                 let mut idx = 0u64;
-                read_fasta(p_file, |query_id, seq, progress| {
+                read_fasta(p_file, &mut fasta_timers, |query_id, seq, progress| {
                     timers.stop("query_reading");
                     // A send error only happens once every worker has
                     // already exited; the collector loop below will observe
@@ -417,6 +423,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     timers.start("query_reading");
                 })?;
                 timers.stop("query_reading");
+                timers += &fasta_timers;
                 if profiler.enabled() {
                     profiler.record_thread("reader", "io", idx, timers.clone(), Counters::new());
                 }

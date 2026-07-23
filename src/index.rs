@@ -87,12 +87,20 @@ impl SketchIndex {
     fn populate_h2pos(&mut self, sketch: &SketchT, segm_id: SegmId, max_matches: Option<i32>) {
         for (tpos, kmer) in sketch.iter().enumerate() {
             let hit = Hit::new(kmer, tpos as RPos, segm_id);
-            if !self.h2single.contains_key(&kmer.h) {
-                self.h2single.insert(kmer.h, hit);
-            } else {
-                let multi = self.h2multi.entry(kmer.h).or_default();
-                if max_matches.is_none_or(|m| (multi.len() as i32) < m + 1) {
-                    multi.push(hit);
+            // `entry` instead of `contains_key` + `insert`/`entry`: hashes
+            // `kmer.h` once instead of twice for the common (single-hit)
+            // case — this loop runs once per indexed k-mer (~19M for the
+            // full CHM13 genome), so the redundant hash was a real,
+            // measurable cost in `index_initializing`.
+            match self.h2single.entry(kmer.h) {
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(hit);
+                }
+                std::collections::hash_map::Entry::Occupied(_) => {
+                    let multi = self.h2multi.entry(kmer.h).or_default();
+                    if max_matches.is_none_or(|m| (multi.len() as i32) < m + 1) {
+                        multi.push(hit);
+                    }
                 }
             }
         }
@@ -174,6 +182,21 @@ impl SketchIndex {
         timers.start("indexing");
         eprintln!("Indexing {t_file}...");
 
+        // Pre-size `h2single` so the ~N-distinct-k-mer insert scan below
+        // doesn't repeatedly rehash+realloc as it grows from empty. For
+        // uncompressed FASTA the on-disk byte count is a close proxy for
+        // nucleotide count (headers/newlines are a small overhead), and
+        // FracMinHash keeps ~`h_frac` of k-mers, so `file_bytes * h_frac` is
+        // a good upper-ish estimate of the distinct-k-mer count. Capped so a
+        // pathological `h_frac` near 1 on a huge file can't demand an absurd
+        // up-front allocation; an under-estimate (e.g. compressed input,
+        // where `len()` is the compressed size) just falls back to normal
+        // growth. Reserve is a no-op hint when it guesses too low.
+        if let Ok(meta) = std::fs::metadata(t_file) {
+            let est = ((meta.len() as f64 * sketcher.h_frac) as usize).min(1 << 30);
+            self.h2single.reserve(est);
+        }
+
         let n_threads = threads.max(1);
 
         struct SegJob {
@@ -248,9 +271,13 @@ impl SketchIndex {
             let reader = scope.spawn(move || -> anyhow::Result<Timers> {
                 let mut r_timers = Timers::new();
                 r_timers.init(&["index_reading"]);
+                // Separate object: `read_fasta`'s own `&mut Timers` argument
+                // would otherwise alias the callback's mutable capture of
+                // `r_timers` below. Merged in once `read_fasta` returns.
+                let mut fasta_timers = Timers::new();
                 r_timers.start("index_reading");
                 let mut idx = 0u64;
-                read_fasta(t_file, |segm_name, seq, progress| {
+                read_fasta(t_file, &mut fasta_timers, |segm_name, seq, progress| {
                     r_timers.stop("index_reading");
                     let _ = job_tx.send(SegJob {
                         idx,
@@ -262,6 +289,7 @@ impl SketchIndex {
                     r_timers.start("index_reading");
                 })?;
                 r_timers.stop("index_reading");
+                r_timers += &fasta_timers;
                 Ok(r_timers)
             });
 
