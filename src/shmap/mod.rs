@@ -56,6 +56,19 @@
 //! separate sequential fast path: with a single worker, completions already
 //! arrive in submission order, so the reorder buffer is a no-op and
 //! behavior is identical to before — one fewer code path to keep in sync.
+//!
+//! Each worker catches panics from its own `map_read` call ([`catch_read_panic`])
+//! rather than letting one bad read kill the thread. Without this, a dead
+//! worker stops draining the bounded job channel, the reader thread blocks
+//! forever trying to send into it, and the main thread then blocks forever
+//! in `reader.join()` — turning one bad read into a permanent hang instead
+//! of a clean per-read error (found and fixed after reproducing exactly
+//! this hang via `-v 2` against non-ground-truth-encoded reads, which
+//! panics by documented design). Safe to keep the worker thread alive
+//! afterward: there's no `unsafe` code anywhere in this crate, and
+//! `map_read` already clears/reinitializes all of its state at the top of
+//! every call, so a panic mid-read can't leave anything for the *next* read
+//! on that worker to inherit.
 
 mod pruning;
 mod scoring;
@@ -130,6 +143,65 @@ struct ReadOutput {
     paul_row: Option<String>,
 }
 
+/// Best-effort extraction of a human-readable message from a caught panic's
+/// payload — mirrors what the default panic hook prints, for the common
+/// `&str`/`String` payloads `panic!`/`.unwrap()`/`.expect()` produce.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "non-string panic payload".to_string()
+    }
+}
+
+/// Runs one worker's `map_read` call with panics converted into a normal
+/// per-read `Err`, instead of unwinding out of the worker thread — see the
+/// module doc comment for why a dead worker thread is much worse than one
+/// failed read (it can hang the whole pipeline, not just this read).
+///
+/// `worker`/`buckets` don't need any special recovery for the *next* read on
+/// the caught-panic path: `map_read` already clears and reinitializes
+/// `worker.timers`/`worker.counters` and calls `buckets.clear()` as the very
+/// first thing it does on every call (panicked-last-time or not), and
+/// there's no `unsafe` code anywhere in this crate for a mid-computation
+/// panic to leave in a torn, memory-unsafe state.
+///
+/// This function does still clear `worker.timers`/`worker.counters` for
+/// *this* (failed) read specifically, before the caller merges them into
+/// the run-wide/per-thread totals: a panic can happen anywhere in
+/// `map_read`, including after most of a read's real work (kmer counts,
+/// `mapped_reads`, ...) already ran — merging those in would misreport a
+/// read whose output was never written (the collector only applies
+/// `Ok` results) as having contributed normally to the aggregate stats.
+/// Emptying them makes the merge a genuine no-op instead, at the cost that
+/// callers reading a counter/timer name that would otherwise only ever get
+/// established via a *successful* read's contribution (e.g.
+/// `handler.counters.count("mapped_reads")`, read unconditionally by the
+/// collector's progress-bar check) must pre-register it themselves rather
+/// than relying on the first successful read to do so — see `map_reads`'s
+/// `handler.counters.init(...)` call.
+#[allow(clippy::too_many_arguments)]
+fn catch_read_panic<'idx, const NBP: bool, const OS: bool, const AP: bool>(
+    worker: &mut SHMapper<'idx, NBP, OS, AP>,
+    sketcher: &FracMinHash,
+    params: &Params,
+    query_id: &str,
+    seq: &[u8],
+    buckets: &mut Buckets<'idx, AP>,
+) -> anyhow::Result<ReadOutput> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.map_read(sketcher, params, query_id, seq, buckets)))
+        .unwrap_or_else(|panic_payload| {
+            worker.timers.clear();
+            worker.counters.clear();
+            Err(anyhow::anyhow!(
+                "panicked while mapping read {query_id:?}: {}",
+                panic_message(&*panic_payload)
+            ))
+        })
+}
+
 /// Applies one read's already-rendered [`ReadOutput`] — the only place that
 /// actually touches stdout/the unmapped-PAF file/`paul.tsv` during mapping.
 /// Must be called strictly in original read order for output to match a
@@ -190,7 +262,16 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     /// reader/workers/collector pipeline described in the module doc
     /// comment, with `params.threads.max(1)` worker threads.
     pub fn map_reads(&mut self, handler: &mut Handler, p_file: &str, profiler: &Profiler) -> anyhow::Result<()> {
-        handler.counters.init(&["reads"]);
+        // "mapped_reads" is pre-registered here (not just "reads") because
+        // the collector reads it unconditionally on every completed job
+        // (`handler.counters.count("mapped_reads")` below, for the progress
+        // bar) — normally it only ever gets into `handler.counters` via a
+        // *successful* read's own per-read `Counters` merging in, so if
+        // every read up to that point failed (panicked and was caught by
+        // `catch_read_panic`, which deliberately merges in nothing for a
+        // failed read rather than misleading partial stats), it would
+        // otherwise never exist yet and `.count(...)` would panic.
+        handler.counters.init(&["reads", "mapped_reads"]);
         eprintln!("Mapping reads using SHmap...");
         let progress_bar = ProgressBar::new("Mapping");
 
@@ -276,7 +357,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     loop {
                         let job = job_rx.lock().unwrap().recv();
                         let Ok(job) = job else { break };
-                        let result = worker.map_read(sketcher, params, &job.query_id, &job.seq, &mut buckets);
+                        let result = catch_read_panic(&mut worker, sketcher, params, &job.query_id, &job.seq, &mut buckets);
                         if profiler.enabled() {
                             thread_timers += &worker.timers;
                             thread_counters += &worker.counters;
@@ -768,5 +849,79 @@ mod integration_tests {
         let _ = std::fs::remove_file(format!("{params_prefix}.paul.tsv"));
         let _ = std::fs::remove_file(format!("{params_prefix}.unmapped.paf"));
         let _ = std::fs::remove_file(&profile_path);
+    }
+
+    /// Regression test for a real deadlock: `-v 2` against reads whose names
+    /// aren't ground-truth-encoded panics inside `map_read` by documented
+    /// design (see `Params::verbose`'s doc comment). Before `catch_read_panic`
+    /// was added, that panic killed the sole worker thread, which stopped it
+    /// draining the bounded job channel; the reader thread then blocked
+    /// forever trying to send into it, and `map_reads` blocked forever
+    /// joining that reader — `-@ 1` (the default) hung permanently instead of
+    /// erroring. Runs `map_reads` on a background thread and asserts it
+    /// returns (with an `Err`, not a panic escaping) within a generous
+    /// timeout, so a regression fails this test instead of hanging `cargo
+    /// test` forever.
+    #[test]
+    fn a_panicking_read_errors_instead_of_hanging_the_pipeline() {
+        let reference = ">chr1\nACGTGGCATTACGGATCCAGTGCATTGGACCTAGCATTGACCGGTAACCTTGGCATCGATGCCTAGGCATTACCGGATGCATCCGGTTACGATGCCATTGGACCTAGCATTGACCGGTA\n";
+        // None of these names are ground-truth-encoded (no `!`-separated
+        // fields), so every single one panics under `-v 2`.
+        let reads = ">read0\nACGGATCCAGTGCATTGGACCTAGCATTGACCGGTAACCT\n\
+                     >read1\nACGGATCCAGTGCATTGGACCTAGCATTGACCGGTAACCT\n\
+                     >read2\nNNNNNNNNNNNNNNNNNNNN\n";
+
+        let ref_file = write_fasta(reference);
+        let reads_file = write_fasta(reads);
+
+        let params = Params::try_parse_from([
+            "shmap",
+            "-p",
+            reads_file.path().to_str().unwrap(),
+            "-s",
+            ref_file.path().to_str().unwrap(),
+            "-k",
+            "8",
+            "-r",
+            "1.0",
+            "-t",
+            "0.9",
+            "-v",
+            "2",
+        ])
+        .unwrap();
+        params.validate().unwrap();
+
+        let mut handler = Handler::new(params).unwrap();
+        let mut tidx = SketchIndex::new();
+        let profiler = Profiler::new(false);
+        tidx.build_index(
+            &handler.params.t_file.clone(),
+            &handler.sketcher,
+            handler.params.max_matches,
+            &mut handler.counters,
+            &mut handler.timers,
+            &profiler,
+        )
+        .unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            // `tidx`/`handler`/`profiler` are moved in (not borrowed) so this
+            // can be a plain 'static `thread::spawn` rather than a scoped
+            // thread -- letting the test assert on a timeout via `rx`
+            // without needing the spawning frame to outlive the spawned
+            // thread the way `thread::scope` would require.
+            let mut handler = handler;
+            let mut mapper: SHMapper<false, false, false> = SHMapper::new(&tidx);
+            let p_file = handler.params.p_file.clone();
+            let result = mapper.map_reads(&mut handler, &p_file, &profiler);
+            let _ = tx.send(result.is_err());
+        });
+
+        let returned_an_error = rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("map_reads hung instead of returning (deadlock regression)");
+        assert!(returned_an_error, "a panicking read should make map_reads return Err, not Ok");
     }
 }
