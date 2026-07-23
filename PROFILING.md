@@ -16,16 +16,17 @@ this file is just the summary.
 
 | Dataset | Threads | Wall | Peak RSS |
 |---|---:|---:|---:|
-| chrY_sim_10kbp_10x  |  1 |  92.3s | 0.19 GB |
-| chrY_sim_10kbp_10x  | 16 |   7.0s | 0.19 GB |
-| chrY_sim_24kbp_10x  |  1 |  24.2s | 0.19 GB |
-| chrY_sim_24kbp_10x  | 16 |   2.4s | 0.19 GB |
-| allchr_sim_10kbp_1x |  1 |  85.1s | 2.68 GB |
-| allchr_sim_10kbp_1x | 16 |  15.2s | 2.19 GB |
-| allchr_real_24kbp   |  1 |  12.0s | 2.69 GB |
-| allchr_real_24kbp   | 16 |  11.8s | 2.02 GB |
+| chrY_sim_10kbp_10x  |  1 |  91.1s | 0.19 GB |
+| chrY_sim_10kbp_10x  | 16 |   6.8s | 0.19 GB |
+| chrY_sim_24kbp_10x  |  1 |  23.4s | 0.19 GB |
+| chrY_sim_24kbp_10x  | 16 |   2.2s | 0.19 GB |
+| allchr_sim_10kbp_1x |  1 |  82.1s | 2.73 GB |
+| allchr_sim_10kbp_1x | 16 |  15.2s | 2.55 GB |
+| allchr_real_24kbp   |  1 |  10.6s | 2.72 GB |
+| allchr_real_24kbp   | 16 |  10.0s | 2.36 GB |
 
-Accuracy identical to `-@ 1` at every thread count (Mapped Q60: 22918 / 6902 / 228165 / 1876).
+Accuracy identical to baseline at every thread count (Mapped Q60: 22918 / 6902 / 228165 / 1876,
+Wrong Q60 = 0). Verified every optimization; mapping output is byte-exact (`golden_paf` test).
 
 ## Optimizations applied
 
@@ -37,16 +38,21 @@ Accuracy identical to `-@ 1` at every thread count (Mapped Q60: 22918 / 6902 / 2
 - **Reference indexing parallelized** across `-@`, same reader/worker-pool/collector pipeline as
   mapping, applied in strict file order for determinism (segment IDs / `max_matches` capping both
   depend on processing order).
+- **Indexing sketching sped up** by precomputing the three fixed per-base rotates (k, 1, k-1) into
+  LUTs (removes 3 of 5 rotates/base in the rolling hash), plus the `Entry` API in `populate_h2pos`
+  (hash each k-mer once, not twice). Indexing wall dropped ~12-17% on whole-genome sets.
 
-Net effect: `allchr_real_24kbp` at `-@ 16` went from 51.5s (slower than 1 thread) to 11.8s (4.4x).
-Whole-genome peak memory dropped from up to 225 GB to ~2.3 GB flat, at any thread count.
+Net effect: `allchr_real_24kbp` at `-@ 16` went from 51.5s (slower than 1 thread) to ~10s (5x).
+Whole-genome peak memory dropped from up to 225 GB to ~2.5 GB flat, at any thread count.
 
 ## Remaining bottlenecks
 
 - **`match_seeds`** is still the largest per-read hot-path stage — worth a real CPU profiler
   (perf/flamegraph) if mapping throughput itself needs to improve next.
-- **Indexing parallelism is Amdahl's-law-capped** by CHM13's largest single chromosome — helps
-  mainly through pipelining, not raw thread scaling.
+- **Indexing** is now ~9.5s wall for the whole genome (was ~11s), dominated by sketching
+  (~9s CPU), which is memory-latency-bound on the base-by-base rolling hash. The cheap wins (LUT
+  precompute, Entry API) are done; further significant gains need SIMD/2-bit-packed sketching
+  (large effort). Parallelism is also Amdahl's-law-capped by CHM13's largest single chromosome.
 - **Collector overhead** still grows proportionally at high thread counts on small/fast datasets
   (up to ~20% of mapping time) — not yet isolated after the buffered-stdout fix.
 
