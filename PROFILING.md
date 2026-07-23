@@ -54,11 +54,11 @@ at — see "Optimizations applied" below for the headline result.
    the previous one ended. This run confirms the fix doesn't change default-mode (non-`-v 2`)
    numbers at all, as expected — none of these datasets hit that code path.
 
-## Optimizations applied (commit `0fd8f5a`)
+## Optimizations applied (commits `0fd8f5a`, `b401c0e`)
 
-Three of the four optimizations these findings pointed at were implemented and re-measured
-end-to-end (all 4 datasets, `-@ 1`/`-@ 16`, accuracy cross-checked byte-for-byte identical to the
-pre-optimization CSVs — see "Verification" below):
+All four optimizations these findings pointed at are now implemented and re-measured end-to-end
+(all 4 datasets, `-@ 1`/`-@ 16`, accuracy cross-checked byte-for-byte identical to the
+pre-optimization CSVs at every stage — see "Verification" below):
 
 1. **`Buckets`'s primary storage is now a sparse `FxHashMap<BucketLoc, BucketContent>`** instead
    of one `Vec<BucketContent>` per reference segment sized to the whole reference (the ~14.9 GB
@@ -70,16 +70,18 @@ pre-optimization CSVs — see "Verification" below):
    of `print!()` (which flushes on every `\n`, i.e. every read) per read.
 3. **`match_seeds` reuses one `BucketsHash` scratch map across every multi-hit seed in a read**
    instead of allocating a fresh one per seed.
+4. **Reference indexing (sketching) is now parallelized across `-@`/`--threads`**, via the same
+   reader/worker-pool/collector pipeline `map_reads` already used, applying completed sketches
+   strictly in original file order (segment ID assignment and `max_matches` capping both depend on
+   processing order, so this preserves exact single-threaded-equivalent output regardless of
+   thread count — locked in by a new determinism regression test).
 
-Not yet implemented: parallelizing reference indexing (the largest-effort item proposed, needs a
-new reader/worker-pool/collector pipeline mirroring the mapping one while preserving determinism).
-
-**Measured impact** (this machine, before commit `09e03dc` → after `0fd8f5a`):
+**Measured impact of 1-3** (this machine, before commit `09e03dc` → after `0fd8f5a`):
 
 | Dataset | Threads | Wall before | Wall after | Speedup | Peak RSS before | Peak RSS after | Memory cut |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | allchr_real_24kbp   |  1 |  29.8s |  22.2s | 1.34x | 15.72 GB | 2.29 GB | 85% |
-| allchr_real_24kbp   | 16 |  51.5s |  21.4s | **2.40x** | 222.39 GB | 2.29 GB | **99%** |
+| allchr_real_24kbp   | 16 |  51.5s |  21.4s | 2.40x | 222.39 GB | 2.29 GB | 99% |
 | allchr_sim_10kbp_1x |  1 | 101.3s |  95.1s | 1.07x | 15.72 GB | 2.29 GB | 85% |
 | allchr_sim_10kbp_1x | 16 |  56.9s |  27.2s | 2.09x | 225.04 GB | 2.29 GB | 99% |
 | chrY_sim_10kbp_10x  |  1 |  93.5s |  91.7s | 1.02x | 0.31 GB | 0.16 GB | 49% |
@@ -87,17 +89,43 @@ new reader/worker-pool/collector pipeline mirroring the mapping one while preser
 | chrY_sim_24kbp_10x  |  1 |  24.2s |  23.8s | 1.02x | 0.31 GB | 0.16 GB | 48% |
 | chrY_sim_24kbp_10x  | 16 |   2.6s |   2.2s | 1.18x | 4.52 GB | 0.16 GB | 96% |
 
-Peak memory on the whole-genome datasets is now **flat at ~2.3 GB regardless of thread count**
+Peak memory on the whole-genome datasets became **flat at ~2.3 GB regardless of thread count**
 (previously 15.7 GB at `-@ 1`, scaling up to 222-225 GB at `-@ 16`). `worker_setup` — the one-time
-per-worker `Buckets::new` allocation cost the previous section's whole finding was about — is now
-**0.00s on every single worker, every dataset, every thread count**: the biggest lever proposed
-turned out to deliver exactly as predicted.
+per-worker `Buckets::new` allocation cost the earlier finding was about — dropped to **0.00s on
+every single worker, every dataset, every thread count**.
 
-The headline result: **`allchr_real_24kbp` no longer gets slower with more threads.** Before, `-@
-16` (51.5s) was slower than `-@ 1` (29.8s) — the exact anomaly `BENCHMARKS.md` had already flagged
-qualitatively. After, `-@ 16` (21.4s) is faster than `-@ 1` (22.2s), because there's no more
-multi-second allocation for 16 workers to contend over — the pathological "slower with more
-threads" case this whole investigation started from is gone.
+**Cumulative measured impact of all four optimizations** (original `09e03dc` → final `b401c0e`):
+
+| Dataset | Threads | Wall original | Wall now | Total speedup | Peak RSS original | Peak RSS now |
+|---|---:|---:|---:|---:|---:|---:|
+| allchr_real_24kbp   |  1 |  29.8s |  12.0s | **2.48x** | 15.72 GB | 2.69 GB |
+| allchr_real_24kbp   | 16 |  51.5s |  11.8s | **4.36x** | 222.39 GB | 2.02 GB |
+| allchr_sim_10kbp_1x |  1 | 101.3s |  85.1s | 1.19x | 15.72 GB | 2.68 GB |
+| allchr_sim_10kbp_1x | 16 |  56.9s |  15.2s | **3.74x** | 225.04 GB | 2.19 GB |
+| chrY_sim_10kbp_10x  |  1 |  93.5s |  92.3s | 1.01x | 0.31 GB | 0.19 GB |
+| chrY_sim_10kbp_10x  | 16 |   7.2s |   7.0s | 1.03x | 4.53 GB | 0.19 GB |
+| chrY_sim_24kbp_10x  |  1 |  24.2s |  24.2s | 1.00x | 0.31 GB | 0.19 GB |
+| chrY_sim_24kbp_10x  | 16 |   2.6s |   2.4s | 1.08x | 4.52 GB | 0.19 GB |
+
+The headline result: **`allchr_real_24kbp` no longer gets slower with more threads, and is now
+4.36x faster at `-@ 16` than the original was even at `-@ 1`.** Before: `-@ 16` (51.5s) was slower
+than `-@ 1` (29.8s) — the exact anomaly `BENCHMARKS.md` had already flagged qualitatively. Now:
+`-@ 16` (11.8s) beats `-@ 1` (12.0s), because there's no more multi-second `Buckets` allocation for
+16 workers to contend over, and indexing itself (see below) is faster too. The pathological "slower
+with more threads" case this whole investigation started from is gone.
+
+**Indexing specifically dropped from a ~21s serial floor to ~9-11s** on the whole-genome datasets,
+but *not* mainly from raw sketching parallelism — from pipelining. Even at `-@ 1`,
+`index_reading`+`index_sketching`+`index_initializing` summed to ~20.8s of work but the wall-clock
+`indexing` bracket was only ~11.2s, because the reader/one-sketch-worker/collector are three
+concurrent threads that can overlap (segment N+1 being read while segment N is sketched while
+segment N-1 is being merged) — the same pipelining `map_reads` already got for free from its own
+reader/worker/collector split. Going from `-@ 1` to `-@ 16` barely changed the indexing bracket
+further (11.15s -> 11.42s, `allchr_real_24kbp`) because CHM13's ~25 segments vary hugely in size
+(one chromosome dominates sketching time regardless of how many other threads are free) — classic
+Amdahl's law. **The mapping-phase memory/speed fixes (1-3) are what deliver the large `-@ 16`
+wins above; parallelizing indexing mostly helps the `-@ 1` case and datasets/references with more
+evenly-sized segments than a handful of human chromosomes.**
 
 ## Findings (pre-optimization; superseded above where noted)
 
@@ -125,14 +153,13 @@ setup time and its job count — one sweep's breakdown, kept here for the record
 count shifted run to run with which workers happened to win the allocation race, but it was
 reliably around half or more), each still paying the full 16.5-21.3s allocation for nothing.
 
-**Reference indexing is single-threaded and becomes the dominant cost on whole-genome +
-few-reads workloads.** *Not addressed by this round of optimization — still current.* For
-`allchr_real_24kbp` (only 2 000 reads against the full 3.1 Gbp CHM13 genome), indexing is ~71% of
-wall time at 1 thread and ~42% at 16 — the ~21s serial sketch+index-build floor barely moves while
-everything else shrinks around it. This is the same "fixed serial floor (Amdahl's law)"
-`BENCHMARKS.md` already calls out qualitatively. **Parallelizing reference sketching across
-segments/chunks is now the single biggest remaining lever** for whole-genome + light-read
-workloads, now that the `Buckets` allocation is fixed.
+**Reference indexing used to be single-threaded and the dominant cost on whole-genome +
+few-reads workloads** (~71% of wall time at 1 thread, ~42% at 16, on `allchr_real_24kbp`). ***Now
+addressed — see "Optimizations applied" above (item 4).*** The ~21s floor dropped to ~9-11s,
+mostly via pipelining (reading/sketching/merging overlapping across segments) rather than raw
+sketching parallelism, which is capped by CHM13's largest single chromosome regardless of thread
+count — a real, Amdahl's-law-shaped limit, not a bug, and worth knowing if this is ever revisited
+for a reference with more evenly-sized segments.
 
 **`match_seeds` is the largest single stage in the per-read mapping hot path.** *Not addressed by
 this round — still current, though its per-seed `BucketsHash` allocation churn was reduced (see
