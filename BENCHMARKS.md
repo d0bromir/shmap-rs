@@ -1,5 +1,13 @@
 # shmap-rs benchmarks
 
+> **Note:** the thread-scaling numbers below (including the memory-per-worker caveat) predate a
+> memory/speed optimization pass documented in `PROFILING.md` (`Buckets`'s primary storage moved
+> from a whole-reference-sized array to a sparse map). Peak RSS on whole-genome runs is now flat
+> at ~2.3 GB regardless of thread count instead of scaling per worker, and the "gets slower with
+> more threads" case below no longer reproduces — see `PROFILING.md`'s "Optimizations applied"
+> section for current, re-measured numbers. This table hasn't been re-run at the full 1/2/4/8/16
+> thread sweep since; treat it as historical unless/until it is.
+
 Benchmarks were run on a 64-core AVX-512 server (376 GB RAM, Ubuntu 24.04), using the same
 datasets and parameters as Pesho's `shmap` Table 1 (`-k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3
 -m Containment`). shmap-rs reproduces `shmap`'s accuracy essentially exactly — identical on the

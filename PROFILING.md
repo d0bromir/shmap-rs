@@ -15,8 +15,10 @@ Only `shmap-rs` was (re-)run here — the other Table 1 mappers (minimap2, winno
 mapquik, map-shmap, minshmap) have no equivalent instrumentation and their numbers are already
 captured in `results/table1_20260718-103540.csv` on the benchmark machine.
 
-This is the fourth run of this sweep. The first three each turned up (and fixed) a real bug by
-actually cross-checking the extracted numbers rather than trusting the pipeline on faith:
+This is the fifth run of this sweep. The first four turned up (and fixed) real bugs in the
+profiler itself by actually cross-checking the extracted numbers rather than trusting the
+pipeline on faith; this one validates the actual memory/speed optimizations those numbers pointed
+at — see "Optimizations applied" below for the headline result.
 
 1. The first run's per-thread "indexer" snapshot cloned the run-wide `total` timer while it was
    still running (it only stops when `Handler` is dropped, after mapping finishes), so a plain
@@ -52,40 +54,63 @@ actually cross-checking the extracted numbers rather than trusting the pipeline 
    the previous one ended. This run confirms the fix doesn't change default-mode (non-`-v 2`)
    numbers at all, as expected — none of these datasets hit that code path.
 
-## Summary
+## Optimizations applied (commit `0fd8f5a`)
 
-| Dataset | Threads | Wall (s) | Index % of wall | Map % of wall | Peak RSS | Worker jobs [min,max] | Worker busy s [min,max] | Max worker_setup s | Collector % of map time |
-|---|---:|---:|---:|---:|---:|---|---|---:|---:|
-| chrY_sim_10kbp_10x  |  1 |  93.5 |  0.4% | 99.5% | 0.31 GB |          [48673, 48673] | [91.55, 91.55] |  0.15 |  1.9% |
-| chrY_sim_10kbp_10x  | 16 |   7.2 |  5.0% | 92.4% | 4.53 GB |            [2937, 3172] |   [6.12, 6.18] |  0.25 | 14.5% |
-| chrY_sim_24kbp_10x  |  1 |  24.2 |  1.4% | 98.3% | 0.31 GB |          [25940, 25940] | [22.93, 22.93] |  0.15 |  2.5% |
-| chrY_sim_24kbp_10x  | 16 |   2.6 | 13.8% | 79.3% | 4.52 GB |            [1513, 1743] |   [1.53, 1.61] |  0.27 | 22.1% |
-| allchr_sim_10kbp_1x |  1 | 101.3 | 20.9% | 78.6% | 15.72 GB |       [242845, 242845] | [66.37, 66.37] |  7.23 |  5.4% |
-| allchr_sim_10kbp_1x | 16 |  56.9 | 37.1% | 62.3% | 225.04 GB |     [13577, 16564] |   [4.83, 5.47] | 16.99 |  9.6% |
-| allchr_real_24kbp   |  1 |  29.8 | 70.6% | 27.8% | 15.72 GB |            [2000, 2000] |   [0.55, 0.55] |  7.17 |  0.4% |
-| allchr_real_24kbp   | 16 |  51.5 | 41.6% | 57.6% | 222.39 GB |             [0, 500] |   [0.00, 0.29] | 21.27 |  0.1% |
+Three of the four optimizations these findings pointed at were implemented and re-measured
+end-to-end (all 4 datasets, `-@ 1`/`-@ 16`, accuracy cross-checked byte-for-byte identical to the
+pre-optimization CSVs — see "Verification" below):
 
-("Index/Map % of wall" don't need to sum to 100 — reading the pattern file, sketching the
-query/reference, and pipeline setup/teardown fill the rest. "Max worker_setup s" is the slowest
-single worker's one-time `Buckets::new` allocation cost, see below. All figures are within normal
-run-to-run noise of the previous sweep (a few percent, same as `BENCHMARKS.md`'s own repeated
-measurements) except where OS thread-scheduling nondeterminism genuinely picks different "winner"
-workers each run on `allchr_real_24kbp -@ 16` — see that finding below, unchanged in kind, just
-with this run's actual worker assignments. `indexing`'s wall-clock share is disk-I/O-sensitive and
-was already noted to vary with OS page-cache state across earlier sweeps, not code or dataset
-changes.)
+1. **`Buckets`'s primary storage is now a sparse `FxHashMap<BucketLoc, BucketContent>`** instead
+   of one `Vec<BucketContent>` per reference segment sized to the whole reference (the ~14.9 GB
+   per-worker allocation identified above as the single largest hidden cost). Every operation
+   already only ever touched buckets tracked in `non_empty_buckets_with_repeats`, so this was a
+   storage swap, not an algorithm change — extending the same sparse pattern `BucketsHash` already
+   used a few lines away in the same file to the primary store too.
+2. **The collector now writes PAF output through one `BufWriter` held for the whole run** instead
+   of `print!()` (which flushes on every `\n`, i.e. every read) per read.
+3. **`match_seeds` reuses one `BucketsHash` scratch map across every multi-hit seed in a read**
+   instead of allocating a fresh one per seed.
 
-## Findings
+Not yet implemented: parallelizing reference indexing (the largest-effort item proposed, needs a
+new reader/worker-pool/collector pipeline mirroring the mapping one while preserving determinism).
 
-**Concurrent per-worker whole-genome allocations contend for memory bandwidth, and a worker's
-setup speed directly decides how much real work it gets — this, not just "uneven distribution" in
-the abstract, is why `allchr_real_24kbp` gets *slower* with more threads.** `Buckets::new`'s
-one-time ~14.9 GB allocation+zero-init takes ~7.2s done alone (`-@ 1`), but each of 16 workers
-doing it *simultaneously* (`-@ 16`) takes 16.3-21.3s — because all 16 fight over memory
-bandwidth/the allocator at once (~280s of aggregate setup work across the 16, this run). This
-directly causes the uneven job split: the 2 000 reads finish being handed out (a few seconds of
-real work) before the slowest-provisioning workers ever finish allocating, so there's a clean
-inverse correlation between a worker's own setup time and its job count — this run's breakdown:
+**Measured impact** (this machine, before commit `09e03dc` → after `0fd8f5a`):
+
+| Dataset | Threads | Wall before | Wall after | Speedup | Peak RSS before | Peak RSS after | Memory cut |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| allchr_real_24kbp   |  1 |  29.8s |  22.2s | 1.34x | 15.72 GB | 2.29 GB | 85% |
+| allchr_real_24kbp   | 16 |  51.5s |  21.4s | **2.40x** | 222.39 GB | 2.29 GB | **99%** |
+| allchr_sim_10kbp_1x |  1 | 101.3s |  95.1s | 1.07x | 15.72 GB | 2.29 GB | 85% |
+| allchr_sim_10kbp_1x | 16 |  56.9s |  27.2s | 2.09x | 225.04 GB | 2.29 GB | 99% |
+| chrY_sim_10kbp_10x  |  1 |  93.5s |  91.7s | 1.02x | 0.31 GB | 0.16 GB | 49% |
+| chrY_sim_10kbp_10x  | 16 |   7.2s |   6.6s | 1.09x | 4.53 GB | 0.16 GB | 96% |
+| chrY_sim_24kbp_10x  |  1 |  24.2s |  23.8s | 1.02x | 0.31 GB | 0.16 GB | 48% |
+| chrY_sim_24kbp_10x  | 16 |   2.6s |   2.2s | 1.18x | 4.52 GB | 0.16 GB | 96% |
+
+Peak memory on the whole-genome datasets is now **flat at ~2.3 GB regardless of thread count**
+(previously 15.7 GB at `-@ 1`, scaling up to 222-225 GB at `-@ 16`). `worker_setup` — the one-time
+per-worker `Buckets::new` allocation cost the previous section's whole finding was about — is now
+**0.00s on every single worker, every dataset, every thread count**: the biggest lever proposed
+turned out to deliver exactly as predicted.
+
+The headline result: **`allchr_real_24kbp` no longer gets slower with more threads.** Before, `-@
+16` (51.5s) was slower than `-@ 1` (29.8s) — the exact anomaly `BENCHMARKS.md` had already flagged
+qualitatively. After, `-@ 16` (21.4s) is faster than `-@ 1` (22.2s), because there's no more
+multi-second allocation for 16 workers to contend over — the pathological "slower with more
+threads" case this whole investigation started from is gone.
+
+## Findings (pre-optimization; superseded above where noted)
+
+**Concurrent per-worker whole-genome allocations used to contend for memory bandwidth, and a
+worker's setup speed directly decided how much real work it got — this, not just "uneven
+distribution" in the abstract, was why `allchr_real_24kbp` got *slower* with more threads.** ***Now
+fixed — see "Optimizations applied" above.*** `Buckets::new`'s one-time ~14.9 GB allocation+
+zero-init used to take ~7.2s done alone (`-@ 1`), but each of 16 workers doing it *simultaneously*
+(`-@ 16`) took 16.3-21.3s — all 16 fighting over memory bandwidth/the allocator at once (~280s of
+aggregate setup work across the 16, one sweep). This directly caused the uneven job split: the
+2 000 reads finished being handed out (a few seconds of real work) before the slowest-provisioning
+workers ever finished allocating, so there was a clean inverse correlation between a worker's own
+setup time and its job count — one sweep's breakdown, kept here for the record:
 
 | Worker (fastest→slowest setup) | Setup (s) | Jobs |
 |---|---:|---:|
@@ -96,42 +121,39 @@ inverse correlation between a worker's own setup time and its job count — this
 | worker-15 | 16.46 | 203 |
 | worker-10, 11, 13, 14, 7, 12, 9, 0, 3, 5, 1 | 16.56–21.27 | **0 each** |
 
-— fully **11 of the 16 workers get zero reads** this run (8 of 16 the previous sweep — the exact
-count shifts run to run with which workers happen to win the allocation race, but it's reliably
-around half or more), each still paying the full 16.5-21.3s allocation for nothing. This is a
-genuinely new, previously-invisible cost (see profiler-fix note 2 above) and a concrete
-optimization target: pre-sizing `Buckets` more cheaply (e.g. relying on the OS's copy-on-write
-zero pages instead of an explicit per-element write loop, since `BucketContent`'s default isn't
-all-zero) or sharing/reusing one allocation across workers would likely help multithreaded
-whole-genome runs more than anything else in this report — especially on datasets with few reads
-relative to thread count. (`allchr_sim_10kbp_1x`, with 242 845 reads, shows the same
-setup-time-vs-jobs correlation but far more mildly — a ~18% job-count spread instead of "0 vs
-500" — since there's enough real work left over even for the slowest-provisioning worker.)
+— fully **11 of the 16 workers got zero reads** that sweep (8 of 16 another sweep — the exact
+count shifted run to run with which workers happened to win the allocation race, but it was
+reliably around half or more), each still paying the full 16.5-21.3s allocation for nothing.
 
 **Reference indexing is single-threaded and becomes the dominant cost on whole-genome +
-few-reads workloads.** For `allchr_real_24kbp` (only 2 000 reads against the full 3.1 Gbp CHM13
-genome), indexing is 71% of wall time at 1 thread and still 42% at 16 — the ~21s serial
-sketch+index-build floor barely moves while everything else shrinks around it. This is the same
-"fixed serial floor (Amdahl's law)" `BENCHMARKS.md` already calls out qualitatively; the profiler
-now gives the exact number. **Parallelizing reference sketching across segments/chunks is the
-biggest remaining lever for whole-genome + light-read workloads that isn't the `Buckets`
-allocation above.**
+few-reads workloads.** *Not addressed by this round of optimization — still current.* For
+`allchr_real_24kbp` (only 2 000 reads against the full 3.1 Gbp CHM13 genome), indexing is ~71% of
+wall time at 1 thread and ~42% at 16 — the ~21s serial sketch+index-build floor barely moves while
+everything else shrinks around it. This is the same "fixed serial floor (Amdahl's law)"
+`BENCHMARKS.md` already calls out qualitatively. **Parallelizing reference sketching across
+segments/chunks is now the single biggest remaining lever** for whole-genome + light-read
+workloads, now that the `Buckets` allocation is fixed.
 
-**`match_seeds` is the largest single stage in the per-read mapping hot path**, everywhere it's
-a meaningful fraction of wall time: consistently the largest contributor on chrY_sim_10kbp (1
-thread), outweighing `match_rest` and `refine` by several times. If read-mapping throughput
-itself needs to improve (as opposed to just adding threads), this is where to look first.
+**`match_seeds` is the largest single stage in the per-read mapping hot path.** *Not addressed by
+this round — still current, though its per-seed `BucketsHash` allocation churn was reduced (see
+optimization 3 above).* Everywhere it's a meaningful fraction of wall time it's the largest
+contributor, outweighing `match_rest` and `refine` by several times. If read-mapping throughput
+itself needs to improve (as opposed to just adding threads or fixing memory), this is where to
+look first — ideally with a real CPU profiler (perf/flamegraph) rather than stage-level timers, to
+see how much of its cost is now genuinely seed-matching work versus remaining allocation/hashing
+overhead.
 
 **The collector (serial output/reordering) becomes proportionally more expensive as thread count
 rises on fast, small datasets** — 1.9% -> 14.5% of mapping wall time on chrY_10kbp going from 1
-to 16 threads, and 2.5% -> 22.1% on the even-faster chrY_24kbp. Nowhere near the 90% warning
-threshold `print_warnings` already checks for match_seeds/match_rest, but on a machine with more
-cores than these small datasets have reads-per-thread, this is the next thing that would start
-to cap scaling — worth a warning threshold of its own if thread counts keep climbing. (This
-particular percentage is itself noisy at very low absolute read counts — `allchr_real_24kbp -@ 16`
-swung from 4.1% to 0.1% between sweeps purely because `collector_busy` is a tiny, per-read-cost
-total over only 2 000 reads; the chrY figures above, with tens of thousands of reads, are the
-stable ones to trust.)
+to 16 threads, and 2.5% -> 22.1% on the even-faster chrY_24kbp, in the pre-optimization data.
+*Partially addressed*: the collector now writes through a `BufWriter` instead of flushing per read
+(optimization 2 above); worth re-measuring this specific percentage in a future sweep to quantify
+how much that helped, since it wasn't isolated out from the `Buckets` change's much larger effect
+in this round's before/after table. Nowhere near the 90% warning threshold `print_warnings`
+already checks for match_seeds/match_rest, but on a machine with more cores than these small
+datasets have reads-per-thread, this is worth a warning threshold of its own if thread counts keep
+climbing. (This percentage is itself noisy at very low absolute read counts — chrY's figures,
+with tens of thousands of reads, are the stable ones to trust.)
 
 ## Verification
 

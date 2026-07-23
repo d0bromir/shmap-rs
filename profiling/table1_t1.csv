@@ -1,5 +1,5 @@
 dataset,mapper,mapped_q60,q_lt60_or_missed_pct,wrong_q60,index_sec,map_sec,memory_gb,reads
-chrY_sim_10kbp_10x,shmap-rs,22918,52.9,0,n/a,93.5,0.31,48673
-allchr_sim_10kbp_1x,shmap-rs,228165,6.0,0,n/a,102.4,15.72,242845
-chrY_sim_24kbp_10x,shmap-rs,6902,73.4,0,n/a,24.3,0.31,25940
-allchr_real_24kbp,shmap-rs,1876,6.2,n/a,n/a,30.9,15.72,2000
+chrY_sim_10kbp_10x,shmap-rs,22918,52.9,0,n/a,91.7,0.16,48673
+allchr_sim_10kbp_1x,shmap-rs,228165,6.0,0,n/a,96.2,2.29,242845
+chrY_sim_24kbp_10x,shmap-rs,6902,73.4,0,n/a,23.9,0.16,25940
+allchr_real_24kbp,shmap-rs,1876,6.2,n/a,n/a,23.3,2.29,2000
