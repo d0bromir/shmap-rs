@@ -182,20 +182,13 @@ impl SketchIndex {
         timers.start("indexing");
         eprintln!("Indexing {t_file}...");
 
-        // Pre-size `h2single` so the ~N-distinct-k-mer insert scan below
-        // doesn't repeatedly rehash+realloc as it grows from empty. For
-        // uncompressed FASTA the on-disk byte count is a close proxy for
-        // nucleotide count (headers/newlines are a small overhead), and
-        // FracMinHash keeps ~`h_frac` of k-mers, so `file_bytes * h_frac` is
-        // a good upper-ish estimate of the distinct-k-mer count. Capped so a
-        // pathological `h_frac` near 1 on a huge file can't demand an absurd
-        // up-front allocation; an under-estimate (e.g. compressed input,
-        // where `len()` is the compressed size) just falls back to normal
-        // growth. Reserve is a no-op hint when it guesses too low.
-        if let Ok(meta) = std::fs::metadata(t_file) {
-            let est = ((meta.len() as f64 * sketcher.h_frac) as usize).min(1 << 30);
-            self.h2single.reserve(est);
-        }
+        // NB: an up-front `h2single.reserve(file_bytes * h_frac)` was tried
+        // and *regressed* indexing — `file_bytes * h_frac` over-estimates
+        // the true distinct-k-mer count (repeats mean far fewer distinct
+        // k-mers than total), so the reserve built a large, sparse table
+        // whose cold random-access inserts cost more cache misses than the
+        // default doubling growth's periodic (but cache-warm) rehashes, and
+        // it inflated peak RSS too. Default growth wins here; left un-reserved.
 
         let n_threads = threads.max(1);
 
