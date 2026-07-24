@@ -564,9 +564,11 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.match_seeds(&p_unique, buckets, s);
         self.timers.stop("match_seeds");
 
+        self.timers.start("bucket_merge");
         buckets.propagate_seeds_to_buckets();
 
         let mut sorted_buckets = buckets.get_sorted_buckets();
+        self.timers.stop("bucket_merge");
         self.counters.inc("seeded_buckets", sorted_buckets.len() as i64);
 
         if params.verbose >= 2 {

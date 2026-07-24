@@ -145,6 +145,12 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             t.range_ratio("match_seeds")
         );
         eprintln!(
+            " |  | bucket merge:            {:>5.1} ({:>4.1}%, {:>6.1}x)",
+            t.secs("bucket_merge"),
+            t.perc("bucket_merge", "mapping"),
+            t.range_ratio("bucket_merge")
+        );
+        eprintln!(
             " |  | match rest:             {:>5.1} ({:>4.1}%, {:>6.1}x): {:.1}% for second best",
             t.secs("match_rest"),
             t.perc("match_rest", "mapping"),

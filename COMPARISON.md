@@ -80,16 +80,21 @@ comparison on their own. Same datasets/params, shmap-rs at `-@ 1`:
 
 | dataset | mapper | mapped | mapq | time | mem |
 |---|---|---:|---:|---:|---:|
-| HiFi | **shmap-rs (1t)** | 5991 | 57.0 | 2733 s | 7.2 GB |
+| HiFi | **shmap-rs (1t)** | 5991 | 57.0 | **1973 s** | 7.3 GB |
 | HiFi | shmap (C++) | 5991 | 57.0 | 2637 s | 13.5 GB |
-| ONT | **shmap-rs (1t)** | 5750 | 54.6 | 7920 s | 9.5 GB |
+| ONT | **shmap-rs (1t)** | 5750 | 54.6 | 7920 s\* | 9.5 GB\* |
 | ONT | shmap (C++) | 5750 | 54.6 | 7795 s | 13.5 GB |
-| CLR | **shmap-rs (1t)** | 294 | 44.5 | 809 s | 7.3 GB |
+| CLR | **shmap-rs (1t)** | 294 | 44.5 | 809 s\* | 7.3 GB\* |
 | CLR | shmap (C++) | 294 | 44.5 | 1110 s | 13.6 GB |
 
-Single-threaded shmap-rs is now within ~2-4% of the C++ original's wall time on HiFi/ONT and
-27% faster on CLR — at roughly 30-47% less memory across all three — while still scaling further
-with threads (the 4-thread table above). An earlier sparse-`Buckets` rewrite (hashmap-backed,
-fixing a ~15 GB dense-array blowup) had regressed single-thread speed ~20% below the C++ original
-on this exact k=15 regime; replacing the hashmap with an append-only buffer merged once per read
-recovered that speed without giving back the memory win.
+\* ONT/CLR predate the buckets radix-sort optimization below and will move similarly to HiFi
+(~28% faster) once re-measured; not yet re-run.
+
+Single-threaded shmap-rs on HiFi is now **25% *faster*** than the C++ original (was 3.6% slower
+at the start of this round of work), at roughly half the memory — while still scaling further
+with threads (the 4-thread table above). Two rounds of fixing the `Buckets` accumulator got here:
+an earlier sparse-`FxHashMap` rewrite (fixing a ~15 GB dense-array blowup) had regressed
+single-thread speed ~20% below C++ on this k=15 regime; switching to an append-only buffer merged
+once per read recovered most of that, and replacing the O(n log n) merge sort with an O(n) radix
+sort (dynamic pass count, since bucket indices are usually far smaller than their 32-bit budget)
+recovered the rest and then some. See `PROFILING.md` for the stage-by-stage breakdown.

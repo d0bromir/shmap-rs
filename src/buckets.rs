@@ -14,6 +14,32 @@ use crate::types::{BucketContent, BucketLoc, Hit, QPos, RPos};
 /// Smallest allowed bucket half-length.
 pub const MIN_HALFLEN: QPos = 5;
 
+/// Bits per digit in [`Buckets`]'s LSD radix sort — chosen so the counting
+/// histogram (`RADIX_SIZE` `u32`s) comfortably fits in L2 cache. Smaller
+/// digits (more passes) measured *worse* in practice despite the smaller
+/// histogram: each pass's scatter step is semi-random-access regardless of
+/// digit width, so halving the digit size (doubling the pass count) simply
+/// doubles the total data movement without a matching cache-locality win.
+const RADIX_BITS: u32 = 16;
+const RADIX_SIZE: usize = 1 << RADIX_BITS;
+const RADIX_MASK: u64 = (RADIX_SIZE as u64) - 1;
+/// A packed `(segm_id, b)` key is 64 bits; this many `RADIX_BITS`-wide
+/// passes cover the worst case. `radix_sort_entries` computes how many are
+/// actually needed per call — `segm_id` is a handful of segments and `b` is
+/// a reference position divided by a read-scaled `halflen`, so most reads
+/// need far fewer than the full width.
+const RADIX_MAX_PASSES: u32 = 64 / RADIX_BITS;
+
+/// Packs a [`BucketLoc`] into a 64-bit key (`segm_id` in the high 32 bits,
+/// `b` in the low 32 bits) that sorts in the same order as comparing
+/// `(segm_id, b)` lexicographically — both fields are always non-negative
+/// (segment indices and `pos / halflen` bucket indices), so the `i32 -> u32`
+/// bit-reinterpretation preserves ordering.
+fn radix_key(loc: &BucketLoc) -> u64 {
+    debug_assert!(loc.segm_id >= 0 && loc.b >= 0);
+    ((loc.segm_id as u32 as u64) << 32) | (loc.b as u32 as u64)
+}
+
 /// Bucket accumulator storage backed by a hashmap, keyed by `BucketLoc`.
 ///
 /// Upstream, this is used only as ephemeral per-seed scratch space inside
@@ -109,6 +135,17 @@ pub struct Buckets<'idx, const AP: bool> {
     /// pushes one entry, and the same `BucketLoc` may appear many times
     /// before `merge_entries` folds duplicates together.
     entries: Vec<(BucketLoc, BucketContent)>,
+    /// Ping-pong buffer for [`Self::radix_sort_entries`], reused (grown,
+    /// never shrunk) across reads to avoid reallocating every call.
+    radix_scratch: Vec<(BucketLoc, BucketContent)>,
+    /// Reused counting-sort histogram for the radix sort, `RADIX_SIZE`
+    /// buckets — allocated once, zeroed at the start of each pass.
+    radix_counts: Vec<u32>,
+    /// Set once `entries` has been sorted+deduplicated, cleared by
+    /// `add_to_pos`/`add_to_bucket`/`clear` — lets `merge_entries` (called
+    /// once from `propagate_seeds_to_buckets` and again from
+    /// `get_sorted_buckets` on every read) skip the second, redundant sort.
+    merged: bool,
 }
 
 impl<'idx, const AP: bool> Buckets<'idx, AP> {
@@ -119,6 +156,9 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
             i: 0,
             seeds: 0,
             entries: Vec::new(),
+            radix_scratch: Vec::new(),
+            radix_counts: vec![0u32; RADIX_SIZE],
+            merged: true,
         }
     }
 
@@ -128,6 +168,7 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         self.i = 0;
         self.seeds = 0;
         self.entries.clear();
+        self.merged = true;
     }
 
     /// Sets the bucket half-length; returns `false` if it's below
@@ -146,17 +187,72 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         (b.b + 2) * self.halflen
     }
 
+    /// Sorts `self.entries` ascending by `(segm_id, b)` in O(n) via an LSD
+    /// radix sort on [`radix_key`], instead of an O(n log n) comparison
+    /// sort. On repetitive references (k=15 whole-genome, where a read's
+    /// seeds can touch millions of raw entries — see the module doc
+    /// comment), profiling found this location-sort was ~77% of total
+    /// mapping time: a generic comparison sort pays a `log n` factor *and*
+    /// a closure call per comparison for what's really just two bounded
+    /// integers. Radix sort trades that for a handful of linear passes over
+    /// contiguous memory (each pass: one counting scan, one prefix sum over
+    /// the small `RADIX_SIZE` histogram, one scatter into `radix_scratch`).
+    ///
+    /// The number of passes is computed from the actual data rather than
+    /// fixed at [`RADIX_MAX_PASSES`]: `segm_id` is a handful of segments and
+    /// `b` is bounded by `segment_len / halflen` (a read-scaled bucket
+    /// half-length), so the packed key's highest set bit is usually well
+    /// below 64 — skipping an always-zero high pass saves a full O(n)
+    /// counting+scatter pass for one cheap sequential max-reduce.
+    fn radix_sort_entries(&mut self) {
+        let n = self.entries.len();
+        if n <= 1 {
+            return;
+        }
+        let max_key = self.entries.iter().map(|(loc, _)| radix_key(loc)).max().unwrap_or(0);
+        let passes = if max_key == 0 {
+            0
+        } else {
+            (64 - max_key.leading_zeros()).div_ceil(RADIX_BITS).min(RADIX_MAX_PASSES)
+        };
+        self.radix_scratch.resize(n, (BucketLoc::new(0, 0), BucketContent::default()));
+        for pass in 0..passes {
+            let shift = pass * RADIX_BITS;
+            self.radix_counts.iter_mut().for_each(|c| *c = 0);
+            for (loc, _) in &self.entries {
+                let key = ((radix_key(loc) >> shift) & RADIX_MASK) as usize;
+                self.radix_counts[key] += 1;
+            }
+            let mut sum = 0u32;
+            for c in &mut self.radix_counts {
+                let cur = *c;
+                *c = sum;
+                sum += cur;
+            }
+            for e in &self.entries {
+                let key = ((radix_key(&e.0) >> shift) & RADIX_MASK) as usize;
+                self.radix_scratch[self.radix_counts[key] as usize] = *e;
+                self.radix_counts[key] += 1;
+            }
+            std::mem::swap(&mut self.entries, &mut self.radix_scratch);
+        }
+    }
+
     /// Sorts `entries` by location and folds every run of matching
     /// `BucketLoc`s into a single entry (summing their `BucketContent` via
     /// `AddAssign`, same semantics as the old per-hit hashmap merge). Safe
-    /// to call more than once per read — a no-op pass over already-merged
-    /// data is cheap since `entries` is bounded by touched-bucket count, not
-    /// hit count.
+    /// to call more than once per read: guarded by `merged` so a repeat call
+    /// (see `propagate_seeds_to_buckets`/`get_sorted_buckets`) is a no-op
+    /// rather than re-sorting already-deduplicated data.
     fn merge_entries(&mut self) {
+        if self.merged {
+            return;
+        }
+        self.merged = true;
         if self.entries.is_empty() {
             return;
         }
-        self.entries.sort_by(|a, b| a.0.segm_id.cmp(&b.0.segm_id).then(a.0.b.cmp(&b.0.b)));
+        self.radix_sort_entries();
         let mut write = 0usize;
         for read in 1..self.entries.len() {
             if self.entries[read].0 == self.entries[write].0 {
@@ -187,10 +283,12 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         if b > 0 {
             self.entries.push((BucketLoc::new(hit.segm_id, b - 1), content));
         }
+        self.merged = false;
     }
 
     pub fn add_to_bucket(&mut self, b: BucketLoc, content: BucketContent) {
         self.entries.push((b, content));
+        self.merged = false;
     }
 
     /// Deduplicates the touched buckets and returns them sorted by
