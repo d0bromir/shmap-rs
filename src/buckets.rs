@@ -85,20 +85,30 @@ impl<const AP: bool> BucketsHash<AP> {
 /// threads (workers that finish this allocation last can end up with zero
 /// reads by the time they're ready).
 ///
-/// Every operation here already only ever touches buckets recorded in
-/// `non_empty_buckets_with_repeats` — never a scan of the whole store — so
-/// switching to a sparse `FxHashMap` (the same backing type
-/// [`BucketsHash`] above already uses as per-seed scratch space) needs no
-/// algorithmic change, just a storage swap: memory now scales with how many
-/// buckets a worker's reads actually touch, not with reference size, and
-/// there's no more up-front allocation to pay for at all.
+/// An intermediate version keyed this by an `FxHashMap<BucketLoc,
+/// BucketContent>` instead (same idea: only touched buckets exist, so memory
+/// scales with reads, not reference size). That fixed the memory blowup but
+/// introduced a *speed* regression on repetitive references: k=15 seeds on a
+/// whole genome touch millions of buckets per read, and every touch was a
+/// full hashmap `entry()` (hash + probe + possible resize) — on that
+/// workload it made single-threaded mapping ~20% *slower* than the original
+/// dense array, despite the huge memory win. The fix here keeps the memory
+/// win but removes the hashmap from the hot path: `add_to_pos`/
+/// `add_to_bucket` just push `(BucketLoc, BucketContent)` onto a flat
+/// append-only `Vec` (no hash, no probe, sequential writes), and duplicate
+/// locations touched multiple times are merged in one batched sort+dedup
+/// pass (`merge_entries`) at the end of the read, right before the results
+/// are needed — turning O(hits) random-access hashmap operations into
+/// O(hits) cache-friendly appends plus one O(touched log touched) sort.
 pub struct Buckets<'idx, const AP: bool> {
     tidx: &'idx SketchIndex,
     pub halflen: QPos,
     pub i: i32,
     pub seeds: i32,
-    buckets: FxHashMap<BucketLoc, BucketContent>,
-    pub non_empty_buckets_with_repeats: Vec<BucketLoc>,
+    /// Append-only per-read scratch: every `add_to_pos`/`add_to_bucket` call
+    /// pushes one entry, and the same `BucketLoc` may appear many times
+    /// before `merge_entries` folds duplicates together.
+    entries: Vec<(BucketLoc, BucketContent)>,
 }
 
 impl<'idx, const AP: bool> Buckets<'idx, AP> {
@@ -108,21 +118,16 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
             halflen: -1,
             i: 0,
             seeds: 0,
-            buckets: FxHashMap::default(),
-            non_empty_buckets_with_repeats: Vec::new(),
+            entries: Vec::new(),
         }
     }
 
-    /// Removes all buckets touched since the last `clear()` (rather than
-    /// resetting them to default in place) so the map's size tracks "buckets
-    /// touched by the most recent read(s)", not every bucket ever touched
-    /// across this worker's whole lifetime.
+    /// Clears the per-read scratch buffer for reuse, keeping its
+    /// already-allocated capacity (no reallocation across reads).
     pub fn clear(&mut self) {
         self.i = 0;
         self.seeds = 0;
-        for loc in self.non_empty_buckets_with_repeats.drain(..) {
-            self.buckets.remove(&loc);
-        }
+        self.entries.clear();
     }
 
     /// Sets the bucket half-length; returns `false` if it's below
@@ -141,33 +146,51 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         (b.b + 2) * self.halflen
     }
 
+    /// Sorts `entries` by location and folds every run of matching
+    /// `BucketLoc`s into a single entry (summing their `BucketContent` via
+    /// `AddAssign`, same semantics as the old per-hit hashmap merge). Safe
+    /// to call more than once per read — a no-op pass over already-merged
+    /// data is cheap since `entries` is bounded by touched-bucket count, not
+    /// hit count.
+    fn merge_entries(&mut self) {
+        if self.entries.is_empty() {
+            return;
+        }
+        self.entries.sort_by(|a, b| a.0.segm_id.cmp(&b.0.segm_id).then(a.0.b.cmp(&b.0.b)));
+        let mut write = 0usize;
+        for read in 1..self.entries.len() {
+            if self.entries[read].0 == self.entries[write].0 {
+                let c = self.entries[read].1;
+                self.entries[write].1 += c;
+            } else {
+                write += 1;
+                self.entries[write] = self.entries[read];
+            }
+        }
+        self.entries.truncate(write + 1);
+    }
+
     pub fn propagate_seeds_to_buckets(&mut self) {
-        for loc in &self.non_empty_buckets_with_repeats {
-            let bc = self
-                .buckets
-                .get_mut(loc)
-                .expect("non_empty_buckets_with_repeats loc must have a bucket entry");
-            bc.i = self.i;
-            bc.seeds = self.seeds;
+        self.merge_entries();
+        let i = self.i;
+        let seeds = self.seeds;
+        for (_, bc) in &mut self.entries {
+            bc.i = i;
+            bc.seeds = seeds;
         }
     }
 
     pub fn add_to_pos(&mut self, hit: &Hit, content: BucketContent) {
         let b = (if AP { hit.r } else { hit.tpos }) / self.halflen;
         debug_assert!((hit.segm_id as usize) < self.tidx.segments_len());
-        let loc = BucketLoc::new(hit.segm_id, b);
-        *self.buckets.entry(loc).or_default() += content;
-        self.non_empty_buckets_with_repeats.push(loc);
+        self.entries.push((BucketLoc::new(hit.segm_id, b), content));
         if b > 0 {
-            let prev_loc = BucketLoc::new(hit.segm_id, b - 1);
-            *self.buckets.entry(prev_loc).or_default() += content;
-            self.non_empty_buckets_with_repeats.push(prev_loc);
+            self.entries.push((BucketLoc::new(hit.segm_id, b - 1), content));
         }
     }
 
     pub fn add_to_bucket(&mut self, b: BucketLoc, content: BucketContent) {
-        *self.buckets.entry(b).or_default() += content;
-        self.non_empty_buckets_with_repeats.push(b);
+        self.entries.push((b, content));
     }
 
     /// Deduplicates the touched buckets and returns them sorted by
@@ -180,15 +203,8 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
     /// meaningful target specifically for tied buckets as a result; that's
     /// a property of the reference implementation, not a port regression.
     pub fn get_sorted_buckets(&mut self) -> Vec<(BucketLoc, BucketContent)> {
-        self.non_empty_buckets_with_repeats
-            .sort_by(|a, b| a.segm_id.cmp(&b.segm_id).then(a.b.cmp(&b.b)));
-        self.non_empty_buckets_with_repeats.dedup();
-
-        let mut sorted_buckets: Vec<(BucketLoc, BucketContent)> = self
-            .non_empty_buckets_with_repeats
-            .iter()
-            .map(|loc| (*loc, self.buckets[loc]))
-            .collect();
+        self.merge_entries();
+        let mut sorted_buckets = self.entries.clone();
         sorted_buckets.sort_by(|a, b| b.1.matches.cmp(&a.1.matches));
         sorted_buckets
     }
@@ -290,7 +306,7 @@ mod tests {
         assert!(!b.get_sorted_buckets().is_empty());
 
         b.clear();
-        assert!(b.non_empty_buckets_with_repeats.is_empty());
+        assert!(b.entries.is_empty());
         assert!(b.get_sorted_buckets().is_empty());
     }
 
