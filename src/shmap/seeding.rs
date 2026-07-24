@@ -140,8 +140,17 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     let occs = seed.occs_in_p;
                     stream_buf.clear();
                     let mut cur_sid: SegmId = -1;
+                    // Bucket index of the current hit, tracked incrementally:
+                    // `pos` is non-decreasing within a segment, so instead of
+                    // a division `pos / halflen` per hit we advance `b` (and
+                    // its upper bound `b_hi = (b+1)*halflen`) by comparison,
+                    // recomputing by division only on a segment change. Over
+                    // billions of hits this replaces a per-hit integer divide
+                    // with an amortized-O(1) compare.
+                    let mut b: RPos = 0;
+                    let mut b_hi: RPos = 0;
                     for hit in &self.tidx.h2multi[&seed.kmer.h] {
-                        let b = (if AP { hit.r } else { hit.tpos }) / halflen;
+                        let pos = if AP { hit.r } else { hit.tpos };
                         let content = BucketContent::new(
                             1,
                             0,
@@ -157,7 +166,15 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                                 buckets.add_to_bucket(BucketLoc::new(cur_sid, bb), clamped);
                             }
                             cur_sid = hit.segm_id;
+                            b = pos / halflen;
+                            b_hi = (b + 1) * halflen;
                         } else {
+                            // Advance `b` to the bucket containing `pos`
+                            // (monotonic within a segment — no division).
+                            while pos >= b_hi {
+                                b += 1;
+                                b_hi += halflen;
+                            }
                             // Finalize buckets that can receive no further
                             // contribution (index strictly below `b - 1`).
                             while let Some(&(bb, c)) = stream_buf.first() {
