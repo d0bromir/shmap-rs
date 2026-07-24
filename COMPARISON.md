@@ -57,13 +57,13 @@ benchmark's params (`k=15`, `r=2/(w+1)=0.0625`, `-m Containment`, dataset-specif
 
 | dataset | mapper | mapped | map% | mapq | time | mem |
 |---|---|---:|---:|---:|---:|---:|
-| HiFi | **shmap-rs** | 5991 | 99.85 | 57.0 | **1014 s** | **7.3 GB** |
+| HiFi | **shmap-rs (4t)** | 5991 | 99.85 | 57.0 | **1014 s** | **7.3 GB** |
 | HiFi | shmap (C++) | 5991 | 99.85 | 57.0 | 2637 s | 13.5 GB |
 | HiFi | minSHmap | 5991 | 99.85 | 55.5 | 325 s | 11.2 GB |
-| ONT | **shmap-rs** | 5750 | 95.83 | 54.6 | **2557 s** | **9.7 GB** |
+| ONT | **shmap-rs (4t)** | 5750 | 95.83 | 54.6 | **2557 s** | **9.7 GB** |
 | ONT | shmap (C++) | 5750 | 95.83 | 54.6 | 7795 s | 13.5 GB |
 | ONT | minSHmap | 5655 | 94.25 | 52.8 | 1081 s | 11.2 GB |
-| CLR | **shmap-rs** | 294 | 4.90 | 44.5 | **431 s** | **7.7 GB** |
+| CLR | **shmap-rs (4t)** | 294 | 4.90 | 44.5 | **431 s** | **7.7 GB** |
 | CLR | shmap (C++) | 294 | 4.90 | 44.5 | 1110 s | 13.6 GB |
 | CLR | minSHmap | 662 | 11.03 | 8.9 | 314 s | 11.2 GB |
 
@@ -72,3 +72,24 @@ benchmark's params (`k=15`, `r=2/(w+1)=0.0625`, `-m Containment`, dataset-specif
   while **2.6–3.0× faster** (4 threads vs single-threaded C++) and ~1.4–1.8× less memory.
 - minSHmap (minimizer-based, sparser seeds) is faster on HiFi/ONT, but on the noisy CLR reads its
   extra mappings come at mapq 8.9 vs shmap-rs's 44.5 — i.e. low-confidence.
+
+### Single-threaded (`-@ 1`), apples-to-apples with the C++ original
+
+The C++ `shmap` has no multithreading, so the 4-thread numbers above aren't a fair speed
+comparison on their own. Same datasets/params, shmap-rs at `-@ 1`:
+
+| dataset | mapper | mapped | mapq | time | mem |
+|---|---|---:|---:|---:|---:|
+| HiFi | **shmap-rs (1t)** | 5991 | 57.0 | 2733 s | 7.2 GB |
+| HiFi | shmap (C++) | 5991 | 57.0 | 2637 s | 13.5 GB |
+| ONT | **shmap-rs (1t)** | 5750 | 54.6 | 7920 s | 9.5 GB |
+| ONT | shmap (C++) | 5750 | 54.6 | 7795 s | 13.5 GB |
+| CLR | **shmap-rs (1t)** | 294 | 44.5 | 809 s | 7.3 GB |
+| CLR | shmap (C++) | 294 | 44.5 | 1110 s | 13.6 GB |
+
+Single-threaded shmap-rs is now within ~2-4% of the C++ original's wall time on HiFi/ONT and
+27% faster on CLR — at roughly 30-47% less memory across all three — while still scaling further
+with threads (the 4-thread table above). An earlier sparse-`Buckets` rewrite (hashmap-backed,
+fixing a ~15 GB dense-array blowup) had regressed single-thread speed ~20% below the C++ original
+on this exact k=15 regime; replacing the hashmap with an append-only buffer merged once per read
+recovered that speed without giving back the memory win.
