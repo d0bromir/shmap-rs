@@ -1,8 +1,26 @@
 //! `unique_elements_with_info`, `more_seeds_if_cheap`, `match_seeds`.
 
 use super::SHMapper;
-use crate::buckets::{Buckets, BucketsHash};
-use crate::types::{BucketContent, Kmer, QPos, RPos, Seed, Seeds};
+use crate::buckets::Buckets;
+use crate::types::{BucketContent, BucketLoc, Kmer, QPos, RPos, Seed, Seeds, SegmId};
+
+/// Accumulates `content` into the entry for bucket index `bb` in the tiny,
+/// ascending-by-index scratch buffer used by [`SHMapper::match_seeds`]'s
+/// streaming multi-hit path. The buffer holds at most a couple of live
+/// buckets (see that method), so the linear scan/insert is effectively O(1).
+fn buf_add(buf: &mut Vec<(RPos, BucketContent)>, bb: RPos, content: BucketContent) {
+    for i in 0..buf.len() {
+        if buf[i].0 == bb {
+            buf[i].1 += content;
+            return;
+        }
+        if buf[i].0 > bb {
+            buf.insert(i, (bb, content));
+            return;
+        }
+    }
+    buf.push((bb, content));
+}
 
 impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, OS, AP> {
     /// Groups `p` by k-mer hash and returns one [`Seed`] per distinct
@@ -80,11 +98,11 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     /// against the index, accumulating hit counts into `buckets`.
     pub fn match_seeds(&mut self, p_unique: &Seeds, buckets: &mut Buckets<'idx, AP>, s: QPos) {
         let mut seed_matches: RPos = 0;
-        // Reused as scratch space across every multi-hit seed below instead
-        // of allocating a fresh `BucketsHash` per seed — `match_seeds` runs
-        // once per read and a read can have many multi-hit seeds, so this
-        // was previously one hashmap allocation per such seed.
-        let mut b2m: BucketsHash<AP> = BucketsHash::new(buckets.halflen);
+        let halflen = buckets.halflen;
+        // Reused across seeds. Holds the currently-"active" buckets for the
+        // streaming multi-hit aggregation below (at most a couple live at a
+        // time), ascending by bucket index.
+        let mut stream_buf: Vec<(RPos, BucketContent)> = Vec::new();
         while (buckets.i as usize) < p_unique.len() && buckets.seeds < s {
             let seed = &p_unique[buckets.i as usize];
             if seed.hits_in_t > 0 {
@@ -102,8 +120,28 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     );
                     buckets.add_to_pos(&hit, content);
                 } else {
-                    b2m.clear();
+                    // Streaming replacement for the per-seed `BucketsHash`:
+                    // `h2multi[h]` is sorted by `(segm_id, r)`, and within a
+                    // segment `r`/`tpos` increase together, so the bucket
+                    // index `pos/halflen` is monotonically non-decreasing
+                    // across this seed's hits. Each hit only touches buckets
+                    // `b` and `b-1`, so a bucket is final once we reach a hit
+                    // two buckets ahead (`bb < b-1`). This streams the seed's
+                    // hits into `buckets` directly with O(1) integer work per
+                    // hit, instead of the ~O(hits) FxHashMap inserts the
+                    // scratch `BucketsHash` did — `match_seeds`'s dominant
+                    // cost on repetitive references (see `PROFILING.md`).
+                    //
+                    // Output is unchanged: the same set of buckets receives
+                    // the same accumulated (clamped) content, and
+                    // `Buckets::get_sorted_buckets` re-sorts by location +
+                    // stable-sorts by match count, so the order buckets are
+                    // added in doesn't affect the result.
+                    let occs = seed.occs_in_p;
+                    stream_buf.clear();
+                    let mut cur_sid: SegmId = -1;
                     for hit in &self.tidx.h2multi[&seed.kmer.h] {
+                        let b = (if AP { hit.r } else { hit.tpos }) / halflen;
                         let content = BucketContent::new(
                             1,
                             0,
@@ -111,17 +149,42 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                             hit.r,
                             hit.r,
                         );
-                        b2m.add_to_pos(hit, content);
+                        if hit.segm_id != cur_sid {
+                            // New segment: everything buffered is final.
+                            for (bb, c) in stream_buf.drain(..) {
+                                let clamped =
+                                    BucketContent::new(c.matches.min(occs), 0, c.codirection, c.r_min, c.r_max);
+                                buckets.add_to_bucket(BucketLoc::new(cur_sid, bb), clamped);
+                            }
+                            cur_sid = hit.segm_id;
+                        } else {
+                            // Finalize buckets that can receive no further
+                            // contribution (index strictly below `b - 1`).
+                            while let Some(&(bb, c)) = stream_buf.first() {
+                                if bb < b - 1 {
+                                    let clamped = BucketContent::new(
+                                        c.matches.min(occs),
+                                        0,
+                                        c.codirection,
+                                        c.r_min,
+                                        c.r_max,
+                                    );
+                                    buckets.add_to_bucket(BucketLoc::new(cur_sid, bb), clamped);
+                                    stream_buf.remove(0);
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        buf_add(&mut stream_buf, b, content);
+                        if b > 0 {
+                            buf_add(&mut stream_buf, b - 1, content);
+                        }
                     }
-                    for (loc, content) in b2m.buckets.iter() {
-                        let clamped = BucketContent::new(
-                            content.matches.min(seed.occs_in_p),
-                            0,
-                            content.codirection,
-                            content.r_min,
-                            content.r_max,
-                        );
-                        buckets.add_to_bucket(*loc, clamped);
+                    for (bb, c) in stream_buf.drain(..) {
+                        let clamped =
+                            BucketContent::new(c.matches.min(occs), 0, c.codirection, c.r_min, c.r_max);
+                        buckets.add_to_bucket(BucketLoc::new(cur_sid, bb), clamped);
                     }
                 }
             }
