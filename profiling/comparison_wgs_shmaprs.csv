@@ -1,0 +1,4 @@
+scope,dataset,mapper,ref,reads_in,mapped,map_pct,mean_mapq,total_s,peak_rss_mb,map_reads_per_s,k,w,density_or_r,theta,threads
+wholegenome,hifi,shmap-rs,hs1.fa,6000,5991,99.85,57.0,1013.6,7339.5,5.9,15,31,0.0625,0.2,4
+wholegenome,ont,shmap-rs,hs1.fa,6000,5750,95.83,54.6,2557.09,9689.7,2.3,15,31,0.0625,0.15,4
+wholegenome,clr,shmap-rs,hs1.fa,6000,294,4.9,44.5,430.78,7683.8,13.9,15,31,0.0625,0.18,4

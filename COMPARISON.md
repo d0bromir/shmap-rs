@@ -46,3 +46,29 @@ pattern.)
   parameters.
 - shmap-rs additionally **scales to many threads** (the C++ original is single-threaded) — see
   `BENCHMARKS.md` for up to ~21× at `-@ 32`.
+
+## WGS long reads (minshmap/realworld benchmark)
+
+Real HG002 long reads (6,000 each) mapped against the whole T2T-CHM13 genome, using that
+benchmark's params (`k=15`, `r=2/(w+1)=0.0625`, `-m Containment`, dataset-specific `theta`,
+4 threads). This is shmap's hardest regime (k=15 makes 15-mers hugely repetitive genome-wide).
+`shmap`/`minSHmap` numbers are the repo's stored `results_rw/bench_both` run; script:
+`profiling/bench_shmaprs_wgs.py`.
+
+| dataset | mapper | mapped | map% | mapq | time | mem |
+|---|---|---:|---:|---:|---:|---:|
+| HiFi | **shmap-rs** | 5991 | 99.85 | 57.0 | **1014 s** | **7.3 GB** |
+| HiFi | shmap (C++) | 5991 | 99.85 | 57.0 | 2637 s | 13.5 GB |
+| HiFi | minSHmap | 5991 | 99.85 | 55.5 | 325 s | 11.2 GB |
+| ONT | **shmap-rs** | 5750 | 95.83 | 54.6 | **2557 s** | **9.7 GB** |
+| ONT | shmap (C++) | 5750 | 95.83 | 54.6 | 7795 s | 13.5 GB |
+| ONT | minSHmap | 5655 | 94.25 | 52.8 | 1081 s | 11.2 GB |
+| CLR | **shmap-rs** | 294 | 4.90 | 44.5 | **431 s** | **7.7 GB** |
+| CLR | shmap (C++) | 294 | 4.90 | 44.5 | 1110 s | 13.6 GB |
+| CLR | minSHmap | 662 | 11.03 | 8.9 | 314 s | 11.2 GB |
+
+- **Byte-for-byte the same accuracy as the C++ original** (identical mapped count, map%, and mean
+  mapq on all three platforms) — the port stays faithful even in this pathological k=15 regime —
+  while **2.6–3.0× faster** (4 threads vs single-threaded C++) and ~1.4–1.8× less memory.
+- minSHmap (minimizer-based, sparser seeds) is faster on HiFi/ONT, but on the noisy CLR reads its
+  extra mappings come at mapq 8.9 vs shmap-rs's 44.5 — i.e. low-confidence.
