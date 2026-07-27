@@ -4,22 +4,19 @@ use super::SHMapper;
 use crate::buckets::Buckets;
 use crate::types::{BucketContent, BucketLoc, Kmer, QPos, RPos, Seed, Seeds, SegmId};
 
-/// Accumulates `content` into the entry for bucket index `bb` in the tiny,
-/// ascending-by-index scratch buffer used by [`SHMapper::match_seeds`]'s
-/// streaming multi-hit path. The buffer holds at most a couple of live
-/// buckets (see that method), so the linear scan/insert is effectively O(1).
-fn buf_add(buf: &mut Vec<(RPos, BucketContent)>, bb: RPos, content: BucketContent) {
-    for i in 0..buf.len() {
-        if buf[i].0 == bb {
-            buf[i].1 += content;
-            return;
-        }
-        if buf[i].0 > bb {
-            buf.insert(i, (bb, content));
-            return;
-        }
-    }
-    buf.push((bb, content));
+/// Emits one finished bucket accumulator from [`SHMapper::match_seeds`]'s
+/// streaming multi-hit path, clamping its match count to how many times the
+/// seed's k-mer actually occurs in the read.
+#[inline]
+fn flush_slot<const AP: bool>(
+    buckets: &mut Buckets<'_, AP>,
+    segm_id: SegmId,
+    bb: RPos,
+    acc: &BucketContent,
+    occs: QPos,
+) {
+    let clamped = BucketContent::new(acc.matches.min(occs), 0, acc.codirection, acc.r_min, acc.r_max);
+    buckets.add_to_bucket(BucketLoc::new(segm_id, bb), clamped);
 }
 
 impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, OS, AP> {
@@ -99,10 +96,6 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     pub fn match_seeds(&mut self, p_unique: &Seeds, buckets: &mut Buckets<'idx, AP>, s: QPos) {
         let mut seed_matches: RPos = 0;
         let halflen = buckets.halflen;
-        // Reused across seeds. Holds the currently-"active" buckets for the
-        // streaming multi-hit aggregation below (at most a couple live at a
-        // time), ascending by bucket index.
-        let mut stream_buf: Vec<(RPos, BucketContent)> = Vec::new();
         while (buckets.i as usize) < p_unique.len() && buckets.seeds < s {
             let seed = &p_unique[buckets.i as usize];
             if seed.hits_in_t > 0 {
@@ -126,19 +119,21 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     // index `pos/halflen` is monotonically non-decreasing
                     // across this seed's hits. Each hit only touches buckets
                     // `b` and `b-1`, so a bucket is final once we reach a hit
-                    // two buckets ahead (`bb < b-1`). This streams the seed's
-                    // hits into `buckets` directly with O(1) integer work per
-                    // hit, instead of the ~O(hits) FxHashMap inserts the
-                    // scratch `BucketsHash` did — `match_seeds`'s dominant
-                    // cost on repetitive references (see `PROFILING.md`).
+                    // two buckets ahead. This streams the seed's hits into
+                    // `buckets` directly with O(1) integer work per hit,
+                    // instead of the ~O(hits) FxHashMap inserts the scratch
+                    // `BucketsHash` did — `match_seeds`'s dominant cost on
+                    // repetitive references (see `PROFILING.md`).
+                    //
+                    // The per-seed aggregation exists because the `min(occs)`
+                    // clamp below applies to a whole bucket's match count, so
+                    // it cannot be applied per hit.
                     //
                     // Output is unchanged: the same set of buckets receives
                     // the same accumulated (clamped) content, and
-                    // `Buckets::get_sorted_buckets` re-sorts by location +
-                    // stable-sorts by match count, so the order buckets are
-                    // added in doesn't affect the result.
+                    // `Buckets` re-derives its results in location order, so
+                    // the order buckets are added in doesn't affect the result.
                     let occs = seed.occs_in_p;
-                    stream_buf.clear();
                     let mut cur_sid: SegmId = -1;
                     // Bucket index of the current hit, tracked incrementally:
                     // `pos` is non-decreasing within a segment, so instead of
@@ -149,6 +144,15 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     // with an amortized-O(1) compare.
                     let mut b: RPos = 0;
                     let mut b_hi: RPos = 0;
+                    // The only two buckets that can still receive a
+                    // contribution, held as fixed slots for `base` and
+                    // `base + 1`: a hit at bucket `b` touches `b` and `b - 1`,
+                    // and `b` never decreases within a segment, so `base` is
+                    // always `max(b - 1, 0)` and everything below it is final.
+                    // A `matches` of 0 marks an empty slot, since every
+                    // contribution carries `matches == 1`.
+                    let mut base: RPos = 0;
+                    let mut acc = [BucketContent::default(); 2];
                     for hit in &self.tidx.h2multi[&seed.kmer.h] {
                         let pos = if AP { hit.r } else { hit.tpos };
                         let content = BucketContent::new(
@@ -160,14 +164,16 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         );
                         if hit.segm_id != cur_sid {
                             // New segment: everything buffered is final.
-                            for (bb, c) in stream_buf.drain(..) {
-                                let clamped =
-                                    BucketContent::new(c.matches.min(occs), 0, c.codirection, c.r_min, c.r_max);
-                                buckets.add_to_bucket(BucketLoc::new(cur_sid, bb), clamped);
+                            for (j, a) in acc.iter_mut().enumerate() {
+                                if a.matches > 0 {
+                                    flush_slot(buckets, cur_sid, base + j as RPos, a, occs);
+                                    *a = BucketContent::default();
+                                }
                             }
                             cur_sid = hit.segm_id;
                             b = pos / halflen;
                             b_hi = (b + 1) * halflen;
+                            base = (b - 1).max(0);
                         } else {
                             // Advance `b` to the bucket containing `pos`
                             // (monotonic within a segment — no division).
@@ -175,33 +181,34 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                                 b += 1;
                                 b_hi += halflen;
                             }
-                            // Finalize buckets that can receive no further
-                            // contribution (index strictly below `b - 1`).
-                            while let Some(&(bb, c)) = stream_buf.first() {
-                                if bb < b - 1 {
-                                    let clamped = BucketContent::new(
-                                        c.matches.min(occs),
-                                        0,
-                                        c.codirection,
-                                        c.r_min,
-                                        c.r_max,
-                                    );
-                                    buckets.add_to_bucket(BucketLoc::new(cur_sid, bb), clamped);
-                                    stream_buf.remove(0);
-                                } else {
-                                    break;
+                            // Slide the two-slot window up to the new `base`,
+                            // finalizing whatever falls out the bottom.
+                            let new_base = (b - 1).max(0);
+                            if new_base > base {
+                                if acc[0].matches > 0 {
+                                    flush_slot(buckets, cur_sid, base, &acc[0], occs);
                                 }
+                                if new_base == base + 1 {
+                                    acc[0] = acc[1];
+                                } else {
+                                    if acc[1].matches > 0 {
+                                        flush_slot(buckets, cur_sid, base + 1, &acc[1], occs);
+                                    }
+                                    acc[0] = BucketContent::default();
+                                }
+                                acc[1] = BucketContent::default();
+                                base = new_base;
                             }
                         }
-                        buf_add(&mut stream_buf, b, content);
+                        acc[(b - base) as usize] += content;
                         if b > 0 {
-                            buf_add(&mut stream_buf, b - 1, content);
+                            acc[(b - 1 - base) as usize] += content;
                         }
                     }
-                    for (bb, c) in stream_buf.drain(..) {
-                        let clamped =
-                            BucketContent::new(c.matches.min(occs), 0, c.codirection, c.r_min, c.r_max);
-                        buckets.add_to_bucket(BucketLoc::new(cur_sid, bb), clamped);
+                    for (j, a) in acc.iter().enumerate() {
+                        if a.matches > 0 {
+                            flush_slot(buckets, cur_sid, base + j as RPos, a, occs);
+                        }
                     }
                 }
             }
