@@ -16,27 +16,48 @@ this file is just the summary.
 
 ### WGS long reads (the regime the mapper is slowest in)
 
-Real HG002 HiFi, 6 000 reads vs the whole T2T-CHM13 genome, `-k 15 -r 0.0625 -t 0.20
--m Containment -@ 1`, 64-core benchmark host, measured end to end with `/usr/bin/time -v`:
+6 000 real HG002 reads per platform vs the whole T2T-CHM13 genome, `-k 15 -r 0.0625 -m Containment
+-@ 1` with the benchmark's per-platform `theta` (HiFi 0.20, ONT 0.15, CLR 0.18), on the 64-core
+benchmark host. Runs were sequential on an idle machine, timed end to end with `/usr/bin/time -v`.
+"before" is commit `1de2a54`.
 
-| | before | after | |
-|---|---:|---:|---|
-| **wall** | **1995.0 s** | **685.3 s** | **2.91× / −65.6%** |
-| `mapping` | 1973.9 s | 662.0 s | −66.5% |
-| ⤷ `bucket_merge` | 1342.1 s | 36.6 s | −97.3% (36.7×) |
-| ⤷ `match_seeds` | 618.2 s | 610.0 s | −1.3% |
-| `indexing` | 21.0 s | 23.1 s | +2.1 s |
-| ⤷ `index_sketching` | 11.0 s | 9.0 s | −18% |
-| **peak RSS** | **7.67 GB** | **7.06 GB** | **−8.0%** |
+| dataset | wall before | wall after | | RSS before | RSS after | |
+|---|---:|---:|---:|---:|---:|---:|
+| HiFi (12.8 kbp reads) | 1995.6 s | **685.9 s** | **2.91x** | 7.67 GB | **7.06 GB** | -8% |
+| ONT (35.4 kbp reads) | 4782.5 s | **1846.6 s** | **2.59x** | 10.96 GB | **7.26 GB** | **-34%** |
+| CLR (3.1 kbp reads) | 707.2 s | **473.6 s** | **1.49x** | 7.87 GB | **7.20 GB** | -8% |
 
-PAF output is byte-identical (5 991 mapped, 5 689 Q60, 296 mapq0 in both), so this is pure
-throughput — the "never degrade mapping" gate holds. `indexing` is the one line that got slower,
-by 2.1 s on a 685 s run: `h2multi`'s big hit lists are shrunk to fit once built, which at k=15
-copies GBs of hits, and that is where most of the 610 MB RSS drop comes from.
+PAF output is byte-identical on all three (0 differing lines; HiFi 5991 mapped / 5689 Q60, ONT 5750
+/ 5227, CLR 294 / 216 in both builds), so this is pure throughput — the "never degrade mapping"
+gate holds.
 
-Note what this does *not* say: `match_seeds` barely moved, and it is now essentially all of
-mapping. The win came from deleting work, not from speeding it up — see the dense accumulator
-below.
+Stage timers, which are the whole story:
+
+| dataset | `bucket_merge` | `match_seeds` | `indexing` |
+|---|---:|---:|---:|
+| HiFi before → after | 1342.1 → **36.6 s** | 618.2 → 610.0 s | 21.0 → 23.1 s |
+| ONT before → after | 2784.4 → **58.3 s** | 1278.1 → 1076.6 s | 21.0 → 22.4 s |
+| CLR before → after | 305.0 → **59.9 s** | 319.6 → 328.5 s | 20.8 → 21.6 s |
+
+Two things worth reading off this:
+
+- **`bucket_merge` lands at 37-60 s on every platform**, from 305-2784 s. The dense accumulator's
+  cost depends on the size of the bucket space — a property of the reference and the read's
+  half-length — not on how many contributions are poured into it, so it stops scaling with
+  repetitiveness. The three speedups differ only because they track how `bucket_merge`-dominated
+  each baseline was (67% / 58% / 43% of wall), not anything about the datasets.
+- **`match_seeds` is essentially untouched and is now the whole of mapping** (89% / 59% / 73%).
+  The win came from deleting work, not from making the remaining work faster. That is the next
+  target, and it is bounded by raw hit volume — `max_seed_matches` peaked at 11.2 M for a single
+  seed on HiFi.
+
+ONT's -34% RSS is the largest memory win and has the same cause: its long reads produced the
+biggest per-read contribution buffers, and those `Vec`s (grown and never shrunk across reads, plus
+the radix ping-pong copy) are gone entirely, replaced by a ~1.4 MB dense array.
+
+`indexing` is the one line that got slightly slower, by ~1-2 s: `h2multi`'s big hit lists are shrunk
+to fit once built, which at k=15 copies GBs of hits, and that is where much of the RSS drop comes
+from.
 
 ### Table-1 datasets
 
@@ -140,8 +161,9 @@ Accuracy identical at every thread count (Mapped Q60: 22918 / 6902 / 228165 / 18
 
 ## Remaining bottlenecks
 
-- **`match_seeds` is now the whole of mapping** on k=15 whole-genome reads (~90%+, since
-  `bucket_merge` went from 68% to under 6%). It is bounded by sheer hit volume: a handful of
+- **`match_seeds` is now the whole of mapping** on k=15 whole-genome reads — 89% on HiFi, 73% on
+  CLR, 59% on ONT, since `bucket_merge` collapsed to a near-constant 37-60 s. It is bounded by
+  sheer hit volume: a handful of
   very-repetitive 15-mers can each have millions of hits genome-wide (`max_seed_matches` peaked at
   11.2 M for a single seed), and every one of them is read from `h2multi` and folded into a bucket.
   Reducing *volume* is the only remaining lever, and it is the one place where that has been
