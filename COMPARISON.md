@@ -76,25 +76,77 @@ benchmark's params (`k=15`, `r=2/(w+1)=0.0625`, `-m Containment`, dataset-specif
 ### Single-threaded (`-@ 1`), apples-to-apples with the C++ original
 
 The C++ `shmap` has no multithreading, so the 4-thread numbers above aren't a fair speed
-comparison on their own. Same datasets/params, shmap-rs at `-@ 1`:
+comparison on their own. Same datasets/params, everything at `-@ 1`.
 
-| dataset | mapper | mapped | mapq | time | mem |
-|---|---|---:|---:|---:|---:|
-| HiFi | **shmap-rs (1t)** | 5991 | 57.0 | **1973 s** | 7.3 GB |
-| HiFi | shmap (C++) | 5991 | 57.0 | 2637 s | 13.5 GB |
-| ONT | **shmap-rs (1t)** | 5750 | 54.6 | 7920 s\* | 9.5 GB\* |
-| ONT | shmap (C++) | 5750 | 54.6 | 7795 s | 13.5 GB |
-| CLR | **shmap-rs (1t)** | 294 | 44.5 | 809 s\* | 7.3 GB\* |
-| CLR | shmap (C++) | 294 | 44.5 | 1110 s | 13.6 GB |
+Provenance, because the columns are not all equally fresh: **both shmap-rs columns were measured
+for this comparison**, back-to-back on an otherwise idle benchmark host (`/usr/bin/time -v`,
+load average ~0 throughout). The **C++ `shmap` column is the repo's stored `results_rw` run**, not
+re-run alongside them.
 
-\* ONT/CLR predate the buckets radix-sort optimization below and will move similarly to HiFi
-(~28% faster) once re-measured; not yet re-run.
+#### HiFi — 6 000 reads vs whole T2T-CHM13, `-k 15 -r 0.0625 -t 0.20 -m Containment`
 
-Single-threaded shmap-rs on HiFi is now **25% *faster*** than the C++ original (was 3.6% slower
-at the start of this round of work), at roughly half the memory — while still scaling further
-with threads (the 4-thread table above). Two rounds of fixing the `Buckets` accumulator got here:
-an earlier sparse-`FxHashMap` rewrite (fixing a ~15 GB dense-array blowup) had regressed
-single-thread speed ~20% below C++ on this k=15 regime; switching to an append-only buffer merged
-once per read recovered most of that, and replacing the O(n log n) merge sort with an O(n) radix
-sort (dynamic pass count, since bucket indices are usually far smaller than their 32-bit budget)
-recovered the rest and then some. See `PROFILING.md` for the stage-by-stage breakdown.
+| | C++ `shmap` | shmap-rs *before* | shmap-rs *after* |
+|---|---:|---:|---:|
+| **wall** | 2637 s | 1995.6 s | **685.9 s** |
+| speedup vs C++ | 1.00x | 1.32x | **3.85x** |
+| speedup vs previous shmap-rs | — | 1.00x | **2.91x** |
+| **peak RSS** | 13.5 GB | 7.67 GB | **7.06 GB** |
+| mapped | 5991 | 5991 | 5991 |
+| mean mapq | 57.0 | 57.0 | 57.0 |
+| Q60 / mapq0 | — | 5689 / 296 | 5689 / 296 |
+
+The two shmap-rs builds produce **byte-identical PAF** — 0 differing lines over 5 991 records, both
+files exactly 2 870 609 bytes — so the 2.91x is pure throughput, with no recall or mapq trade.
+
+Where the 1 310 s went (from `-x` stage timers on the same two runs):
+
+| stage | before | after | |
+|---|---:|---:|---|
+| `bucket_merge` | 1342.1 s | 36.6 s | **-97.3% (36.7x)** |
+| `match_seeds` | 618.2 s | 610.0 s | -1.3% |
+| `indexing` | 21.0 s | 23.1 s | +2.1 s |
+
+Essentially all of it is `bucket_merge`: the sort-based bucket aggregation was replaced by a dense
+accumulator. `match_seeds` is untouched and is now ~92% of mapping — it is the next target.
+
+#### Whole genome, real HG002 24 kbp — 2 000 reads, `-k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3`
+
+The Table-1 dataset, included because it is the case that did *not* speed up:
+
+| | C++ `map-shmap` | shmap-rs *before* | shmap-rs *after* |
+|---|---:|---:|---:|
+| **wall** | 32.9 s | 11.63 s | 11.70 s |
+| **peak RSS** | 18.9 GB | 2.86 GB | **2.56 GB** |
+| Q60 correct | 1876 | 1876 | 1876 |
+
+Best-of-3 each. This run is ~90% indexing, so the mapping win barely applies and it pays slightly
+for shrinking the index's hit lists: **~1% slower for 11% less memory**, output identical. At
+`-@ 8` it is ~9% *faster* (11.8-13.5 s -> 10.6-10.9 s) from the chunked-sketching work.
+
+#### Not re-measured
+
+No "after" numbers exist for these yet:
+
+| dataset | C++ `shmap` | shmap-rs (stale figure) |
+|---|---:|---:|
+| ONT WGS | 7795 s / 13.5 GB | 7920 s / 9.5 GB |
+| CLR WGS | 1110 s / 13.6 GB | 809 s / 7.3 GB |
+| chrY sim 10 kbp | 110 s / 0.38 GB | 74 s / 0.19 GB |
+
+ONT alone is a ~2.2 h baseline run, and the chrY simulated read sets are not present on the
+benchmark host. The two WGS rows are additionally *pre-radix-sort* figures, so they do not reflect
+even the previous baseline. ONT and CLR should move in HiFi's direction but likely less far: the
+dense accumulator's win scales with how much a read over-touches buckets, and ONT's longer reads
+mean a larger half-length and so fewer, more heavily shared buckets. The 4-thread table above is
+likewise pre-dense.
+
+### How it got here
+
+Three rounds of fixing the `Buckets` accumulator. An early sparse-`FxHashMap` rewrite (fixing a
+~15 GB dense-array blowup) had regressed single-thread speed ~20% below C++ in this k=15 regime; an
+append-only buffer merged once per read recovered most of that, and an O(n) radix sort recovered
+the rest. The last round removed the merge entirely: a read produces ~4 M raw bucket contributions
+but the whole reference only *has* ~242 k buckets at that read's half-length, so shmap-rs now
+accumulates straight into a dense ~4 MB (L3-resident) array and reads the sorted result back with a
+single linear scan. See `PROFILING.md` for the stage-by-stage breakdown, for the supporting
+data-structure changes, and for why this is not a return to the old multi-GB dense array.

@@ -14,6 +14,38 @@ this file is just the summary.
 
 ## Current numbers
 
+### WGS long reads (the regime the mapper is slowest in)
+
+Real HG002 HiFi, 6 000 reads vs the whole T2T-CHM13 genome, `-k 15 -r 0.0625 -t 0.20
+-m Containment -@ 1`, 64-core benchmark host, measured end to end with `/usr/bin/time -v`:
+
+| | before | after | |
+|---|---:|---:|---|
+| **wall** | **1995.0 s** | **685.3 s** | **2.91× / −65.6%** |
+| `mapping` | 1973.9 s | 662.0 s | −66.5% |
+| ⤷ `bucket_merge` | 1342.1 s | 36.6 s | −97.3% (36.7×) |
+| ⤷ `match_seeds` | 618.2 s | 610.0 s | −1.3% |
+| `indexing` | 21.0 s | 23.1 s | +2.1 s |
+| ⤷ `index_sketching` | 11.0 s | 9.0 s | −18% |
+| **peak RSS** | **7.67 GB** | **7.06 GB** | **−8.0%** |
+
+PAF output is byte-identical (5 991 mapped, 5 689 Q60, 296 mapq0 in both), so this is pure
+throughput — the "never degrade mapping" gate holds. `indexing` is the one line that got slower,
+by 2.1 s on a 685 s run: `h2multi`'s big hit lists are shrunk to fit once built, which at k=15
+copies GBs of hits, and that is where most of the 610 MB RSS drop comes from.
+
+Note what this does *not* say: `match_seeds` barely moved, and it is now essentially all of
+mapping. The win came from deleting work, not from speeding it up — see the dense accumulator
+below.
+
+### Table-1 datasets
+
+> **Stale.** This table predates the bucket-accumulator and indexing work below and has not been
+> re-run; use `profiling/benchmark.py --datasets all --threads 16 --profile --only shmap-rs` to
+> refresh it. Spot-checked on `allchr_real_24kbp` (2 000 reads, k=25), where output is unchanged
+> and the effect is small because that run is ~90% indexing, not mapping: `-@1` 11.66 s → 11.78 s
+> (+1%) at 2.86 GB → 2.56 GB (−11%), and `-@8` 11.8-13.5 s → 10.6-10.9 s (−9%) at equal memory.
+
 | Dataset | Threads | Wall | Peak RSS |
 |---|---:|---:|---:|
 | chrY_sim_10kbp_10x  |  1 |  73.5s | 0.19 GB |
@@ -43,22 +75,90 @@ Accuracy identical at every thread count (Mapped Q60: 22918 / 6902 / 228165 / 18
 - **Buffered stdout** in the collector instead of `print!()` per read.
 - **`match_seeds` streams multi-hit seeds** into buckets directly (sorted hits → monotonic bucket
   index) instead of a per-seed scratch hashmap + per-hit division.
+- **Bucket accumulation is a dense array, not a sort.** This is the big one for WGS. Measured on
+  whole-genome k=15 HiFi at `-@1`, a read produced ~4.0 M raw bucket contributions but only ~242 k
+  *distinct* buckets, and collapsing the former to the latter by radix-sorting 32-byte records
+  moved ~1.1 GB per read at memory-bandwidth speed — `bucket_merge` alone was 56% of total wall.
+  The fix is to stop materializing contributions at all: the whole reference only contains
+  `reference_sketch_len / halflen` buckets (~242 k here, ~4 MB of 16-byte slots, L3-resident) and
+  such a read touches nearly all of them, so `add_to_pos`/`add_to_bucket` became one indexed
+  read-modify-write into a dense array, and the sorted+deduplicated result comes back from a single
+  linear scan (global bucket ids are ordered by `(segm_id, b)`, so the scan *is* the sort).
+  **`bucket_merge` 21.9 s → 0.6 s; mapping −65%**, byte-identical output. This is not the old dense
+  array that caused a ~15 GB blowup: that one was sized by reference length over `MIN_HALFLEN`,
+  this one by reference length over the *read's own* half-length, and it refuses to allocate past
+  `MAX_DENSE_SLOTS` (~32 MB/thread), falling back to the sparse radix path — kept, and pinned by a
+  test asserting the two paths agree exactly.
+- **Sparse-path fixes** (still live for the short-read fallback, and each measured on its own before
+  the dense path landed): the radix key packed `segm_id << 32`, forcing a 37-bit key and a third
+  O(n) pass where the real key is ~22 bits — measuring the width per read cut it to two passes
+  (−30%); the sorted entry shrank 32 → 24 bytes by hoisting `BucketContent`'s `i`/`seeds`, which
+  are uniform across a read, out of the per-entry payload; all passes' histograms are built in one
+  counting scan instead of one per pass (a histogram is permutation-invariant); the key-width
+  maxima are tracked at push time instead of by a full scan; and the final by-`matches` ordering
+  sorts 8-byte packed keys rather than 32-byte records.
+- **`match_seeds`'s per-seed scratch is two fixed slots**, not a `Vec` with insert/remove. A hit at
+  bucket `b` touches only `b` and `b - 1` and `b` never decreases within a segment, so the live
+  window is provably two buckets wide.
 - **Reference indexing parallelized** across `-@`, applied in strict file order for determinism.
 - **Sketching**: precomputed rolling-hash LUTs (fewer rotates/base) + `Entry` API in k-mer
   indexing (hash once, not twice).
+- **Sketching hot loop is bounds-check free.** The rolling update indexed `s[r]` and `s[r - k]` by
+  a signed `RPos`, so every base of the reference paid two bounds checks plus sign-extension, and
+  the mid-loop `r >= s.len()` break stopped LLVM treating it as a counted loop at all. Walking the
+  incoming/outgoing bases as a pair of zipped slice iterators removes all of it: **~13-17% off
+  `index_sketching`**. Interleaving the fw/rc LUT pairs into one `[Hash; 2]` table to halve the
+  per-base load count was also tried and measured ~6% *slower* (the 16-byte load round-trips
+  through a vector register), so the tables stay separate.
+- **Sketching a segment is split into chunks** rather than one segment per worker. A k-mer window
+  depends only on the `k` bases under it, so `sketch_slice_into` sketches a window range at an
+  offset and the pieces concatenate to exactly the serial sketch (pinned by a unit test over many
+  split points). This removes the Amdahl cap where the phase could not finish faster than the
+  single longest chromosome — the reason `-@16` indexed barely faster than `-@1` on
+  `allchr_real_24kbp`. **~18% off `indexing` at `-@8`** on the synthetic reference.
+- **FASTA records are handed to the caller by value.** `read_fasta` yielded `&[u8]` and *both*
+  call sites immediately did `seq.to_vec()` — a second full copy of every chromosome, and a second
+  chromosome-sized live allocation. needletail already returns an owned, newline-stripped buffer,
+  so moving it through costs nothing. The per-record header `to_vec()` and `Cow` allocation are
+  gone too (one reused `String`).
+- **Sequence read-ahead is bounded by segments, not by `threads * 4` segments.** All chunks of a
+  segment share one `Arc`'d copy of its bases, and that `Arc` is deliberately not carried into the
+  completion message, so a segment's bases are freed as soon as it is sketched instead of being
+  held alive across the much slower `add_segment`. **~11-13% off peak RSS** on indexing-dominated
+  runs.
+- **Sketch buffers are sized from the binomial, not a flat `1.1 *`.** Selection is a Bernoulli
+  trial per k-mer, so mean + 6σ is ~0.5% of slack on a chromosome instead of 10%, with overflow
+  merely slow (never wrong).
+- **`h2multi` lists start at capacity 2 and are shrunk once built.** A k-mer that reaches `h2multi`
+  always ends up with at least two hits, so starting empty meant allocating at capacity 1 and
+  immediately reallocating — millions of avoidable reallocations per genome, for identical final
+  memory. They are read-only after indexing, so the final sort pass also shrinks them to fit.
+- **`lto = "fat"` + `codegen-units = 1`.** The release profile was previously the Cargo default, so
+  the hot loops never got inlined across the `needletail`/`rustc-hash` boundary or across the 16
+  default codegen units. Worth ~5% wall on its own. `panic` stays at `unwind`: `map_reads` uses
+  `catch_unwind` to isolate a panicking read, so `abort` would change behavior, not just codegen.
 
 ## Remaining bottlenecks
 
-- **Bucket merge** (the radix sort above) is now the dominant per-read cost on k=15 whole-genome
-  reads (~68% of mapping time, down from ~77% pre-radix) — `match_seeds` itself is only ~23-31%.
-  Root cause is volume, not the sort algorithm: a handful of very-repetitive 15-mers can each touch
-  millions of scattered genome-wide buckets, so even O(n) work over that many raw touches is slow.
-  Reducing volume (rather than the per-touch cost) is the only remaining lever — investigated and
-  **rejected** `-M`/`--max_matches` (blacklists over-frequent k-mers at index time) for this: even a
-  mild threshold measurably shifted mapq distribution, and an aggressive one dropped reads from
-  mapped entirely (300/300 → 279/300 on a test sample). Not safe as a default; the "never degrade
-  mapping" gate rules it out unless a future change can bound volume without touching results.
-- **Sketching** is memory-latency-bound on the base-by-base rolling hash; a further big win would
-  need SIMD or 2-bit-packed sequence encoding (large effort).
-- **Indexing parallelism** is capped by the largest single chromosome (Amdahl's law) — helps
-  mainly through pipelining, not raw thread scaling.
+- **`match_seeds` is now the whole of mapping** on k=15 whole-genome reads (~90%+, since
+  `bucket_merge` went from 68% to under 6%). It is bounded by sheer hit volume: a handful of
+  very-repetitive 15-mers can each have millions of hits genome-wide (`max_seed_matches` peaked at
+  11.2 M for a single seed), and every one of them is read from `h2multi` and folded into a bucket.
+  Reducing *volume* is the only remaining lever, and it is the one place where that has been
+  investigated and **rejected**: `-M`/`--max_matches` (blacklisting over-frequent k-mers at index
+  time) measurably shifted the mapq distribution even at a mild threshold, and an aggressive one
+  dropped reads from mapped entirely (300/300 → 279/300 on a test sample). Not safe as a default;
+  the "never degrade mapping" gate rules it out unless a future change can bound volume without
+  touching results. The per-hit work itself is now down to an indexed accumulate, so the honest
+  next step is measuring whether it is bound by streaming `h2multi` or by the per-hit arithmetic.
+- **`index_initializing` is now the serial floor of indexing.** It is one thread doing ~19M
+  `h2single` inserts into a table far larger than cache, and at ~175-210 ns per k-mer it is almost
+  entirely cache/TLB miss latency, not instruction count — it barely moved from any of the work
+  above. The two levers that would actually bite: (a) *shard* `h2single`/`h2multi` by hash across
+  `-@` threads, which is compatible with determinism because every occurrence of a given hash lands
+  in the same shard and shards would still see segments in file order (this is the big one — it
+  turns the phase from serial into parallel); (b) software-prefetch the bucket for k-mer `i + D`
+  while inserting `i`, which needs `hashbrown` as a direct dependency for a hash-supplied raw
+  entry API, since `std`'s `HashMap` exposes no bucket addresses.
+- **Sketching** is now ~1.7 ns/base and still latency-bound on the base-by-base rolling hash; the
+  remaining big win would need SIMD or 2-bit-packed sequence encoding (large effort).
