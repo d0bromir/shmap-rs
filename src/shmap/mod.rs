@@ -416,7 +416,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     let _ = job_tx.send(Job {
                         idx,
                         query_id: query_id.to_string(),
-                        seq: seq.to_vec(),
+                        seq,
                         progress,
                     });
                     idx += 1;

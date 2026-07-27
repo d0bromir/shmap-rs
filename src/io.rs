@@ -12,6 +12,11 @@ use crate::utils::Timers;
 /// `callback` with `(id, sequence, progress)` for each record, where
 /// `progress` is in `[0, 1]`.
 ///
+/// The sequence is passed **by value**: every caller here needs to own it
+/// (both pipelines send it down a channel to a worker thread), and the
+/// buffer needletail hands back is already a fresh allocation per record,
+/// so moving it through costs nothing and saves the caller a full copy.
+///
 /// `id` is truncated at the first whitespace, matching `klib`'s
 /// name/comment split (needletail's own `record.id()` returns the whole
 /// header line instead).
@@ -27,13 +32,18 @@ use crate::utils::Timers;
 /// caller already times this whole call under (`index_reading`/
 /// `query_reading`): `fasta_parse_next` (needletail's own record parsing —
 /// I/O plus line/sequence assembly) and `fasta_extract` (this function's own
-/// id/sequence copying and name-splitting). Added to answer "is reading
+/// name-splitting and sequence hand-off). Added to answer "is reading
 /// parsing-bound or I/O-bound" from `PROFILING.md` rather than guess.
-pub fn read_fasta(path: &str, timers: &mut Timers, mut callback: impl FnMut(&str, &[u8], f32)) -> Result<()> {
+pub fn read_fasta(path: &str, timers: &mut Timers, mut callback: impl FnMut(&str, Vec<u8>, f32)) -> Result<()> {
     let total_bytes = std::fs::metadata(path)
         .with_context(|| format!("failed to stat {path}"))?
         .len()
         .max(1);
+
+    // Reused across records so the per-record name costs no allocation after
+    // the first few; `String::from_utf8_lossy` itself only allocates when the
+    // header is not valid UTF-8.
+    let mut name = String::new();
 
     let mut reader = parse_fastx_file(path).with_context(|| format!("failed to open {path}"))?;
     loop {
@@ -46,19 +56,26 @@ pub fn read_fasta(path: &str, timers: &mut Timers, mut callback: impl FnMut(&str
 
         timers.start("fasta_extract");
         let record = record.with_context(|| format!("invalid FASTA record in {path}"))?;
-        let full_id = record.id().to_vec();
-        let seq = record.seq().into_owned();
-        drop(record); // end the borrow of `reader` before calling `.position()`
-
+        let full_id = record.id();
         let name_bytes = full_id
             .split(|&b| b == b' ' || b == b'\t')
             .next()
-            .unwrap_or(&full_id);
-        let name = String::from_utf8_lossy(name_bytes);
+            .unwrap_or(full_id);
+        name.clear();
+        name.push_str(&String::from_utf8_lossy(name_bytes));
+        // `into_owned` on a multi-line FASTA record is free: needletail has
+        // already had to build an owned, newline-stripped copy to return the
+        // `Cow`. Handing that buffer to the callback by value rather than by
+        // reference is what lets the caller store it without copying it a
+        // second time — for a chromosome-sized segment that second copy was
+        // both a memcpy of hundreds of MB and hundreds of MB of extra peak RSS.
+        let seq = record.seq().into_owned();
+        drop(record); // end the borrow of `reader` before calling `.position()`
+
         let progress = (reader.position().byte() as f64 / total_bytes as f64).min(1.0) as f32;
         timers.stop("fasta_extract");
 
-        callback(&name, &seq, progress);
+        callback(&name, seq, progress);
     }
     Ok(())
 }
@@ -76,7 +93,7 @@ mod tests {
 
         let mut seen = Vec::new();
         read_fasta(f.path().to_str().unwrap(), &mut Timers::new(), |id, seq, progress| {
-            seen.push((id.to_string(), seq.to_vec(), progress));
+            seen.push((id.to_string(), seq, progress));
         })
         .unwrap();
 

@@ -12,22 +12,34 @@
 //! landed. `build_index` uses the same reader/worker-pool/collector pipeline
 //! as `SHMapper::map_reads` (see that module's doc comment): one reader
 //! thread streams segments off disk over a bounded channel, `threads`
-//! worker threads sketch them in parallel (the actual FracMinHash k-mer
-//! selection — independent per segment, so embarrassingly parallel), and the
-//! scope's own thread collects completions and applies them
-//! ([`SketchIndex::add_segment`]) strictly in original file order.
+//! worker threads sketch in parallel, and the scope's own thread collects
+//! completions and applies them ([`SketchIndex::add_segment`]) strictly in
+//! original file order.
 //!
-//! That last part matters for determinism, not just style: `segm_id` is
-//! assigned as `self.segments.len()` at the moment a segment is applied, and
-//! `populate_h2pos`'s `max_matches` cap keeps only the first `m+1` hits it
-//! sees for an over-frequent k-mer — both depend on *processing* order, not
-//! just final content. Applying completed sketches in strict file order
-//! (regardless of which order the worker threads actually finish sketching
-//! them in) keeps both exactly matching the single-threaded result, the same
-//! guarantee `map_reads` already provides for mapping output.
+//! The unit of work is a *chunk* of one segment, not a whole segment. Handing
+//! each worker an entire chromosome caps the whole phase at the time to sketch
+//! the single longest one — on a human reference that is ~8% of the bases in
+//! one indivisible piece, so `-@ 16` indexed barely faster than `-@ 1`. A
+//! k-mer window depends only on the `k` bases under it, so a segment splits
+//! into runs of windows that can be sketched independently and concatenated
+//! (see [`FracMinHash::sketch_slice_into`], and `chunk_windows` for how the
+//! split is sized). Chunks of one segment share a single `Arc`'d copy of its
+//! bases, which also bounds resident sequence: the old form let the reader
+//! buffer `threads * 4` whole chromosomes as read-ahead.
+//!
+//! Applying in file order matters for determinism, not just style: `segm_id`
+//! is assigned as `self.segments.len()` at the moment a segment is applied,
+//! and `populate_h2pos`'s `max_matches` cap keeps only the first `m+1` hits
+//! it sees for an over-frequent k-mer — both depend on *processing* order,
+//! not just final content. Reassembling each segment's chunks by index and
+//! applying whole segments in strict file order (regardless of the order
+//! workers actually finish in) keeps both exactly matching the
+//! single-threaded result, the same guarantee `map_reads` already provides
+//! for mapping output.
 
 use std::collections::HashMap;
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use rustc_hash::FxHashMap;
@@ -54,6 +66,41 @@ pub struct SketchIndex {
     /// K-mers with more than one hit, each list sorted by `(segm_id, r)`
     /// (equivalently `(segm_id, tpos)`) to allow binary search.
     pub h2multi: FxHashMap<Hash, Vec<Hit>>,
+}
+
+/// How many k-mer windows one sketching chunk should cover.
+///
+/// Sketching a segment is split into chunks so that a single long chromosome
+/// cannot pin one worker while every other thread idles — the Amdahl cap that
+/// made `-@ 16` barely beat `-@ 1` on indexing-dominated runs. Chunks are
+/// sized to give each worker several pieces (so a straggler costs a fraction
+/// of a chunk, not a fraction of a chromosome) while staying large enough
+/// that the `k - 1` bases each chunk re-reads at its left edge, and its
+/// separate output `Vec`, stay negligible.
+fn chunk_windows(n_windows: usize, n_threads: usize) -> usize {
+    // With a single worker, chunking buys no parallelism and would only add
+    // the overlap and a concatenation pass, so keep whole segments.
+    if n_threads <= 1 {
+        return n_windows.max(1);
+    }
+    const MIN_CHUNK: usize = 1 << 21;
+    (n_windows / (n_threads * 4)).max(MIN_CHUNK)
+}
+
+/// Joins a segment's per-chunk sketches back into the single sketch a
+/// whole-segment sketching pass would have produced.
+fn concat_chunks(mut chunks: Vec<Option<SketchT>>) -> SketchT {
+    // The overwhelmingly common case (small segment, or `-@ 1`): hand the one
+    // chunk's buffer straight through rather than copying it.
+    if chunks.len() == 1 {
+        return chunks.pop().flatten().unwrap_or_default();
+    }
+    let total: usize = chunks.iter().flatten().map(|s| s.len()).sum();
+    let mut out = Vec::with_capacity(total);
+    for chunk in chunks.into_iter().flatten() {
+        out.extend_from_slice(&chunk);
+    }
+    out
 }
 
 impl SketchIndex {
@@ -97,7 +144,16 @@ impl SketchIndex {
                     e.insert(hit);
                 }
                 std::collections::hash_map::Entry::Occupied(_) => {
-                    let multi = self.h2multi.entry(kmer.h).or_default();
+                    // `with_capacity(2)`, not `or_default()`: a k-mer that
+                    // reaches `h2multi` at all ends up holding at least two
+                    // hits (this one, plus the `h2single` entry that the
+                    // migration pass at the end of `build_index` pushes in),
+                    // and most hold exactly two. Starting empty made that
+                    // near-universal case allocate at capacity 1 and then
+                    // immediately reallocate to 2, once per repeated k-mer —
+                    // millions of avoidable reallocations on a whole genome,
+                    // for the same final memory.
+                    let multi = self.h2multi.entry(kmer.h).or_insert_with(|| Vec::with_capacity(2));
                     if max_matches.is_none_or(|m| (multi.len() as i32) < m + 1) {
                         multi.push(hit);
                     }
@@ -191,28 +247,57 @@ impl SketchIndex {
         // it inflated peak RSS too. Default growth wins here; left un-reserved.
 
         let n_threads = threads.max(1);
+        let k = sketcher.k;
 
-        struct SegJob {
+        /// One contiguous run of k-mer windows of one segment, to be sketched
+        /// by whichever worker picks it up. `[w0, w1)` indexes *windows*, not
+        /// bases: window `w` is the k-mer ending at base `w + k - 1`, so the
+        /// bases this job actually reads are `seq[w0..w1 + k - 1]`.
+        struct ChunkJob {
+            /// Shared with this segment's other chunks, and deliberately *not*
+            /// carried into `ChunkDone`: the last worker to finish a chunk
+            /// drops the last handle, so a segment's bases are freed as soon
+            /// as it is sketched rather than being held alive across the much
+            /// slower `add_segment` that follows.
+            seq: Arc<Vec<u8>>,
+            meta: SegMeta,
+            chunk_idx: u32,
+            w0: usize,
+            w1: usize,
+        }
+        /// The small, sequence-free per-segment facts the collector needs.
+        #[derive(Clone)]
+        struct SegMeta {
             idx: u64,
-            segm_name: String,
-            seq: Vec<u8>,
+            name: Arc<str>,
+            seq_len: RPos,
+            n_chunks: u32,
             progress: f32,
         }
-        struct SegDone {
-            idx: u64,
-            segm_name: String,
-            seq_len: RPos,
+        struct ChunkDone {
+            meta: SegMeta,
+            chunk_idx: u32,
             sketch: SketchT,
-            progress: f32,
-            counters: Counters,
             timers: Timers,
+        }
+        /// A segment's chunk sketches as they arrive, plus how many are still
+        /// outstanding.
+        struct SegAssembly {
+            meta: SegMeta,
+            chunks: Vec<Option<SketchT>>,
+            remaining: u32,
         }
 
         // Bounded for the same reason as `map_reads`'s job channel: caps how
-        // far the reader can get ahead of the sketching workers.
-        let (job_tx, job_rx) = mpsc::sync_channel::<SegJob>(n_threads * 4);
+        // far the reader can get ahead of the sketching workers. Because a
+        // segment's chunks all borrow one shared `Arc<Vec<u8>>`, this also
+        // bounds how many whole segments can be resident at once — the old
+        // one-job-per-segment form let the reader buffer `n_threads * 4`
+        // entire chromosomes, which on a multi-Gbp reference was gigabytes of
+        // sequence held purely as read-ahead.
+        let (job_tx, job_rx) = mpsc::sync_channel::<ChunkJob>(n_threads * 4);
         let job_rx = Mutex::new(job_rx);
-        let (done_tx, done_rx) = mpsc::channel::<SegDone>();
+        let (done_tx, done_rx) = mpsc::channel::<ChunkDone>();
 
         std::thread::scope(|scope| -> anyhow::Result<()> {
             for worker_idx in 0..n_threads {
@@ -225,23 +310,26 @@ impl SketchIndex {
                     loop {
                         let job = job_rx.lock().unwrap().recv();
                         let Ok(job) = job else { break };
-                        let mut seg_counters = Counters::new();
                         let mut seg_timers = Timers::new();
                         seg_timers.start("index_sketching");
-                        let sketch = sketcher.sketch(&job.seq, &mut seg_counters);
+                        // Windows `[w0, w1)` are the k-mers ending at bases
+                        // `[w0 + k - 1, w1 + k - 2]`, so they read exactly
+                        // these bases. `w0` is passed as the offset so the
+                        // k-mer positions come out absolute in the segment.
+                        let bases = &job.seq[job.w0..(job.w1 + (k - 1).max(0) as usize).min(job.seq.len())];
+                        let n_bases = bases.len();
+                        let sketch = sketcher.sketch_slice_into(bases, job.w0 as RPos, Vec::new());
                         seg_timers.stop("index_sketching");
+                        drop(job.seq);
                         if profiler.enabled() {
                             thread_timers += &seg_timers;
-                            thread_counters += &seg_counters;
+                            thread_counters.inc("sketched_len", n_bases as i64);
                             jobs_done += 1;
                         }
-                        let done = SegDone {
-                            idx: job.idx,
-                            segm_name: job.segm_name,
-                            seq_len: job.seq.len() as RPos,
+                        let done = ChunkDone {
+                            meta: job.meta,
+                            chunk_idx: job.chunk_idx,
                             sketch,
-                            progress: job.progress,
-                            counters: seg_counters,
                             timers: seg_timers,
                         };
                         if done_tx.send(done).is_err() {
@@ -272,12 +360,34 @@ impl SketchIndex {
                 let mut idx = 0u64;
                 read_fasta(t_file, &mut fasta_timers, |segm_name, seq, progress| {
                     r_timers.stop("index_reading");
-                    let _ = job_tx.send(SegJob {
+                    let n_windows = seq.len().saturating_sub((k - 1).max(0) as usize);
+                    let per_chunk = chunk_windows(n_windows, n_threads);
+                    let n_chunks = n_windows.div_ceil(per_chunk).max(1) as u32;
+                    let meta = SegMeta {
                         idx,
-                        segm_name: segm_name.to_string(),
-                        seq: seq.to_vec(),
+                        name: Arc::from(segm_name),
+                        seq_len: seq.len() as RPos,
+                        n_chunks,
                         progress,
-                    });
+                    };
+                    let seq = Arc::new(seq);
+                    for chunk_idx in 0..n_chunks {
+                        let w0 = chunk_idx as usize * per_chunk;
+                        let w1 = ((chunk_idx as usize + 1) * per_chunk).min(n_windows);
+                        let job = ChunkJob {
+                            seq: Arc::clone(&seq),
+                            meta: meta.clone(),
+                            chunk_idx,
+                            w0,
+                            w1,
+                        };
+                        if job_tx.send(job).is_err() {
+                            break;
+                        }
+                    }
+                    // The reader's own handle goes away here; the last worker
+                    // to finish one of these chunks frees the bases.
+                    drop(seq);
                     idx += 1;
                     r_timers.start("index_reading");
                 })?;
@@ -286,22 +396,43 @@ impl SketchIndex {
                 Ok(r_timers)
             });
 
-            // Applies each segment's already-computed sketch strictly in
-            // original file order (never in whatever order workers actually
-            // finish sketching) — see the module doc comment for why this
-            // is required for determinism, not just for a stable progress
-            // bar.
+            // Reassembles each segment from its chunk sketches and applies it
+            // strictly in original file order (never in whatever order
+            // workers actually finish sketching) — see the module doc comment
+            // for why this is required for determinism, not just for a stable
+            // progress bar.
             let mut next_idx = 0u64;
-            let mut pending: HashMap<u64, SegDone> = HashMap::new();
+            let mut pending: HashMap<u64, SegAssembly> = HashMap::new();
             while let Ok(done) = done_rx.recv() {
-                pending.insert(done.idx, done);
-                while let Some(done) = pending.remove(&next_idx) {
-                    *counters += &done.counters;
+                *timers += &done.timers;
+                let n_chunks = done.meta.n_chunks;
+                let asm = pending.entry(done.meta.idx).or_insert_with(|| SegAssembly {
+                    meta: done.meta.clone(),
+                    chunks: (0..n_chunks).map(|_| None).collect(),
+                    remaining: n_chunks,
+                });
+                if asm.chunks[done.chunk_idx as usize].replace(done.sketch).is_none() {
+                    asm.remaining -= 1;
+                }
+
+                while pending.get(&next_idx).is_some_and(|a| a.remaining == 0) {
+                    let asm = pending.remove(&next_idx).expect("just checked it is present");
+                    let seq_len = asm.meta.seq_len;
+                    let sketch = concat_chunks(asm.chunks);
+
+                    // These are the counters `FracMinHash::sketch` bumps when
+                    // a sequence is sketched in one piece; bumped here, once
+                    // per segment, so a segment split across N chunks still
+                    // reports as exactly one sketched sequence.
+                    counters.inc1("sketched_seqs");
+                    counters.inc("sketched_len", seq_len as i64);
+                    counters.inc("original_kmers", sketch.len() as i64);
+                    counters.inc("sketched_kmers", sketch.len() as i64);
+
                     timers.start("index_initializing");
-                    self.add_segment(done.segm_name, done.seq_len, done.sketch, max_matches, counters);
+                    self.add_segment(asm.meta.name.to_string(), seq_len, sketch, max_matches, counters);
                     timers.stop("index_initializing");
-                    *timers += &done.timers;
-                    progress_bar.update(done.progress as f64);
+                    progress_bar.update(asm.meta.progress as f64);
                     next_idx += 1;
                 }
             }
@@ -321,6 +452,19 @@ impl SketchIndex {
                 hits.push(single_hit);
             }
             hits.sort_by(|a, b| a.segm_id.cmp(&b.segm_id).then(a.r.cmp(&b.r)));
+            // These lists are read-only for the rest of the run, so the slack
+            // left by doubling growth is dead weight held for the whole
+            // mapping phase — but reclaiming it costs a reallocation and a
+            // copy, so only do it where the slack is actually worth it. The
+            // count is dominated by two- and three-hit lists whose slack is a
+            // single `Hit`; shrinking those was ~5.8M reallocations for ~100 MB
+            // on a k=25 whole-genome index, and measured as a net loss. The
+            // bytes are dominated by the rare very-high-frequency k-mers,
+            // whose lists are big enough that this test passes easily.
+            let slack = hits.capacity() - hits.len();
+            if slack > hits.len() / 8 + 8 {
+                hits.shrink_to_fit();
+            }
         }
         timers.stop("indexing");
 
