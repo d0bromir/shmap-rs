@@ -55,6 +55,14 @@ ONT's -34% RSS is the largest memory win and has the same cause: its long reads 
 biggest per-read contribution buffers, and those `Vec`s (grown and never shrunk across reads, plus
 the radix ping-pong copy) are gone entirely, replaced by a ~1.4 MB dense array.
 
+That memory win compounds with thread count, which is the part that matters most. Those buffers
+were **per worker**, so the old design's footprint grew with `-@`: ONT went 10.96 GB at `-@ 1` to
+**22.46 GB at `-@ 4`**. The dense array is ~1.4 MB per worker, so the new build is essentially flat
+(7.26 GB -> 9.39 GB over the same range, and that delta is index build-up, not per-worker state).
+At `-@ 4` the three platforms are 3.28x / 3.14x / 1.65x faster than the baseline, with ONT's peak
+RSS down 58%. This removes a scaling hazard rather than a constant factor — the old design would
+have kept growing at 8, 16 and 32 threads.
+
 `indexing` is the one line that got slightly slower, by ~1-2 s: `h2multi`'s big hit lists are shrunk
 to fit once built, which at k=15 copies GBs of hits, and that is where much of the RSS drop comes
 from.

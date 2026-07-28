@@ -52,29 +52,56 @@ pattern.)
 Real HG002 long reads (6,000 each) mapped against the whole T2T-CHM13 genome, using that
 benchmark's params (`k=15`, `r=2/(w+1)=0.0625`, `-m Containment`, dataset-specific `theta`,
 4 threads). This is shmap's hardest regime (k=15 makes 15-mers hugely repetitive genome-wide).
-`shmap`/`minSHmap` numbers are the repo's stored `results_rw/bench_both` run; script:
-`profiling/bench_shmaprs_wgs.py`.
+**shmap-rs numbers were measured for this table** (sequentially, on an idle host, `/usr/bin/time
+-v`); the `shmap` (C++) and `minSHmap` rows are the repo's stored `results_rw/bench_both` run.
+Note the C++ `shmap` has no multithreading, so its column is single-threaded by necessity — see the
+apples-to-apples section below. Script: `profiling/bench_shmaprs_wgs.py`.
 
 | dataset | mapper | mapped | map% | mapq | time | mem |
 |---|---|---:|---:|---:|---:|---:|
-| HiFi | **shmap-rs (4t)** | 5991 | 99.85 | 57.0 | **1014 s** | **7.3 GB** |
-| HiFi | shmap (C++) | 5991 | 99.85 | 57.0 | 2637 s | 13.5 GB |
-| HiFi | minSHmap | 5991 | 99.85 | 55.5 | 325 s | 11.2 GB |
-| ONT | **shmap-rs (4t)** | 5750 | 95.83 | 54.6 | **2557 s** | **9.7 GB** |
-| ONT | shmap (C++) | 5750 | 95.83 | 54.6 | 7795 s | 13.5 GB |
-| ONT | minSHmap | 5655 | 94.25 | 52.8 | 1081 s | 11.2 GB |
-| CLR | **shmap-rs (4t)** | 294 | 4.90 | 44.5 | **431 s** | **7.7 GB** |
-| CLR | shmap (C++) | 294 | 4.90 | 44.5 | 1110 s | 13.6 GB |
-| CLR | minSHmap | 662 | 11.03 | 8.9 | 314 s | 11.2 GB |
-
-> **This 4-thread table predates the dense bucket accumulator.** The single-threaded section below
-> is current and measured on all three platforms; these numbers will improve similarly once re-run.
+| HiFi | **shmap-rs (4t)** | 5991 | 99.85 | 57.0 | **197.7 s** | **9.4 GB** |
+| HiFi | shmap (C++, 1t) | 5991 | 99.85 | 57.0 | 2637 s | 13.5 GB |
+| HiFi | minSHmap (4t) | 5991 | 99.85 | 55.5 | 325 s | 11.2 GB |
+| ONT | **shmap-rs (4t)** | 5750 | 95.83 | 54.6 | **557.5 s** | **9.4 GB** |
+| ONT | shmap (C++, 1t) | 5750 | 95.83 | 54.6 | 7795 s | 13.5 GB |
+| ONT | minSHmap (4t) | 5655 | 94.25 | 52.8 | 1081 s | 11.2 GB |
+| CLR | **shmap-rs (4t)** | 294 | 4.90 | 44.5 | **147.2 s** | **9.3 GB** |
+| CLR | shmap (C++, 1t) | 294 | 4.90 | 44.5 | 1110 s | 13.6 GB |
+| CLR | minSHmap (4t) | 662 | 11.03 | 8.9 | 314 s | 11.2 GB |
 
 - **Byte-for-byte the same accuracy as the C++ original** (identical mapped count, map%, and mean
   mapq on all three platforms) — the port stays faithful even in this pathological k=15 regime —
-  while **2.6–3.0× faster** (4 threads vs single-threaded C++) and ~1.4–1.8× less memory.
-- minSHmap (minimizer-based, sparser seeds) is faster on HiFi/ONT, but on the noisy CLR reads its
-  extra mappings come at mapq 8.9 vs shmap-rs's 44.5 — i.e. low-confidence.
+  while **7.5–14x faster** and ~1.4x less memory. Output is also identical between `-@ 1` and
+  `-@ 4` on all three (0 differing PAF lines), so the threading stays deterministic.
+- **shmap-rs is now the fastest of the three on every platform.** This reverses the previous
+  finding: minSHmap used to beat it on HiFi (325 s vs 1014 s) and ONT (1081 s vs 2557 s), and now
+  trails on both (325 s vs 198 s, 1081 s vs 558 s) — at lower memory (9.4 GB vs 11.2 GB) and
+  without minSHmap's accuracy cost.
+- minSHmap (minimizer-based, sparser seeds) still maps more of the noisy CLR reads, but those extra
+  mappings come at mapq 8.9 vs shmap-rs's 44.5 — i.e. low-confidence.
+
+#### 4-thread before/after
+
+Same measurement discipline as the single-threaded section: both shmap-rs columns measured
+sequentially on an idle host, "before" = commit `1de2a54`.
+
+| dataset | before | after | | RSS before | RSS after | |
+|---|---:|---:|---:|---:|---:|---:|
+| HiFi | 649.3 s | **197.7 s** | **3.28x** | 9.29 GB | 9.39 GB | +1% |
+| ONT | 1750.7 s | **557.5 s** | **3.14x** | **22.46 GB** | **9.39 GB** | **-58%** |
+| CLR | 243.3 s | **147.2 s** | **1.65x** | 10.08 GB | 9.30 GB | -8% |
+
+The ONT row is the one to look at. **The old accumulator's memory scaled with thread count** —
+10.96 GB at `-@ 1` grew to 22.46 GB at `-@ 4`, because every worker kept its own per-read
+contribution buffer plus the radix ping-pong copy, and ONT's 35 kbp reads made those buffers
+enormous. The dense accumulator is ~1.4 MB per worker, so the new build is essentially flat across
+thread counts (7.26 GB at `-@ 1`, 9.39 GB at `-@ 4`, the difference being index build-up rather
+than per-worker state). That removes a real scaling hazard, not just a constant factor: the old
+design would have kept growing at 8, 16, 32 threads.
+
+Note also that the previously-published 4-thread figures (HiFi 1014 s / 7.3 GB, ONT 2557 s /
+9.7 GB, CLR 431 s / 7.7 GB) predated the O(n) radix sort as well, so they are not the "before"
+column here — the measured `1de2a54` baseline above is.
 
 ### Single-threaded (`-@ 1`), apples-to-apples with the C++ original
 
