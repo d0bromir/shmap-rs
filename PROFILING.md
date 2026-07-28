@@ -110,6 +110,29 @@ the mapping win everywhere else.
 > bucket space the read actually touched. Both paths are pinned against the sparse path by
 > `dense_and_sparse_paths_agree`.
 
+### Real HiFi WGS at 1x / 3x / 10x
+
+The first run against **real** whole-genome long-read data at meaningful depth (everything else
+here uses 6 000-read subsets or simulated reads). 0.24-2.4 M real HG002 PacBio CCS reads vs
+T2T-CHM13, paper parameters (`-k 25 -r 0.01 -t 0.4`), single-threaded. Full write-up and raw
+reports in `profiling/realworld_hifi/`.
+
+| depth | shmap-rs | C++ shmap | speedup | shmap-rs RSS | C++ RSS |
+|---|---:|---:|---:|---:|---:|
+| 1x (0.999x, 242 534 reads) | **66.9 s** | 108.6 s | **1.62x** | **2.11 GB** | 19.30 GB |
+| 3x (2.995x, 727 602 reads) | **177.8 s** | 264.2 s | **1.49x** | **2.35 GB** | 19.30 GB |
+| 10x (9.987x, 2 425 341 reads) | **566.1 s** | 810.7 s | **1.43x** | **2.54 GB** | 19.31 GB |
+
+Per-read cost is constant across depths (0.232 / 0.230 / 0.229 ms) and memory is nearly flat
+(2.11 -> 2.54 GB for 10x the reads), so throughput scales linearly and nothing degrades at depth.
+
+**This workload's profile is nothing like the k=15 stress regime**, and that matters for what to
+do next. Splitting per-read work at 10x: `match_rest` 31.9% (of which `refine` alone is 114.5 s),
+`prepare` 26.0% (of which `collect_kmer_info` is 88.9 s), `match_seeds` 25.9%, `sketching` 12.3%
+— and **`bucket_merge` just 3.6%**. The dense accumulator cut `bucket_merge` 36x and that is where
+almost all of the k=15 win came from, but it is nearly irrelevant to real-world k=25 use. The
+measured next targets are `refine`, `collect_kmer_info` and `match_seeds`, in that order.
+
 ## What's optimized
 
 - **`Buckets` storage → append-only `Vec` + LSD radix sort**, not a hashmap. *(Superseded as the
