@@ -1,16 +1,17 @@
 # shmap-rs vs other mappers (real-world data)
 
 Single-threaded (`-@ 1`), 64-core AVX-512 server. Same datasets/params as Pesho's `shmap` Table 1
-(`-k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment`). Other mappers' numbers are the stored
-Table 1 run (`results/table1_20260718-103540.csv` on the benchmark machine); `map-shmap` is the
-original C++ shmap that shmap-rs ports. Time = index + map wall (shmap does both in one pass).
+(`-k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment`). **shmap-rs rows were re-measured with the
+current build** (`profiling/table1_t1.csv`); the other mappers' numbers are the stored Table 1 run
+(`results/table1_20260718-103540.csv` on the benchmark machine) and were not re-run, since those
+tools have not changed. `map-shmap` is the original C++ shmap that shmap-rs ports. Time = index + map wall (shmap does both in one pass).
 `missed%` = reads not mapped at Q60 (shmap's sketch+threshold design is selective by nature).
 
 ### chrY, simulated 10 kbp (48,673 reads)
 
 | mapper | correct Q60 | wrong | missed% | time | mem |
 |---|---:|---:|---:|---:|---:|
-| **shmap-rs** | **22918** | **0** | 52.9 | **74 s** | **0.19 GB** |
+| **shmap-rs** | **22918** | **0** | 52.9 | **35.9 s** | **0.13 GB** |
 | map-shmap (C++) | 22918 | 0 | 52.9 | 110 s | 0.38 GB |
 | blend | 23866 | 191 | 50.6 | 640 s | 0.56 GB |
 | winnowmap2 | 44751 | 10 | 8.0 | 28694 s | 10.8 GB |
@@ -22,7 +23,7 @@ original C++ shmap that shmap-rs ports. Time = index + map wall (shmap does both
 
 | mapper | correct Q60 | wrong | missed% | time | mem |
 |---|---:|---:|---:|---:|---:|
-| **shmap-rs** | **1876** | n/a | 6.2 | **11.5 s** | **2.7 GB** |
+| **shmap-rs** | **1876** | n/a | 6.2 | **11.7 s** | **2.4 GB** |
 | map-shmap (C++) | 1876 | n/a | 6.2 | 32.9 s | 18.9 GB |
 | blend | 1897 | n/a | 5.2 | 84 s | 7.5 GB |
 | winnowmap2 | 1953 | n/a | 2.4 | 356 s | 4.7 GB |
@@ -36,16 +37,17 @@ pattern.)
 ## Takeaways
 
 - **Identical accuracy to the C++ original** (`map-shmap`) — same correct-Q60 on every dataset,
-  0 wrong — while **1.5–2.9× faster** single-threaded and using **up to ~7× less memory** on the
-  whole genome (2.7 GB vs 18.9 GB, from the sparse-`Buckets` rewrite).
-- **Fastest of all the correct mappers**, single-threaded: e.g. on real HG002 reads, 11.5 s vs
+  0 wrong — while **2.8–3.1× faster** single-threaded (110 s → 35.9 s on chrY, 32.9 s → 11.7 s on
+  the whole genome) and using **~8× less memory** there (2.4 GB vs 18.9 GB).
+- **Fastest of all the correct mappers**, single-threaded: e.g. on real HG002 reads, 11.7 s vs
   84 s (blend) / 150 s (minimap2) / 356 s (winnowmap2), at competitive accuracy and lowest or
   near-lowest memory.
 - shmap/shmap-rs trade recall for speed (higher `missed%` on the low-similarity chrY sets);
   winnowmap2 maps more but is 100–380× slower and far heavier. `mapquik` maps nothing at these
   parameters.
 - shmap-rs additionally **scales to many threads** (the C++ original is single-threaded) — see
-  `BENCHMARKS.md` for up to ~21× at `-@ 32`.
+  `BENCHMARKS.md` for up to ~20× at `-@ 32` on chrY. Whole-genome runs plateau around 4× because
+  `index_initializing` is still single-threaded.
 
 ## WGS long reads (minshmap/realworld benchmark)
 
@@ -71,7 +73,7 @@ apples-to-apples section below. Script: `profiling/bench_shmaprs_wgs.py`.
 
 - **Byte-for-byte the same accuracy as the C++ original** (identical mapped count, map%, and mean
   mapq on all three platforms) — the port stays faithful even in this pathological k=15 regime —
-  while **7.2–13x faster** and ~1.4x less memory. Output is also identical between `-@ 1` and
+  while **7.2–13.4x faster** and ~1.4x less memory. Output is also identical between `-@ 1` and
   `-@ 4` on all three (0 differing PAF lines), so the threading stays deterministic.
 - **shmap-rs is now the fastest of the three on every platform.** This reverses the previous
   finding: minSHmap used to beat it on HiFi (325 s vs 1014 s) and ONT (1081 s vs 2557 s), and now

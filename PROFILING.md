@@ -94,9 +94,11 @@ under `profiling/old/`.
 
 Accuracy is unchanged everywhere (Mapped Q60 22918 / 228165 / 6902 / 1876, Wrong Q60 = 0).
 `allchr_real_24kbp` is ~90% indexing, so it barely moves on time and gains only memory. The one
-memory *increase* is `allchr_sim_10kbp_1x` at `-@ 16`: 16 workers each holding a dense accumulator
-for a 488k-slot bucket space is ~125 MB, which is the cost of the win everywhere else and is
-bounded by `MAX_DENSE_SLOTS`.
+memory *increase* is `allchr_sim_10kbp_1x` at `-@ 16` (2.02 -> 2.39 GB). Its 10 kbp reads give a
+half-length of ~127, so the bucket space is ~246 k slots and each worker's dense accumulator is
+~3.9 MB — ~63 MB across 16 workers. That is a contributor rather than the whole 370 MB, which has
+not been attributed further; it is bounded by `MAX_DENSE_SLOTS` either way, and it is the price of
+the mapping win everywhere else.
 
 > Regenerating this table is what caught a real regression, and it is worth recording why the WGS
 > numbers alone would not have. The dense accumulator originally re-zeroed the whole array and
@@ -110,7 +112,9 @@ bounded by `MAX_DENSE_SLOTS`.
 
 ## What's optimized
 
-- **`Buckets` storage → append-only `Vec` + LSD radix sort**, not a hashmap. An intermediate sparse
+- **`Buckets` storage → append-only `Vec` + LSD radix sort**, not a hashmap. *(Superseded as the
+  primary path by the dense accumulator below; this is what that replaced, and it survives as the
+  bounded-memory fallback.)* An intermediate sparse
   `FxHashMap<BucketLoc, BucketContent>` design (replacing a whole-reference-sized `Vec`, ~15 GB per
   worker thread on the human genome) fixed a memory blowup but made single-thread mapping ~20%
   *slower* than the C++ original on k=15 whole-genome reads: every touch was a full hashmap
@@ -118,9 +122,9 @@ bounded by `MAX_DENSE_SLOTS`.
   `add_to_pos`/`add_to_bucket` now just push onto a flat `Vec` (no hash), and duplicate locations
   are merged once per read via a 4-pass-max LSD radix sort on a packed `(segm_id, b)` key — the
   pass count is computed per read (skip always-zero high bits) rather than fixed, since `b` is
-  usually far smaller than its 32-bit budget. Net: **1.6× faster than the hashmap regression, and
-  now 25% faster than the C++ original** on WGS k=15 HiFi `-@1` (1972.7s vs 2637.2s), same memory
-  order of magnitude (7.5 GB vs 13.5 GB), byte-identical mapped/mapq.
+  usually far smaller than its 32-bit budget. Net at the time: **1.6× faster than the hashmap
+  regression, and 25% faster than the C++ original** on WGS k=15 HiFi `-@1` (1972.7s vs 2637.2s),
+  same memory order of magnitude, byte-identical mapped/mapq.
 - **Buffered stdout** in the collector instead of `print!()` per read.
 - **`match_seeds` streams multi-hit seeds** into buckets directly (sorted hits → monotonic bucket
   index) instead of a per-seed scratch hashmap + per-hit division.
@@ -131,10 +135,12 @@ bounded by `MAX_DENSE_SLOTS`.
   The fix is to stop materializing contributions at all: the whole reference only contains
   `reference_sketch_len / halflen` buckets (~242 k here, ~4 MB of 16-byte slots, L3-resident) and
   such a read touches nearly all of them, so `add_to_pos`/`add_to_bucket` became one indexed
-  read-modify-write into a dense array, and the sorted+deduplicated result comes back from a single
-  linear scan (global bucket ids are ordered by `(segm_id, b)`, so the scan *is* the sort).
-  **`bucket_merge` 21.9 s → 0.6 s; mapping −65%**, byte-identical output. This is not the old dense
-  array that caused a ~15 GB blowup: that one was sized by reference length over `MIN_HALFLEN`,
+  read-modify-write into a dense array. Global bucket ids are ordered by `(segm_id, b)`, so the
+  sorted+deduplicated result needs no sort at all: extraction either scans the array in order or
+  walks a sorted list of just the slots this read touched, whichever is cheaper for the read in
+  hand (see the Table-1 note above for why both are needed). On the full 6 000-read HiFi WGS run
+  at `-@1`, **`bucket_merge` 1342.1 s → 39.1 s and wall 1995.6 s → 725.6 s**, byte-identical
+  output. This is not the old dense array that caused a ~15 GB blowup: that one was sized by reference length over `MIN_HALFLEN`,
   this one by reference length over the *read's own* half-length, and it refuses to allocate past
   `MAX_DENSE_SLOTS` (~32 MB/thread), falling back to the sparse radix path — kept, and pinned by a
   test asserting the two paths agree exactly.
@@ -181,7 +187,10 @@ bounded by `MAX_DENSE_SLOTS`.
 - **`h2multi` lists start at capacity 2 and are shrunk once built.** A k-mer that reaches `h2multi`
   always ends up with at least two hits, so starting empty meant allocating at capacity 1 and
   immediately reallocating — millions of avoidable reallocations per genome, for identical final
-  memory. They are read-only after indexing, so the final sort pass also shrinks them to fit.
+  memory. They are read-only after indexing, so the final sort pass also shrinks them — but only
+  where the slack is worth the copy (`> len/8 + 8`): shrinking the two- and three-hit lists that
+  dominate by *count* was ~5.8 M reallocations for ~100 MB and measured a net loss, while the rare
+  very-high-frequency k-mers that dominate by *bytes* clear the threshold easily.
 - **`lto = "fat"` + `codegen-units = 1`.** The release profile was previously the Cargo default, so
   the hot loops never got inlined across the `needletail`/`rustc-hash` boundary or across the 16
   default codegen units. Worth ~5% wall on its own. `panic` stays at `unwind`: `map_reads` uses
@@ -201,14 +210,16 @@ bounded by `MAX_DENSE_SLOTS`.
   the "never degrade mapping" gate rules it out unless a future change can bound volume without
   touching results. The per-hit work itself is now down to an indexed accumulate, so the honest
   next step is measuring whether it is bound by streaming `h2multi` or by the per-hit arithmetic.
-- **`index_initializing` is now the serial floor of indexing.** It is one thread doing ~19M
-  `h2single` inserts into a table far larger than cache, and at ~175-210 ns per k-mer it is almost
-  entirely cache/TLB miss latency, not instruction count — it barely moved from any of the work
-  above. The two levers that would actually bite: (a) *shard* `h2single`/`h2multi` by hash across
+- **`index_initializing` is now the serial floor of indexing.** On the k=25 whole genome it is one
+  thread performing ~31 M hash-map insert operations (one per sketched k-mer) that settle into
+  ~19 M distinct entries, in a table far larger than cache: 7.25 s, or ~230 ns per insert
+  (`allchr_real_24kbp-t1.profile.json`). That is almost entirely cache/TLB miss latency rather than
+  instruction count, which is why it barely moved from any of the work above. The two levers that would actually bite: (a) *shard* `h2single`/`h2multi` by hash across
   `-@` threads, which is compatible with determinism because every occurrence of a given hash lands
   in the same shard and shards would still see segments in file order (this is the big one — it
   turns the phase from serial into parallel); (b) software-prefetch the bucket for k-mer `i + D`
   while inserting `i`, which needs `hashbrown` as a direct dependency for a hash-supplied raw
   entry API, since `std`'s `HashMap` exposes no bucket addresses.
-- **Sketching** is now ~1.7 ns/base and still latency-bound on the base-by-base rolling hash; the
-  remaining big win would need SIMD or 2-bit-packed sequence encoding (large effort).
+- **Sketching** is ~2.0 ns/base on the benchmark host (6.3 s for the 3.12 Gbp reference at `-@1`,
+  `allchr_real_24kbp-t1.profile.json`) and still latency-bound on the base-by-base rolling hash;
+  the remaining big win would need SIMD or 2-bit-packed sequence encoding (large effort).
