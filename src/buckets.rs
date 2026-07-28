@@ -278,6 +278,20 @@ pub struct Buckets<'idx, const AP: bool> {
     seg_base: Vec<u32>,
     /// Whether this read is using the dense path.
     dense_on: bool,
+    /// Global ids of the `dense` slots this read has touched. Extraction sorts
+    /// and walks this instead of scanning the whole array: `dense` is sized by
+    /// the *reference* (`reference_sketch_len / halflen`), so a full scan costs
+    /// the same for a read touching five buckets as for one touching all of
+    /// them — fine for 6 000 whole-genome reads, ruinous for 240 000 short ones.
+    touched: Vec<u32>,
+    /// Number of slots the current read's layout uses. `dense` itself is only
+    /// ever grown, so it may be longer than this.
+    dense_slots: usize,
+    /// Whether `dense` may hold un-extracted state from the read in progress.
+    /// Set when a read's layout is planned and cleared by extraction, so the
+    /// only way it survives into the next read is a read abandoned mid-way —
+    /// the one case `plan_dense` must clean up after.
+    dense_dirty: bool,
     /// Running maxima of the pushed `b` / `segm_id`, tracked as entries
     /// arrive rather than re-derived by scanning them. The radix sort needs
     /// them only to size its key, and a scan over `entries` to find them is a
@@ -306,6 +320,9 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
             dense: Vec::new(),
             seg_base: Vec::new(),
             dense_on: false,
+            touched: Vec::new(),
+            dense_slots: 0,
+            dense_dirty: false,
             max_b: 0,
             max_sid: 0,
             order: Vec::new(),
@@ -342,11 +359,14 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
     }
 
     /// Decides whether this read can use the dense accumulator and, if so,
-    /// lays out `seg_base` and (re)zeroes `dense`.
+    /// lays out `seg_base` and makes sure `dense` is long enough.
     ///
-    /// Called once per read, from `set_halflen`, which runs after
-    /// `Buckets::clear` — so the zeroing here is also what guarantees no
-    /// state leaks from a previous read even if that read never extracted.
+    /// Deliberately does *not* re-zero the array per read. Extraction resets
+    /// every slot it takes, so `dense` is already all-empty between reads, and
+    /// re-zeroing would cost O(slots) per read — ~50 s of pure `memset` on a
+    /// 240 000-read whole-genome run. The one case that can leave it dirty, a
+    /// read abandoned after adding but before extracting, is handled precisely
+    /// by clearing just that read's touched slots.
     fn plan_dense(&mut self) {
         let tidx = self.tidx;
         let halflen = self.halflen as i64;
@@ -365,10 +385,35 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
                 return;
             }
         }
-        // `clear` + `resize` rewrites every slot, which is the per-read reset.
-        self.dense.clear();
-        self.dense.resize(total as usize, EMPTY_SLOT);
+        if self.dense_dirty {
+            for &g in &self.touched {
+                self.dense[g as usize] = EMPTY_SLOT;
+            }
+            self.dense_dirty = false;
+        }
+        self.touched.clear();
+        // Grown, never shrunk: the tail beyond `total` stays empty and unused,
+        // so a later read needing more slots only pays for the difference.
+        if self.dense.len() < total as usize {
+            self.dense.resize(total as usize, EMPTY_SLOT);
+        }
+        self.dense_slots = total as usize;
         self.dense_on = true;
+        // Set once here rather than on every add: this read is assumed to
+        // leave state behind until extraction says otherwise, which keeps a
+        // store off a path that runs billions of times per run.
+        self.dense_dirty = true;
+    }
+
+    /// Accumulates one contribution into dense slot `g`, recording the slot the
+    /// first time it is touched so extraction never has to scan.
+    #[inline(always)]
+    fn dense_add(&mut self, g: usize, content: &BucketContent) {
+        let slot = &mut self.dense[g];
+        if slot.matches == 0 {
+            self.touched.push(g as u32);
+        }
+        slot.add(content);
     }
 
     /// Global slot id for `(segm_id, b)`.
@@ -381,28 +426,35 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         self.seg_base[segm_id as usize] as usize + b as usize
     }
 
-    /// Walks the dense accumulator in ascending global-id order, moving every
-    /// touched slot into `entries` and resetting it. Because global ids are
-    /// ordered by `(segm_id, b)`, this produces the same sorted, deduplicated
-    /// `entries` the sparse path builds with a radix sort followed by a
-    /// dedup scan — but in one linear pass over `dense` instead of several
-    /// over every raw contribution.
+    /// Moves every touched slot into `entries` in ascending global-id order,
+    /// resetting each as it goes. Because global ids are ordered by
+    /// `(segm_id, b)`, sorting the touched list yields exactly the sorted,
+    /// deduplicated `entries` the sparse path builds with a radix sort plus a
+    /// dedup scan — but over the buckets a read actually touched, rather than
+    /// over every raw contribution *or* every slot in the reference.
     fn extract_dense(&mut self) {
         self.entries.clear();
-        let n_seg = self.seg_base.len();
-        for sid in 0..n_seg {
-            let start = self.seg_base[sid] as usize;
-            let end = if sid + 1 < n_seg {
-                self.seg_base[sid + 1] as usize
-            } else {
-                self.dense.len()
-            };
-            for g in start..end {
+        // Taken out so the loops can hold `&touched` while mutating `dense`
+        // and `entries`; handed back at the end to keep the allocation.
+        let mut touched = std::mem::take(&mut self.touched);
+
+        // Two ways to produce the same ascending-global-id output, and which
+        // one is cheaper depends entirely on the workload. A whole-genome k=15
+        // read touches nearly every slot, so an in-order scan is free and
+        // sorting the (equally long) touched list is pure overhead. A k=25
+        // read touches a handful, so the scan's O(slots) cost is what dominates
+        // — and with 240 000 such reads it dwarfs everything else. Pick per read.
+        if touched.len().saturating_mul(3) >= self.dense_slots {
+            let mut sid = 0usize;
+            for g in 0..self.dense_slots {
+                while sid + 1 < self.seg_base.len() && (self.seg_base[sid + 1] as usize) <= g {
+                    sid += 1;
+                }
                 let slot = self.dense[g];
                 if slot.matches > 0 {
                     self.dense[g] = EMPTY_SLOT;
                     self.entries.push(BucketEntry {
-                        loc: BucketLoc::new(sid as SegmId, (g - start) as RPos),
+                        loc: BucketLoc::new(sid as SegmId, (g - self.seg_base[sid] as usize) as RPos),
                         matches: slot.matches,
                         codirection: slot.codirection,
                         r_min: slot.r_min,
@@ -410,7 +462,32 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
                     });
                 }
             }
+        } else {
+            touched.sort_unstable();
+            // `touched` and `seg_base` are both ascending, so a slot's segment
+            // only ever moves forward: one lockstep walk, no binary search.
+            let mut sid = 0usize;
+            for &g in &touched {
+                let g = g as usize;
+                while sid + 1 < self.seg_base.len() && (self.seg_base[sid + 1] as usize) <= g {
+                    sid += 1;
+                }
+                let slot = self.dense[g];
+                self.dense[g] = EMPTY_SLOT;
+                debug_assert!(slot.matches > 0, "a touched slot should never be empty");
+                self.entries.push(BucketEntry {
+                    loc: BucketLoc::new(sid as SegmId, (g - self.seg_base[sid] as usize) as RPos),
+                    matches: slot.matches,
+                    codirection: slot.codirection,
+                    r_min: slot.r_min,
+                    r_max: slot.r_max,
+                });
+            }
         }
+
+        touched.clear();
+        self.touched = touched;
+        self.dense_dirty = false;
     }
 
     pub fn begin(&self, b: &BucketLoc) -> RPos {
@@ -549,9 +626,9 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         self.merged = false;
         if self.dense_on {
             let g = self.slot(hit.segm_id, b);
-            self.dense[g].add(&content);
+            self.dense_add(g, &content);
             if b > 0 {
-                self.dense[g - 1].add(&content);
+                self.dense_add(g - 1, &content);
             }
             return;
         }
@@ -569,7 +646,7 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         self.merged = false;
         if self.dense_on {
             let g = self.slot(b.segm_id, b.b);
-            self.dense[g].add(&content);
+            self.dense_add(g, &content);
             return;
         }
         self.max_b = self.max_b.max(b.b as u32);
@@ -775,31 +852,42 @@ mod tests {
         assert!(!sparse.dense_on, "expected the sparse fallback for a huge segment");
         assert!(dense.dense_on, "expected the dense path for a small segment");
 
-        // A deterministic spread of repeated positions, so buckets are hit
-        // many times over and the merge arithmetic actually matters.
-        let mut rng: u64 = 0x9e37_79b9_7f4a_7c15;
-        for _ in 0..5000 {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let r = ((rng >> 33) % 3900) as RPos;
-            let content = BucketContent::new(1, 0, if r % 3 == 0 { 1 } else { -1 }, r, r);
-            sparse.add_to_pos(&hit(r, r, 0), content);
-            dense.add_to_pos(&hit(r, r, 0), content);
-        }
-        sparse.propagate_seeds_to_buckets();
-        dense.propagate_seeds_to_buckets();
+        // `span` controls what fraction of the dense slot space gets touched,
+        // which is what `extract_dense` switches on: a wide span takes its
+        // in-order scan, a narrow one takes the sorted-touched-list walk. Both
+        // must agree with the sparse path, so exercise both.
+        for span in [3900u64, 150] {
+            sparse.clear();
+            dense.clear();
+            assert!(sparse.set_halflen(10));
+            assert!(dense.set_halflen(10));
 
-        let a = sparse.get_sorted_buckets();
-        let b = dense.get_sorted_buckets();
-        assert_eq!(a.len(), b.len(), "bucket count differs between paths");
-        assert!(!a.is_empty());
-        for (x, y) in a.iter().zip(b.iter()) {
-            assert_eq!(x.0, y.0, "bucket location differs");
-            assert_eq!(
-                (x.1.matches, x.1.codirection, x.1.r_min, x.1.r_max),
-                (y.1.matches, y.1.codirection, y.1.r_min, y.1.r_max),
-                "accumulated content differs at {:?}",
-                x.0
-            );
+            // A deterministic spread of repeated positions, so buckets are hit
+            // many times over and the merge arithmetic actually matters.
+            let mut rng: u64 = 0x9e37_79b9_7f4a_7c15;
+            for _ in 0..5000 {
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let r = ((rng >> 33) % span) as RPos;
+                let content = BucketContent::new(1, 0, if r % 3 == 0 { 1 } else { -1 }, r, r);
+                sparse.add_to_pos(&hit(r, r, 0), content);
+                dense.add_to_pos(&hit(r, r, 0), content);
+            }
+            sparse.propagate_seeds_to_buckets();
+            dense.propagate_seeds_to_buckets();
+
+            let a = sparse.get_sorted_buckets();
+            let b = dense.get_sorted_buckets();
+            assert_eq!(a.len(), b.len(), "span {span}: bucket count differs between paths");
+            assert!(!a.is_empty());
+            for (x, y) in a.iter().zip(b.iter()) {
+                assert_eq!(x.0, y.0, "span {span}: bucket location differs");
+                assert_eq!(
+                    (x.1.matches, x.1.codirection, x.1.r_min, x.1.r_max),
+                    (y.1.matches, y.1.codirection, y.1.r_min, y.1.r_max),
+                    "span {span}: accumulated content differs at {:?}",
+                    x.0
+                );
+            }
         }
     }
 

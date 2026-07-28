@@ -23,9 +23,9 @@ benchmark host. Runs were sequential on an idle machine, timed end to end with `
 
 | dataset | wall before | wall after | | RSS before | RSS after | |
 |---|---:|---:|---:|---:|---:|---:|
-| HiFi (12.8 kbp reads) | 1995.6 s | **685.9 s** | **2.91x** | 7.67 GB | **7.06 GB** | -8% |
-| ONT (35.4 kbp reads) | 4782.5 s | **1846.6 s** | **2.59x** | 10.96 GB | **7.26 GB** | **-34%** |
-| CLR (3.1 kbp reads) | 707.2 s | **473.6 s** | **1.49x** | 7.87 GB | **7.20 GB** | -8% |
+| HiFi (12.8 kbp reads) | 1995.6 s | **725.6 s** | **2.75x** | 7.67 GB | **7.07 GB** | -8% |
+| ONT (35.4 kbp reads) | 4782.5 s | **1932.7 s** | **2.47x** | 10.96 GB | **7.25 GB** | **-34%** |
+| CLR (3.1 kbp reads) | 707.2 s | **491.8 s** | **1.44x** | 7.87 GB | **7.20 GB** | -8% |
 
 PAF output is byte-identical on all three (0 differing lines; HiFi 5991 mapped / 5689 Q60, ONT 5750
 / 5227, CLR 294 / 216 in both builds), so this is pure throughput — the "never degrade mapping"
@@ -35,18 +35,18 @@ Stage timers, which are the whole story:
 
 | dataset | `bucket_merge` | `match_seeds` | `indexing` |
 |---|---:|---:|---:|
-| HiFi before → after | 1342.1 → **36.6 s** | 618.2 → 610.0 s | 21.0 → 23.1 s |
-| ONT before → after | 2784.4 → **58.3 s** | 1278.1 → 1076.6 s | 21.0 → 22.4 s |
-| CLR before → after | 305.0 → **59.9 s** | 319.6 → 328.5 s | 20.8 → 21.6 s |
+| HiFi before → after | 1342.1 → **39.1 s** | 618.2 → 648.2 s | 21.0 → 23.1 s |
+| ONT before → after | 2784.4 → **62.2 s** | 1278.1 → 1155.3 s | 21.0 → 22.6 s |
+| CLR before → after | 305.0 → **64.0 s** | 319.6 → 339.9 s | 20.8 → 21.7 s |
 
 Two things worth reading off this:
 
-- **`bucket_merge` lands at 37-60 s on every platform**, from 305-2784 s. The dense accumulator's
+- **`bucket_merge` lands at 39-64 s on every platform**, from 305-2784 s. The dense accumulator's
   cost depends on the size of the bucket space — a property of the reference and the read's
   half-length — not on how many contributions are poured into it, so it stops scaling with
   repetitiveness. The three speedups differ only because they track how `bucket_merge`-dominated
   each baseline was (67% / 58% / 43% of wall), not anything about the datasets.
-- **`match_seeds` is essentially untouched and is now the whole of mapping** (89% / 59% / 73%).
+- **`match_seeds` is essentially untouched and is now the whole of mapping** (92% / 61% / 73%).
   The win came from deleting work, not from making the remaining work faster. That is the next
   target, and it is bounded by raw hit volume — `max_seed_matches` peaked at 11.2 M for a single
   seed on HiFi.
@@ -58,9 +58,9 @@ the radix ping-pong copy) are gone entirely, replaced by a ~1.4 MB dense array.
 That memory win compounds with thread count, which is the part that matters most. Those buffers
 were **per worker**, so the old design's footprint grew with `-@`: ONT went 10.96 GB at `-@ 1` to
 **22.46 GB at `-@ 4`**. The dense array is ~1.4 MB per worker, so the new build is essentially flat
-(7.26 GB -> 9.39 GB over the same range, and that delta is index build-up, not per-worker state).
-At `-@ 4` the three platforms are 3.28x / 3.14x / 1.65x faster than the baseline, with ONT's peak
-RSS down 58%. This removes a scaling hazard rather than a constant factor — the old design would
+(7.25 GB -> 9.06 GB over the same range, and that delta is index build-up, not per-worker state).
+At `-@ 4` the three platforms are 3.06x / 3.00x / 1.57x faster than the baseline, with ONT's peak
+RSS down 60%. This removes a scaling hazard rather than a constant factor — the old design would
 have kept growing at 8, 16 and 32 threads.
 
 `indexing` is the one line that got slightly slower, by ~1-2 s: `h2multi`'s big hit lists are shrunk
@@ -69,24 +69,44 @@ from.
 
 ### Table-1 datasets
 
-> **Stale.** This table predates the bucket-accumulator and indexing work below and has not been
-> re-run; use `profiling/benchmark.py --datasets all --threads 16 --profile --only shmap-rs` to
-> refresh it. Spot-checked on `allchr_real_24kbp` (2 000 reads, k=25), where output is unchanged
-> and the effect is small because that run is ~90% indexing, not mapping: `-@1` 11.66 s → 11.78 s
-> (+1%) at 2.86 GB → 2.56 GB (−11%), and `-@8` 11.8-13.5 s → 10.6-10.9 s (−9%) at equal memory.
+Regenerated with the same discipline: `benchmark.py --datasets all --threads N --profile --only
+shmap-rs`, both columns measured back-to-back on the same idle host. The raw reports are
+`profiling/*.profile.json` (dumped into `profiling/tables.md`); the previous generation is kept
+under `profiling/old/`.
 
-| Dataset | Threads | Wall | Peak RSS |
-|---|---:|---:|---:|
-| chrY_sim_10kbp_10x  |  1 |  73.5s | 0.19 GB |
-| chrY_sim_10kbp_10x  | 16 |   5.6s | 0.19 GB |
-| chrY_sim_24kbp_10x  |  1 |  19.2s | 0.19 GB |
-| chrY_sim_24kbp_10x  | 16 |   2.0s | 0.19 GB |
-| allchr_sim_10kbp_1x |  1 |  81.3s | 2.73 GB |
-| allchr_sim_10kbp_1x | 16 |  14.8s | 2.44 GB |
-| allchr_real_24kbp   |  1 |  10.6s | 2.73 GB |
-| allchr_real_24kbp   | 16 |   9.6s | 2.02 GB |
+`-@ 1`:
 
-Accuracy identical at every thread count (Mapped Q60: 22918 / 6902 / 228165 / 1876, Wrong Q60 = 0).
+| dataset | before | after | | RSS before | RSS after |
+|---|---:|---:|---:|---:|---:|
+| chrY_sim_10kbp_10x | 57.7 s | **35.9 s** | **1.61x** | 0.19 GB | **0.13 GB** |
+| allchr_sim_10kbp_1x | 89.9 s | **61.7 s** | **1.46x** | 2.73 GB | **2.41 GB** |
+| chrY_sim_24kbp_10x | 16.7 s | **11.1 s** | **1.50x** | 0.19 GB | **0.13 GB** |
+| allchr_real_24kbp | 11.8 s | 11.7 s | 1.01x | 2.73 GB | **2.36 GB** |
+
+`-@ 16`:
+
+| dataset | before | after | | RSS before | RSS after |
+|---|---:|---:|---:|---:|---:|
+| chrY_sim_10kbp_10x | 4.7 s | **2.9 s** | **1.62x** | 0.19 GB | **0.13 GB** |
+| allchr_sim_10kbp_1x | 17.4 s | **15.9 s** | **1.09x** | 2.02 GB | 2.39 GB |
+| chrY_sim_24kbp_10x | 1.9 s | **1.2 s** | **1.58x** | 0.19 GB | **0.13 GB** |
+| allchr_real_24kbp | 10.8 s | 10.7 s | 1.01x | 2.02 GB | 2.03 GB |
+
+Accuracy is unchanged everywhere (Mapped Q60 22918 / 228165 / 6902 / 1876, Wrong Q60 = 0).
+`allchr_real_24kbp` is ~90% indexing, so it barely moves on time and gains only memory. The one
+memory *increase* is `allchr_sim_10kbp_1x` at `-@ 16`: 16 workers each holding a dense accumulator
+for a 488k-slot bucket space is ~125 MB, which is the cost of the win everywhere else and is
+bounded by `MAX_DENSE_SLOTS`.
+
+> Regenerating this table is what caught a real regression, and it is worth recording why the WGS
+> numbers alone would not have. The dense accumulator originally re-zeroed the whole array and
+> re-scanned it per read — both O(bucket space), which is invisible across 6 000 whole-genome reads
+> and crippling across 242 845 short ones: `allchr_sim_10kbp_1x` had gone **82 s -> 168 s**, a 2x
+> regression, with 50 s of it pure `memset`. The fix is in `Buckets`: the array is never re-zeroed
+> (extraction already empties every slot it takes), and extraction picks per read between an
+> in-order scan and a sorted walk of just the touched slots, depending on what fraction of the
+> bucket space the read actually touched. Both paths are pinned against the sparse path by
+> `dense_and_sparse_paths_agree`.
 
 ## What's optimized
 
@@ -169,8 +189,8 @@ Accuracy identical at every thread count (Mapped Q60: 22918 / 6902 / 228165 / 18
 
 ## Remaining bottlenecks
 
-- **`match_seeds` is now the whole of mapping** on k=15 whole-genome reads — 89% on HiFi, 73% on
-  CLR, 59% on ONT, since `bucket_merge` collapsed to a near-constant 37-60 s. It is bounded by
+- **`match_seeds` is now the whole of mapping** on k=15 whole-genome reads — 92% on HiFi, 73% on
+  CLR, 61% on ONT, since `bucket_merge` collapsed to a near-constant 39-64 s. It is bounded by
   sheer hit volume: a handful of
   very-repetitive 15-mers can each have millions of hits genome-wide (`max_seed_matches` peaked at
   11.2 M for a single seed), and every one of them is read from `h2multi` and folded into a bucket.
