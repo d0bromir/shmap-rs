@@ -71,6 +71,60 @@ impl fmt::Display for Hit {
     }
 }
 
+/// The query positions a seed's k-mer occurs at, sorted decreasing.
+///
+/// Stored inline when there is exactly one, which is the overwhelmingly
+/// common case: on real HiFi reads ~96% of a read's k-mers occur exactly once
+/// in it (310 M k-mers against 299 M distinct, measured on a 10x whole-genome
+/// run). Building this as a `Vec` per seed meant ~300 M heap allocations for
+/// a single `i32` each.
+#[derive(Clone, Debug)]
+pub enum PMatches {
+    One(QPos),
+    Many(Vec<QPos>),
+}
+
+impl PMatches {
+    /// The positions as a slice — one element for `One`, borrowed in place.
+    #[inline]
+    pub fn as_slice(&self) -> &[QPos] {
+        match self {
+            PMatches::One(v) => std::slice::from_ref(v),
+            PMatches::Many(v) => v.as_slice(),
+        }
+    }
+
+    #[inline]
+    pub fn iter(&self) -> std::slice::Iter<'_, QPos> {
+        self.as_slice().iter()
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.as_slice().is_empty()
+    }
+
+    pub fn to_vec(&self) -> Vec<QPos> {
+        self.as_slice().to_vec()
+    }
+}
+
+impl From<Vec<QPos>> for PMatches {
+    /// Collapses a one-element `Vec` to the inline form, so callers that
+    /// naturally build a `Vec` still get the allocation-free representation.
+    fn from(v: Vec<QPos>) -> Self {
+        match v.as_slice() {
+            [only] => PMatches::One(*only),
+            _ => PMatches::Many(v),
+        }
+    }
+}
+
 /// A k-mer from the query `p`, with metadata: number of hits in the
 /// reference `T`, number of occurrences in `p`, and all matching positions
 /// in `p` (sorted in decreasing order).
@@ -81,7 +135,7 @@ pub struct Seed {
     pub occs_in_p: QPos,
     pub seed_num: QPos,
     /// Positions in `p` of all occurrences of `kmer`; sorted decreasing.
-    pub pmatches: Vec<QPos>,
+    pub pmatches: PMatches,
 }
 
 impl Seed {
@@ -90,7 +144,7 @@ impl Seed {
         hits_in_t: RPos,
         occs_in_p: QPos,
         seed_num: QPos,
-        pmatches: Vec<QPos>,
+        pmatches: PMatches,
     ) -> Self {
         Seed {
             kmer,

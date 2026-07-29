@@ -144,8 +144,21 @@ impl Timers {
         }
     }
 
+    /// Starts `name`, creating it on first use.
+    ///
+    /// Deliberately not `entry(name.to_string())`: that allocates a `String`
+    /// on *every* call, and these run in the per-bucket and per-seed loops —
+    /// hundreds of millions of times on a 10x whole-genome run. Looking the
+    /// existing timer up by `&str` first keeps the steady-state path
+    /// allocation-free.
     pub fn start(&mut self, name: &str) {
-        self.timers.entry(name.to_string()).or_default().start();
+        if let Some(t) = self.timers.get_mut(name) {
+            t.start();
+            return;
+        }
+        let mut t = Timer::new();
+        t.start();
+        self.timers.insert(name.to_string(), t);
     }
 
     /// Silently does nothing if `name` was never started, matching the C++
@@ -276,8 +289,15 @@ impl Counters {
         }
     }
 
+    /// Adds `value` to `name`, creating it on first use. Looks up by `&str`
+    /// rather than `entry(name.to_string())` for the same reason as
+    /// [`Timers::start`] — this is called per seed in `match_seeds`.
     pub fn inc(&mut self, name: &str, value: i64) {
-        *self.counters.entry(name.to_string()).or_default() += value;
+        if let Some(c) = self.counters.get_mut(name) {
+            *c += value;
+            return;
+        }
+        self.counters.insert(name.to_string(), Counter::new(value));
     }
 
     /// Increments `name` by 1 — the common case of C++'s `inc(name)` with
@@ -320,10 +340,14 @@ impl Counters {
     /// expression (`C["max_seed_matches"] = max(C["max_seed_matches"], ...)`
     /// in `match_seeds`).
     pub fn update_max(&mut self, name: &str, value: i64) {
-        let entry = self.counters.entry(name.to_string()).or_default();
-        if value > entry.count() {
-            *entry = Counter::new(value);
+        if let Some(c) = self.counters.get_mut(name) {
+            if value > c.count() {
+                *c = Counter::new(value);
+            }
+            return;
         }
+        // Absent: auto-vivify to 0, then take the max with `value`.
+        self.counters.insert(name.to_string(), Counter::new(value.max(0)));
     }
 }
 
