@@ -34,11 +34,38 @@ tools have not changed. `map-shmap` is the original C++ shmap that shmap-rs port
 (Full 4-dataset numbers in `profiling/`. chrY 24 kbp and whole-genome 10 kbp follow the same
 pattern.)
 
+> The two tables above are 2 000- and 48 673-read datasets. For the same comparison at genuine
+> sequencing depth — 0.24 M to 3.2 M real HG002 HiFi reads — see the section below; it is the same
+> two mappers on the same host, and it is the more representative number.
+
+### Whole genome, REAL HG002 HiFi at depth (0.999x → 13.160x)
+
+Measured on the same 64-core host at `f85d9a2`, both mappers single-threaded, `/usr/bin/time -v`,
+PAF written to a real file. `master.fa` is all 18 SMRT cells — the complete distinct real read set
+that exists for this sample. Full write-up and raw reports in `profiling/full_suite_a2/`.
+
+| coverage | reads | shmap-rs | map-shmap (C++) | speedup | rs mem | C++ mem |
+|---|---:|---:|---:|---:|---:|---:|
+| 0.999x | 242 534 | **53.05 s** | 108.16 s | **2.04x** | **2.30 GB** | 18.85 GB |
+| 2.995x | 727 602 | **136.57 s** | 263.91 s | **1.93x** | **1.98 GB** | 18.85 GB |
+| 9.987x | 2 425 341 | **430.56 s** | 813.60 s | **1.89x** | **2.17 GB** | 18.85 GB |
+| 13.160x | 3 168 388 | **559.46 s** | 1059.39 s | **1.89x** | **1.96 GB** | 18.85 GB |
+
+Both mappers report the same number of mappings at every depth (241 991 / 725 892 / 2 419 796 /
+3 161 136). shmap-rs per-read cost and peak memory are flat in coverage; the C++ sits at 18.85 GB
+regardless, which is 8.2-9.6x more.
+
+At `-@ 64` the same runs take 15.53 / 23.70 / 47.40 / 58.47 s — up to **9.6x** the single-threaded
+wall, against a C++ that cannot use more than one core at all.
+
 ## Takeaways
 
 - **Identical accuracy to the C++ original** (`map-shmap`) — same correct-Q60 on every dataset,
   0 wrong — while **2.8–3.1× faster** single-threaded (110 s → 35.9 s on chrY, 32.9 s → 11.7 s on
-  the whole genome) and using **~8× less memory** there (2.4 GB vs 18.9 GB).
+  the whole genome) and using **~8× less memory** there (2.4 GB vs 18.9 GB). On the deep real-HiFi
+  workload the speedup settles at **1.89–2.04×** with the same 8.2–9.6× memory advantage; the
+  higher ratio on the two small sets is partly fixed C++ startup cost amortizing away, so quote
+  1.89–2.04× for realistic whole-genome runs.
 - **Fastest of all the correct mappers**, single-threaded: e.g. on real HG002 reads, 11.7 s vs
   84 s (blend) / 150 s (minimap2) / 356 s (winnowmap2), at competitive accuracy and lowest or
   near-lowest memory.

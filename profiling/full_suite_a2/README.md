@@ -111,3 +111,15 @@ per-read prefetching the 8-core result pointed at.
 - `*.time` — `/usr/bin/time -v` records
 - `a2_suite.sh` — the exact driver
 - `suite.log` — the run log, including the per-depth memo output checks
+
+## Thread sweep
+
+`thread_sweep.sh` / `thread_sweep.csv` / `thread_sweep.log` — full `-@ 1..64` sweep at 0.999x and
+9.987x, the data behind `BENCHMARKS.md`'s current scaling section. Output is byte-identical across
+every thread count at both depths.
+
+Headline: **mapping plateaus at ~11x around 16-32 threads, and indexing does not scale at all**
+(9.2-11.7 s from 1 thread to 64). `index_initializing` — one thread doing ~31 M hash-map inserts —
+is ~7.7 s of that and is ~80% of indexing at `-@ 32`. Which ceiling binds depends on depth: at
+0.999x indexing is most of the wall by 16 threads and the run tops out at 3.5x; at 9.987x there is
+enough mapping work to reach 9.2x.
