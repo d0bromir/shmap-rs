@@ -14,58 +14,83 @@ none of these tables is derived from another.
 
 ## Thread scaling (`-@`) on real whole-genome data
 
-The current reference sweep: real HG002 HiFi against the whole T2T-CHM13 genome at `f85d9a2`,
-measured on a2 (`profiling/full_suite_a2/`). Output is **byte-identical across every thread count**
-at both depths, so threading stays deterministic. `index`/`map` split the wall using the run's own
-`indexing` timer.
+Measured on a2 at `9400936`, i.e. **with the sharded index build**. Output is
+**byte-identical across every thread count** on all three datasets, so threading stays
+deterministic. `index`/`map` split the wall using the run's own `indexing` timer, so the mapper's
+own scaling can be read separately from the index build's.
 
-### 0.999x — 242 534 reads
+### 0.9624x, 24 kbp reads — 125 000 reads, 3.00 Gbp
 
-| Threads | wall | speedup | index | map | map speedup | GB |
-|---:|---:|---:|---:|---:|---:|---:|
-| 1  | 53.69 s | 1.00x | 9.3 s | 44.4 s | 1.00x | 1.96 |
-| 2  | 33.07 s | 1.62x | 10.0 s | 23.1 s | 1.92x | 2.07 |
-| 4  | 24.74 s | 2.17x | 9.3 s | 15.5 s | 2.87x | 2.03 |
-| 8  | 19.13 s | 2.81x | 10.2 s | 9.0 s | 4.94x | 2.07 |
-| 16 | 15.11 s | 3.55x | 9.2 s | 5.9 s | 7.53x | 2.56 |
-| 32 | 16.59 s | 3.24x | 10.4 s | 6.1 s | 7.22x | 3.16 |
-| 64 | 15.54 s | 3.45x | 9.4 s | 6.1 s | 7.23x | 3.80 |
-
-### 9.987x — 2 425 341 reads
+The dataset that was missing. Every other whole-genome set here is 12.8 kbp, and the only 24 kbp
+WGS set (`allchr_real_24kbp`, below) is 2 000 reads — about 0.015x coverage, ~93% of which is
+indexing, so it could never say anything about mapping parallelism. Simulated from `hs1.fa` with
+0.5% substitution noise by `profiling/wgs24k/gen24k.py`; valid for throughput and scaling, **not**
+for accuracy claims. All 125 000 reads map, 94.0% at Q60, 207 µs/read.
 
 | Threads | wall | speedup | index | map | map speedup | GB |
 |---:|---:|---:|---:|---:|---:|---:|
-| 1  | 434.36 s | 1.00x | 11.7 s | 422.7 s | 1.00x | 1.96 |
-| 2  | 228.08 s | 1.90x | 9.2 s | 218.9 s | 1.93x | 2.05 |
-| 4  | 140.22 s | 3.10x | 9.2 s | 131.0 s | 3.23x | 2.03 |
-| 8  | 78.95 s | 5.50x | 10.3 s | 68.7 s | 6.15x | 2.13 |
-| 16 | 49.18 s | 8.83x | 10.0 s | 39.1 s | 10.80x | 4.16 |
-| 32 | **47.17 s** | **9.21x** | 9.5 s | 37.6 s | **11.23x** | 7.30 |
-| 64 | 48.40 s | 8.97x | 9.4 s | 39.0 s | 10.84x | 7.32 |
+| 1  | 38.55 s | 1.00x | 9.3 s | 29.3 s | 1.00x | 2.05 |
+| 2  | 23.38 s | 1.65x | 7.8 s | 15.6 s | 1.87x | 1.72 |
+| 4  | 18.98 s | 2.03x | 7.9 s | 11.1 s | 2.64x | 1.73 |
+| 8  | 12.22 s | 3.15x | 6.0 s | 6.2 s | 4.68x | 1.77 |
+| 16 | **9.98 s** | **3.86x** | 6.4 s | 3.6 s | **8.07x** | 1.82 |
+| 32 | 10.07 s | 3.83x | 6.0 s | 4.1 s | 7.19x | 1.94 |
+| 64 | 9.88 s | 3.90x | 5.9 s | 4.0 s | 7.41x | 2.11 |
 
-**Indexing does not scale at all** — it sits at 9.2-11.7 s from 1 thread to 64. Splitting it by
-sub-stage on the 10x run shows exactly why:
+**The mapper scales 8.07x; the whole run only reaches 3.90x, and the entire difference is the
+index build.** By 16 threads mapping is down to 3.6 s while indexing is 6.4 s — 64% of the wall —
+and indexing does not improve past that no matter how many cores are added. Anyone asking why
+whole-genome 24 kbp runs "don't parallelize well" is looking at this: it is not the mapper.
 
-| Threads | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+### 0.999x, 12.8 kbp reads — 242 534 real HG002 HiFi reads
+
+| Threads | wall | speedup | index | map | map speedup | GB |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1  | 53.97 s | 1.00x | 9.2 s | 44.8 s | 1.00x | 2.14 |
+| 2  | 32.01 s | 1.69x | 8.9 s | 23.1 s | 1.94x | 1.83 |
+| 4  | 22.01 s | 2.45x | 6.8 s | 15.2 s | 2.95x | 1.90 |
+| 8  | 14.65 s | 3.68x | 6.1 s | 8.6 s | 5.24x | 1.97 |
+| 16 | 12.28 s | 4.39x | 6.6 s | 5.7 s | 7.90x | 2.43 |
+| 32 | **12.10 s** | **4.46x** | 6.0 s | 6.1 s | 7.36x | 3.22 |
+| 64 | 13.22 s | 4.08x | 7.1 s | 6.1 s | 7.32x | 3.91 |
+
+### 9.987x, 12.8 kbp reads — 2 425 341 real HG002 HiFi reads
+
+| Threads | wall | speedup | index | map | map speedup | GB |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1  | 439.27 s | 1.00x | 10.0 s | 429.2 s | 1.00x | 1.84 |
+| 2  | 261.64 s | 1.68x | 8.0 s | 253.7 s | 1.69x | 1.87 |
+| 4  | 146.56 s | 3.00x | 7.6 s | 138.9 s | 3.09x | 1.90 |
+| 8  | 76.71 s | 5.73x | 6.3 s | 70.4 s | 6.10x | 2.10 |
+| 16 | 44.50 s | 9.87x | 5.6 s | 38.9 s | 11.04x | 4.06 |
+| 32 | **42.64 s** | **10.30x** | 6.1 s | 36.5 s | **11.75x** | 6.20 |
+| 64 | 47.83 s | 9.18x | 6.4 s | 41.4 s | 10.37x | 8.76 |
+
+Deep coverage is where whole-run scaling looks best (10.30x), simply because there is enough
+mapping work to bury the fixed index cost — at 10x indexing is 14% of the wall at `-@ 32`, against
+64% for the 24 kbp 1x run. **The mapper's own ceiling is the same ~7-12x in all three**, reached
+around 16-32 threads.
+
+### Indexing is now bounded by the FASTA reader, not the inserts
+
+`index_initializing` used to be the serial floor — one thread doing ~31 M cache-missing hash-map
+inserts, flat at ~8.4 s from 1 thread to 64. Sharding the index by k-mer hash fixed that: it is
+**1.1-1.8 s** everywhere above one thread (and 0 at `-@ 1`, where it is folded into the collector).
+
+What is left does not scale at all:
+
+| Threads (10x run) | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `indexing` (wall) | 11.7 | 9.2 | 9.2 | 10.3 | 10.0 | 9.5 | 9.4 |
-| `index_initializing` (serial) | 10.0 | 7.3 | 7.5 | 8.4 | 8.3 | 7.7 | 7.7 |
-| `index_sketching` (CPU, all workers) | 6.3 | 6.0 | 6.2 | 8.4 | 13.7 | 19.3 | 21.1 |
+| `indexing` (wall) | 10.0 | 8.0 | 7.6 | 6.3 | 5.6 | 6.1 | 6.4 |
+| `index_reading` (serial) | 4.4 | 4.4 | 5.5 | 4.4 | 4.3 | 4.5 | 4.6 |
+| `index_initializing` | 0.0 | 3.1 | 2.0 | 1.8 | 1.1 | 1.4 | 1.6 |
 
-Sketching parallelizes fine — its *wall* share collapses, and the growing CPU total is the usual
-cost of spreading it over more workers. `index_initializing` is the floor: it is one thread doing
-~31 M hash-map inserts into a table far larger than cache, it is unaffected by `-@`, and at
-`-@ 32` it is **~80% of all indexing time**. Sharding `h2single`/`h2multi` by hash across workers
-(see `PROFILING.md`'s remaining-bottlenecks section) is the change that would move this, and these
-numbers are the case for doing it.
+**`index_reading` is 4.3-5.6 s regardless of `-@`, and is now ~70-80% of all indexing.** One
+thread parses the whole 3.18 GB FASTA. Indexing bottoms out near 6 s and cannot go below it at any
+core count, which is what caps every whole-run speedup in the tables above. Parallel parsing over
+byte ranges — FASTA records are independently locatable — is the next thing that would move these
+numbers.
 
-Mapping itself plateaus at **~11x around 16-32 threads**. Peak memory is flat to 8 threads and then
-climbs (2.13 → 7.30 GB from 8 to 32 at 10x) as per-worker dense accumulators multiply; it stops
-growing past 32 because that is where mapping stops getting faster too.
-
-Taken together the two ceilings cap a whole run at ~9.2x on 64 cores, and **which ceiling binds
-depends on depth**: at 1x, indexing is already 60% of the wall by 16 threads, so the run tops out
-at 3.5x; at 10x there is enough mapping work to reach 9.2x.
 
 ## Thread scaling on the Table-1 datasets (older generation)
 
@@ -102,10 +127,14 @@ Output is byte-identical across thread counts; only wall-time/memory vary. Time 
   makes `index_initializing` cheap, so the serial floor that binds the whole-genome runs barely
   exists here.
 - Whole-genome 10 kbp plateaus past ~8 threads (memory bandwidth + the serial indexing floor;
-  `index_initializing` is single-threaded — see `PROFILING.md`). The real-WGS sweep above measures
-  that floor directly: ~7.7 s serial, ~80% of all indexing time at `-@ 32`.
+  `index_initializing` was single-threaded when these were taken). That floor has since been
+  removed by sharding the index — see the sweeps above, where the remaining floor is the FASTA
+  reader instead.
 - `real_24kbp` (only 2 000 reads) is ~90% indexing, so thread count barely moves it at all — flat
   ~10-11 s regardless of `-@`. This is the dataset the indexing work targets, not the mapping work.
+  It is also why that row says nothing about whether 24 kbp reads parallelize: at ~0.015x coverage
+  there is almost no mapping to parallelize. The 125 000-read 24 kbp set above was built to answer
+  that question properly, and there the mapper scales 8.07x.
 - **Memory is flat in thread count except on whole-genome 10 kbp**, where it climbs from 2.05 GB at
   `-@ 4` to 3.12 GB at `-@ 32`. Part of that is the dense bucket accumulator, which is per worker:
   those 10 kbp reads give a half-length of ~127, so the bucket space is ~246 k slots and each

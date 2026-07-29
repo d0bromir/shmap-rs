@@ -1,0 +1,17 @@
+1x t=1 wall=0:53.97 rssKB=2241336
+1x t=2 wall=0:32.01 rssKB=1915644
+1x t=4 wall=0:22.01 rssKB=1988240
+1x t=8 wall=0:14.65 rssKB=2069468
+1x t=16 wall=0:12.28 rssKB=2550368
+1x t=32 wall=0:12.10 rssKB=3372548
+1x t=64 wall=0:13.22 rssKB=4102676
+1x OUTPUT IDENTICAL across all thread counts
+10x t=1 wall=7:19.27 rssKB=1928764
+10x t=2 wall=4:21.64 rssKB=1956148
+10x t=4 wall=2:26.56 rssKB=1987204
+10x t=8 wall=1:16.71 rssKB=2203872
+10x t=16 wall=0:44.50 rssKB=4257996
+10x t=32 wall=0:42.64 rssKB=6495660
+10x t=64 wall=0:47.83 rssKB=9183752
+10x OUTPUT IDENTICAL across all thread counts
+SWEEP2 DONE
