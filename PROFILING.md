@@ -134,6 +134,15 @@ plus `-@ 1 -x --profile-log rs_${N}x.profile.json` for shmap-rs (the C++ has no 
 | 3x | **177.8 s** | 264.2 s | **1.49x** | **2.35 GB** | 19.30 GB |
 | 10x | **566.1 s** | 810.7 s | **1.43x** | **2.54 GB** | 19.31 GB |
 
+> **Superseded — these are `b0121aa` numbers.** Re-measured on the same host at
+> `f85d9a2`, with the `refine` memo and the allocation work below in place, shmap-rs is
+> **21-24% faster** and the speedups become **2.04x / 1.93x / 1.89x** (53.05 / 136.57 /
+> 430.56 s). The C++ side reproduced to within 0.5%, so the change is entirely ours. That run
+> also adds a 13.160x point over all 18 SMRT cells — the complete distinct real read set for this
+> sample — at 559.46 s against the C++'s 1059.39 s, still 1.89x, plus the small and tiny tiers
+> and `-@ 64` numbers. See `profiling/full_suite_a2/`, which is the current reference;
+> `profiling/realworld_hifi/` remains the record of what `b0121aa` measured.
+
 Per-read cost is constant across depths (0.232 / 0.230 / 0.229 ms) and memory is nearly flat
 (2.11 -> 2.54 GB for 10x the reads), so throughput scales linearly and nothing degrades at depth.
 
@@ -146,6 +155,20 @@ measured next targets are `refine`, `collect_kmer_info` and `match_seeds`, in th
 
 ## What's optimized
 
+- **`match_rest`'s second sweep reuses the first's scores.** `map_read` sweeps `sorted_buckets`
+  twice — once for the best mapping, once for the second-best that feeds mapq — and on the
+  `Containment`/`Jaccard` path `find_best_mapping` is a pure function of the bucket location: it
+  never reads `content` (which pruning mutates between the sweeps) and it restores `diff_hist`
+  exactly as it found it, which is what `best_fixed_length`'s closing `debug_assert_eq!(intersection,
+  0)` pins. So the second sweep was recomputing bit-identical scores. `RefineCache` records the
+  first and replays it in the second; both walk the same slice in the same order, so replay is a
+  monotone cursor over one reusable `Vec` with no hashing. Measured on real HG002 HiFi against the
+  whole genome at `-@1`, **44% of `find_best_mapping` calls are eliminated at every depth**, and the
+  effect is flat in coverage (1x / 3x / 10x): `match_rest_for_best2` **−66.4% / −67.1% / −66.5%**,
+  `refine` **−39.2% / −41.3% / −39.8%**, `query_mapping` **−9.6% / −10.5% / −9.4%**. PAF output is
+  byte-identical. `SHMAP_NO_REFINE_MEMO=1` disables it so one binary can A/B the change.
+  New `refined_buckets`/`refine_memo_hits` counters close a gap the older reports had: `final_buckets`
+  only counted buckets that *beat* the threshold, so nothing recorded what refining actually cost.
 - **`Buckets` storage → append-only `Vec` + LSD radix sort**, not a hashmap. *(Superseded as the
   primary path by the dense accumulator below; this is what that replaced, and it survives as the
   bounded-memory fallback.)* An intermediate sparse

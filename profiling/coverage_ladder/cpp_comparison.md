@@ -36,10 +36,16 @@ profiler client into the hot paths. Measured on the 10x point, that costs the
 C++ **8.8%** (8.82 s instrumented vs 8.11 s clean).
 
 Every C++ number below is from a **Tracy-free** build, which is the fair
-comparison. Anyone reproducing the numbers in `../realworld_hifi/` or
-`PROFILING.md` should check whether that binary had Tracy enabled — if it did,
-those C++ timings are ~9% pessimistic and the speedups quoted there are
-correspondingly generous.
+comparison.
+
+An earlier revision of this file warned that the C++ binary behind
+`../realworld_hifi/` and `PROFILING.md` might have carried that 8.8%, which
+would have made the speedups quoted there correspondingly generous. **That has
+since been checked on the benchmark host and it did not**: its
+`~/Pesho/shmap/release/shmap` contains zero live Tracy strings, against 123 in
+a known instrumented build and 3 in a known clean one, and its size (3,830,576
+bytes) matches the clean build rather than the instrumented one (6,189,384).
+The published speedups stand as measured.
 
 ## Results
 

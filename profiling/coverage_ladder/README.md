@@ -98,12 +98,22 @@ Nothing is being serialized: the per-read invariants above are identical, and
 scattered ~4 KB windows of a multi-GB reference sketch and probes a ~700 MB
 `h2single`, and eight of those saturate shared L3 and memory bandwidth.
 
-This says the mapper is **memory-bound, not compute-bound**, at realistic thread
-counts — which matches what two attempted optimizations found independently at
-the micro scale (both were reverted; both failed because the per-read structures
-are already cache-resident and the only cold traffic is the index probe). It
-makes prefetching and index memory layout the lever that matters, and predicts
-that instruction-level tuning of the per-read path will keep returning nothing.
+The natural reading is that the mapper is memory-bound rather than
+compute-bound, which also matches what two attempted optimizations found
+independently at the micro scale (both were reverted; both failed because the
+per-read structures are already cache-resident and the only cold traffic is the
+index probe).
+
+> **Partly corrected by later measurement.** `../full_suite_a2/` ran the same
+> A/B on the 64-core benchmark host and found per-read CPU inflating only
+> **~2x across 64 workers**, with the ratio *falling* as depth rises — where
+> this 8-core result showed 1.60x across 8. So the contention does not compound
+> the way an extrapolation from this box would suggest; it plateaus, and it
+> explains only about half the gap between core count and the ~9.6x actually
+> achieved there. The rest is not per-read work at all — the serial collector
+> and the fixed index build are the better suspects. Read the 8-core number as
+> evidence that contention exists, not as a prediction of how it scales; this
+> box has 8 cores and one memory controller.
 
 ## Caveat on stage mix
 

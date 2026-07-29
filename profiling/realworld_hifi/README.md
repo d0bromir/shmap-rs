@@ -1,5 +1,11 @@
 # Real HG002 HiFi WGS at 1x / 3x / 10x
 
+> **Superseded by `../full_suite_a2/`.** These are `b0121aa` numbers. The same host, at
+> `f85d9a2`, now gives 53.05 / 136.57 / 430.56 s and speedups of 2.04x / 1.93x / 1.89x —
+> shmap-rs got 21-24% faster while the C++ reproduced to within 0.5%. This file is kept as
+> the record of what was measured then, and its methodology and data provenance sections
+> still apply.
+
 First benchmark of this project against **real** whole-genome long-read data at meaningful
 coverage. Everything before this used 6 000-read subsets (0.02-0.07x of the genome) or simulated
 reads; this is 0.24-2.4 million real PacBio CCS reads.
