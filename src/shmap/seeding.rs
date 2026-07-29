@@ -106,13 +106,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 
                 if seed.hits_in_t == 1 {
                     let hit = self.tidx.single_hit(seed.kmer.h);
-                    let content = BucketContent::new(
-                        1,
-                        0,
-                        if hit.strand == seed.kmer.strand { 1 } else { -1 },
-                        hit.r,
-                        hit.r,
-                    );
+                    let content =
+                        BucketContent::new(1, 0, if hit.strand == seed.kmer.strand { 1 } else { -1 }, hit.r, hit.r);
                     buckets.add_to_pos(&hit, content);
                 } else {
                     // Streaming replacement for the per-seed `BucketsHash`:
@@ -157,13 +152,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     let mut acc = [BucketContent::default(); 2];
                     for hit in self.tidx.multi_hits(seed.kmer.h) {
                         let pos = if AP { hit.r } else { hit.tpos };
-                        let content = BucketContent::new(
-                            1,
-                            0,
-                            if hit.strand == seed.kmer.strand { 1 } else { -1 },
-                            hit.r,
-                            hit.r,
-                        );
+                        let content =
+                            BucketContent::new(1, 0, if hit.strand == seed.kmer.strand { 1 } else { -1 }, hit.r, hit.r);
                         if hit.segm_id != cur_sid {
                             // New segment: everything buffered is final.
                             for (j, a) in acc.iter_mut().enumerate() {
@@ -243,8 +233,9 @@ mod tests {
             Kmer::new(50, 0x555555, false),
         ];
 
-        let pmatches_gt: HashSet<Vec<QPos>> =
-            [vec![60, 30, 10], vec![70, 20], vec![40], vec![50]].into_iter().collect();
+        let pmatches_gt: HashSet<Vec<QPos>> = [vec![60, 30, 10], vec![70, 20], vec![40], vec![50]]
+            .into_iter()
+            .collect();
 
         let seeds = mapper.unique_elements_with_info(&mut p);
         let pmatches_res: HashSet<Vec<QPos>> = seeds.iter().map(|s| s.pmatches.to_vec()).collect();

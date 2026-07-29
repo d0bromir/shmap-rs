@@ -47,10 +47,7 @@ impl Timer {
     }
 
     pub fn start(&mut self) {
-        assert!(
-            !self.running,
-            "Timer cannot be started since it is already running."
-        );
+        assert!(!self.running, "Timer cannot be started since it is already running.");
         self.start_time = Some(Instant::now());
         self.running = true;
     }
@@ -66,7 +63,11 @@ impl Timer {
 
     pub fn stop(&mut self) {
         assert!(self.running, "Timer cannot be stopped since it is not running.");
-        let diff = self.start_time.expect("running timer has a start time").elapsed().as_secs_f64();
+        let diff = self
+            .start_time
+            .expect("running timer has a start time")
+            .elapsed()
+            .as_secs_f64();
         self.accumulated += diff;
         self.running = false;
         self.update_range(diff);

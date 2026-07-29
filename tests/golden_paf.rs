@@ -43,9 +43,11 @@ fn paf_output_matches_the_checked_in_golden_file() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let actual = strip_timing_field(&stdout);
 
-    let expected =
-        std::fs::read_to_string("tests/fixtures/tiny.golden.paf").expect("golden file should exist");
+    let expected = std::fs::read_to_string("tests/fixtures/tiny.golden.paf").expect("golden file should exist");
     let expected = strip_timing_field(expected.trim_end());
 
-    assert_eq!(actual, expected, "PAF output drifted from the golden file (timing field excluded)");
+    assert_eq!(
+        actual, expected,
+        "PAF output drifted from the golden file (timing field excluded)"
+    );
 }

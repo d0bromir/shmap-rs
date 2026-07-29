@@ -181,20 +181,17 @@ fn scan_range(file: &std::fs::File, idx: usize, start: u64, end: u64, file_len: 
             *run_bases.last_mut().expect("run_bases is never empty") += b.len() as u64;
         }
     })?;
-    Ok(ScanOut { idx, headers, run_bases })
+    Ok(ScanOut {
+        idx,
+        headers,
+        run_bases,
+    })
 }
 
 /// Pass 2: copies one run's bases straight into its slice of the segment
 /// buffer. `dest` is exactly the length pass 1 counted.
 #[cfg(unix)]
-fn fill_run(
-    file: &std::fs::File,
-    start: u64,
-    end: u64,
-    file_len: u64,
-    run_idx: usize,
-    dest: &mut [u8],
-) -> Result<()> {
+fn fill_run(file: &std::fs::File, start: u64, end: u64, file_len: u64, run_idx: usize, dest: &mut [u8]) -> Result<()> {
     let mut cur = 0usize;
     let mut at = 0usize;
     walk_range(file, start, end, file_len, |item| match item {
@@ -442,10 +439,7 @@ pub fn read_fasta(path: &str, timers: &mut Timers, mut callback: impl FnMut(&str
         timers.start("fasta_extract");
         let record = record.with_context(|| format!("invalid FASTA record in {path}"))?;
         let full_id = record.id();
-        let name_bytes = full_id
-            .split(|&b| b == b' ' || b == b'\t')
-            .next()
-            .unwrap_or(full_id);
+        let name_bytes = full_id.split(|&b| b == b' ' || b == b'\t').next().unwrap_or(full_id);
         name.clear();
         name.push_str(&String::from_utf8_lossy(name_bytes));
         // `into_owned` on a multi-line FASTA record is free: needletail has
@@ -498,7 +492,9 @@ mod tests {
         let mut expect = Vec::new();
         let mut state = seed;
         let mut rnd = || {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (state >> 33) as usize
         };
         for s in 0..n_segments {
@@ -525,7 +521,22 @@ mod tests {
 
         // Range sizes from "smaller than one line" up to "whole file", which
         // between them put boundaries in every structurally distinct place.
-        for range in [1u64, 2, 3, 7, 16, 31, 64, 127, 256, 1000, 4096, file_len - 1, file_len, file_len + 1] {
+        for range in [
+            1u64,
+            2,
+            3,
+            7,
+            16,
+            31,
+            64,
+            127,
+            256,
+            1000,
+            4096,
+            file_len - 1,
+            file_len,
+            file_len + 1,
+        ] {
             for threads in [2usize, 4, 8] {
                 let mut seen = Vec::new();
                 read_fasta_ranged(path, threads, range, 0, &mut Timers::new(), |id, seq, _| {
@@ -548,13 +559,23 @@ mod tests {
         f.flush().unwrap();
         for range in [1u64, 3, 8, 17, 64] {
             let mut seen = Vec::new();
-            read_fasta_ranged(f.path().to_str().unwrap(), 4, range, 0, &mut Timers::new(), |id, seq, _| {
-                seen.push((id.to_string(), seq));
-            })
+            read_fasta_ranged(
+                f.path().to_str().unwrap(),
+                4,
+                range,
+                0,
+                &mut Timers::new(),
+                |id, seq, _| {
+                    seen.push((id.to_string(), seq));
+                },
+            )
             .unwrap();
             assert_eq!(
                 seen,
-                vec![("a".to_string(), b"ACGTGGTT".to_vec()), ("b".to_string(), b"TTTT".to_vec())],
+                vec![
+                    ("a".to_string(), b"ACGTGGTT".to_vec()),
+                    ("b".to_string(), b"TTTT".to_vec())
+                ],
                 "range={range}"
             );
         }

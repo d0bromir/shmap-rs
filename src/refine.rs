@@ -94,14 +94,7 @@ impl<'idx, 'b, const AP: bool> Matcher<'idx, 'b, AP> {
     ///
     /// `matches` must be sorted ascending by `hit.tpos` (as `collect_matches`
     /// produces it).
-    pub fn best_included_jaccard(
-        &mut self,
-        matches: &[Match],
-        p_sz: QPos,
-        lmin: RPos,
-        lmax: RPos,
-        m: QPos,
-    ) -> Mapping {
+    pub fn best_included_jaccard(&mut self, matches: &[Match], p_sz: QPos, lmin: RPos, lmax: RPos, m: QPos) -> Mapping {
         let n = matches.len();
         let mut intersection: QPos = 0;
         let mut same_strand_seeds: i32 = 0;

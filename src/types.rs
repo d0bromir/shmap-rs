@@ -139,13 +139,7 @@ pub struct Seed {
 }
 
 impl Seed {
-    pub fn new(
-        kmer: Kmer,
-        hits_in_t: RPos,
-        occs_in_p: QPos,
-        seed_num: QPos,
-        pmatches: PMatches,
-    ) -> Self {
+    pub fn new(kmer: Kmer, hits_in_t: RPos, occs_in_p: QPos, seed_num: QPos, pmatches: PMatches) -> Self {
         Seed {
             kmer,
             hits_in_t,

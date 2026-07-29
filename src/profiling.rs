@@ -181,7 +181,14 @@ impl Profiler {
     /// Records one OS thread's own (not globally merged) timers/counters.
     /// `role` is a short fixed tag (`"index"`, `"io"`, `"map"`, `"output"`)
     /// grouping threads by what kind of work they did.
-    pub fn record_thread(&self, label: impl Into<String>, role: &'static str, jobs: u64, timers: Timers, counters: Counters) {
+    pub fn record_thread(
+        &self,
+        label: impl Into<String>,
+        role: &'static str,
+        jobs: u64,
+        timers: Timers,
+        counters: Counters,
+    ) {
         if !self.enabled {
             return;
         }
@@ -197,7 +204,12 @@ impl Profiler {
     /// Stops the background sampler, takes a final `"end"` memory mark,
     /// and writes the whole report to `path` as JSON. A no-op (including no
     /// file write) if profiling isn't enabled.
-    pub fn finish_and_write(&self, path: &str, global_timers: &Timers, global_counters: &Counters) -> std::io::Result<()> {
+    pub fn finish_and_write(
+        &self,
+        path: &str,
+        global_timers: &Timers,
+        global_counters: &Counters,
+    ) -> std::io::Result<()> {
         if !self.enabled {
             return Ok(());
         }
@@ -219,7 +231,11 @@ impl Profiler {
             .unwrap_or_default()
             .as_secs();
         let _ = writeln!(out, "  \"started_at_unix\": {unix_secs},");
-        let _ = writeln!(out, "  \"wall_seconds\": {:.6},", self.run_start.elapsed().as_secs_f64());
+        let _ = writeln!(
+            out,
+            "  \"wall_seconds\": {:.6},",
+            self.run_start.elapsed().as_secs_f64()
+        );
 
         let meta = self.meta.lock().unwrap();
         let _ = writeln!(out, "  \"meta\": {{");
@@ -342,7 +358,8 @@ mod tests {
 
         let path = std::env::temp_dir().join("shmap_profiler_test_disabled.json");
         let _ = std::fs::remove_file(&path);
-        p.finish_and_write(path.to_str().unwrap(), &Timers::new(), &Counters::new()).unwrap();
+        p.finish_and_write(path.to_str().unwrap(), &Timers::new(), &Counters::new())
+            .unwrap();
         assert!(!path.exists());
     }
 

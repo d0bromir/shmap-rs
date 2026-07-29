@@ -70,13 +70,19 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             c.frac("possible_matches", "total_matches")
         );
         eprintln!(" | Buckets:              ");
-        eprintln!(" | | Seeded buckets:          {:.1} /read", c.frac("seeded_buckets", "reads"));
+        eprintln!(
+            " | | Seeded buckets:          {:.1} /read",
+            c.frac("seeded_buckets", "reads")
+        );
         eprintln!(
             " | Mappings:              {} ({:.1}% of reads)",
             c.count("mappings"),
             c.perc("mappings", "reads")
         );
-        eprintln!(" | | Final buckes:            {:.1} /mapping", c.frac("final_buckets", "mappings"));
+        eprintln!(
+            " | | Final buckes:            {:.1} /mapping",
+            c.frac("final_buckets", "mappings")
+        );
         eprintln!(
             " | | Average best sim.:       {:.3}",
             c.frac("J_best", "mappings") / 10000.0
@@ -176,7 +182,10 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         let t = &handler.timers;
 
         if c.frac("mapped_reads", "reads") < 0.95 {
-            eprintln!("{ORANGE}Mapped reads = {} < 0.95.{RESET}", c.frac("mapped_reads", "reads"));
+            eprintln!(
+                "{ORANGE}Mapped reads = {} < 0.95.{RESET}",
+                c.frac("mapped_reads", "reads")
+            );
         }
         if c.frac("possible_matches", "total_matches") < 10.0 {
             eprintln!(

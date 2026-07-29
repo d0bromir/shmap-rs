@@ -5,14 +5,18 @@
 
 use std::io::Write;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::Parser;
 
 use crate::types::Metric;
 
 /// Fast and accurate sketch-based read mapper.
 #[derive(Parser, Debug, Clone)]
-#[command(name = "shmap", version, about = "Map-SHmap: fast and accurate sketch-based read mapper")]
+#[command(
+    name = "shmap",
+    version,
+    about = "Map-SHmap: fast and accurate sketch-based read mapper"
+)]
 pub struct Params {
     /// Reads file (FASTA format)
     #[arg(short = 'p', long = "pattern")]
@@ -113,7 +117,10 @@ impl Params {
             bail!("K-mer length (-k) should be positive. You provided {}.", self.k);
         }
         if self.h_frac <= 0.0 || self.h_frac > 1.0 {
-            bail!("Given hash ratio (-r) should be between 0 and 1. You provided {}.", self.h_frac);
+            bail!(
+                "Given hash ratio (-r) should be between 0 and 1. You provided {}.",
+                self.h_frac
+            );
         }
         if let Some(s) = self.max_seeds {
             if s <= 0 {
@@ -126,10 +133,16 @@ impl Params {
             }
         }
         if self.theta < 0.0 || self.theta > 1.0 {
-            bail!("The threshold (-t) should be between 0 and 1. You provided {}.", self.theta);
+            bail!(
+                "The threshold (-t) should be between 0 and 1. You provided {}.",
+                self.theta
+            );
         }
         if self.min_diff < 0.0 {
-            bail!("The minimum difference (-d) should be >= 0. You provided {}.", self.min_diff);
+            bail!(
+                "The minimum difference (-d) should be >= 0. You provided {}.",
+                self.min_diff
+            );
         }
         if self.max_overlap < 0.0 || self.max_overlap > 1.0 {
             bail!(
@@ -141,7 +154,10 @@ impl Params {
             bail!("--verbose (-v) should be 0, 1, or 2. You provided {}.", self.verbose);
         }
         if self.threads == 0 {
-            bail!("The number of threads (-@) should be positive. You provided {}.", self.threads);
+            bail!(
+                "The number of threads (-@) should be positive. You provided {}.",
+                self.threads
+            );
         }
         Ok(())
     }

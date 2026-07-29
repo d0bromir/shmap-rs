@@ -30,7 +30,10 @@ fn maps_reads_against_the_tiny_fixture_and_prints_paf() {
 
     for line in &lines {
         let fields: Vec<&str> = line.split('\t').collect();
-        assert!(fields.len() >= 12, "PAF line has fewer than 12 mandatory columns: {line}");
+        assert!(
+            fields.len() >= 12,
+            "PAF line has fewer than 12 mandatory columns: {line}"
+        );
         assert_eq!(fields[5], "ref", "target name column");
         assert_eq!(fields[4], "+", "strand column");
     }

@@ -338,19 +338,14 @@ impl Mapping {
         } else {
             60
         };
-        if frac > min_diff {
-            60.min(mapq_strand) as u8
-        } else {
-            0
-        }
+        if frac > min_diff { 60.min(mapq_strand) as u8 } else { 0 }
     }
 
     pub fn set_second_best(&mut self, m2: &Mapping) {
         self.local_stats.bucket2 = m2.local_stats.bucket;
         self.local_stats.intersection2 = m2.local_stats.intersection;
         self.set_score2(m2.score());
-        self.local_stats.sigmas_diff =
-            Self::sigmas_diff(self.local_stats.intersection2, self.local_stats.intersection);
+        self.local_stats.sigmas_diff = Self::sigmas_diff(self.local_stats.intersection2, self.local_stats.intersection);
     }
 
     /// `sketch_size` is the read's full sketch size (`m` at the call site,

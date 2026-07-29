@@ -77,7 +77,12 @@ impl FracMinHash {
             lut_fw[lower as usize] = v;
             lut_fw[upper as usize] = v;
         }
-        for &(lower, upper, complement) in &[(b'a', b'A', b'T'), (b'c', b'C', b'G'), (b'g', b'G', b'C'), (b't', b'T', b'A')] {
+        for &(lower, upper, complement) in &[
+            (b'a', b'A', b'T'),
+            (b'c', b'C', b'G'),
+            (b'g', b'G', b'C'),
+            (b't', b'T', b'A'),
+        ] {
             lut_rc[lower as usize] = lut_fw[complement as usize];
             lut_rc[upper as usize] = lut_fw[complement as usize];
         }
@@ -255,7 +260,11 @@ mod tests {
             }
             assert_eq!(joined.len(), whole.len(), "chunk size {chunk} changed the k-mer count");
             for (a, b) in joined.iter().zip(whole.iter()) {
-                assert_eq!((a.r, a.h, a.strand), (b.r, b.h, b.strand), "chunk size {chunk} diverged");
+                assert_eq!(
+                    (a.r, a.h, a.strand),
+                    (b.r, b.h, b.strand),
+                    "chunk size {chunk} diverged"
+                );
             }
         }
     }
@@ -272,7 +281,11 @@ mod tests {
         let mut sk_s_rc = sketcher.sketch(s_rc, &mut c);
         sk_s_rc.reverse();
 
-        assert_eq!(sk_s.len(), sk_s_rc.len(), "reverse-complement sketches should have the same size");
+        assert_eq!(
+            sk_s.len(),
+            sk_s_rc.len(),
+            "reverse-complement sketches should have the same size"
+        );
         for i in 0..sk_s.len() {
             assert_eq!(sk_s[i].r, (i as RPos) + k - 1);
             if i < sk_s_rc.len() {

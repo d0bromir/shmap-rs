@@ -176,10 +176,7 @@ impl<const AP: bool> BucketsHash<AP> {
         let b = (if AP { hit.r } else { hit.tpos }) / self.halflen;
         *self.buckets.entry(BucketLoc::new(hit.segm_id, b)).or_default() += content;
         if b > 0 {
-            *self
-                .buckets
-                .entry(BucketLoc::new(hit.segm_id, b - 1))
-                .or_default() += content;
+            *self.buckets.entry(BucketLoc::new(hit.segm_id, b - 1)).or_default() += content;
         }
     }
 

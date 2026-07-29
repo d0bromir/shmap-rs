@@ -70,7 +70,10 @@ fn threaded_output_matches_single_threaded_output() {
         let start = ((i * 137) % 19_000) as usize;
         let len = 200 + (i as usize % 5) * 50;
         let read_seq = &reference[start..start + len];
-        reads_fa.push_str(&format!(">mapped_{i}\n{}\n", String::from_utf8(read_seq.to_vec()).unwrap()));
+        reads_fa.push_str(&format!(
+            ">mapped_{i}\n{}\n",
+            String::from_utf8(read_seq.to_vec()).unwrap()
+        ));
 
         if i % 4 == 0 {
             let junk = pseudo_random_dna(9000 + i, 150);

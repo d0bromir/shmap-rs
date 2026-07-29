@@ -9,7 +9,7 @@ use super::SHMapper;
 use crate::buckets::Buckets;
 use crate::mapping::Mapping;
 use crate::sketch::RefSegment;
-use crate::types::{codirection_kmer_kmer, BucketContent, BucketLoc, H2Seed, Kmer, Metric, QPos, RPos, Seeds};
+use crate::types::{BucketContent, BucketLoc, H2Seed, Kmer, Metric, QPos, RPos, Seeds, codirection_kmer_kmer};
 
 /// Per-read memo of [`SHMapper::find_best_mapping`] results across the two
 /// [`SHMapper::match_rest`] passes a read makes (best, then second-best).
@@ -111,7 +111,13 @@ impl RefineCache {
 impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, OS, AP> {
     /// All query positions (in `p`) whose k-mer hash also appears in
     /// bucket `b`'s span of the reference sketch `t`.
-    pub fn lcs_get_ppos_in_t(&self, t: &[Kmer], buckets: &Buckets<'idx, AP>, b: &BucketLoc, p_ht: &H2Seed) -> Vec<QPos> {
+    pub fn lcs_get_ppos_in_t(
+        &self,
+        t: &[Kmer],
+        buckets: &Buckets<'idx, AP>,
+        b: &BucketLoc,
+        p_ht: &H2Seed,
+    ) -> Vec<QPos> {
         let mut ppos_in_t = Vec::with_capacity(p_ht.len());
         let begin = buckets.begin(b);
         let end = (t.len() as RPos).min(buckets.end(b));
@@ -399,11 +405,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         if memoizable {
                             cache.record(idx as u32, &scored);
                         }
-                        if scored.score() > thr {
-                            Some(scored)
-                        } else {
-                            None
-                        }
+                        if scored.score() > thr { Some(scored) } else { None }
                     }
                 };
 
@@ -444,16 +446,26 @@ mod tests {
         ];
 
         let mut tidx = SketchIndex::new();
-        tidx.segments.push(RefSegment::new(t.clone(), "test".to_string(), 10, 0));
+        tidx.segments
+            .push(RefSegment::new(t.clone(), "test".to_string(), 10, 0));
 
         let mut buckets: Buckets<false> = Buckets::new(&tidx);
         buckets.set_halflen(2);
         let bucket = BucketLoc::new(0, 1);
 
         let mut p_ht: H2Seed = H2Seed::default();
-        p_ht.insert(0x111111, Seed::new(Kmer::new(1, 0x111111, false), 99, 3, 0, vec![5, 1].into()));
-        p_ht.insert(0x222222, Seed::new(Kmer::new(2, 0x222222, false), 999, 2, 1, vec![4, 2].into()));
-        p_ht.insert(0x444444, Seed::new(Kmer::new(3, 0x444444, false), 9, 1, 2, vec![3].into()));
+        p_ht.insert(
+            0x111111,
+            Seed::new(Kmer::new(1, 0x111111, false), 99, 3, 0, vec![5, 1].into()),
+        );
+        p_ht.insert(
+            0x222222,
+            Seed::new(Kmer::new(2, 0x222222, false), 999, 2, 1, vec![4, 2].into()),
+        );
+        p_ht.insert(
+            0x444444,
+            Seed::new(Kmer::new(3, 0x444444, false), 9, 1, 2, vec![3].into()),
+        );
 
         let mapper: SHMapper<false, false, false> = SHMapper::new(&tidx);
         let lcs_cnt = mapper.lcs(&t, &buckets, &bucket, &p_ht);

@@ -77,8 +77,8 @@ mod stats;
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::mpsc;
 use std::sync::Mutex;
+use std::sync::mpsc;
 
 use crate::buckets::Buckets;
 use crate::handler::Handler;
@@ -197,15 +197,17 @@ fn catch_read_panic<'idx, const NBP: bool, const OS: bool, const AP: bool>(
     seq: &[u8],
     buckets: &mut Buckets<'idx, AP>,
 ) -> anyhow::Result<ReadOutput> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.map_read(sketcher, params, query_id, seq, buckets)))
-        .unwrap_or_else(|panic_payload| {
-            worker.timers.clear();
-            worker.counters.clear();
-            Err(anyhow::anyhow!(
-                "panicked while mapping read {query_id:?}: {}",
-                panic_message(&*panic_payload)
-            ))
-        })
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        worker.map_read(sketcher, params, query_id, seq, buckets)
+    }))
+    .unwrap_or_else(|panic_payload| {
+        worker.timers.clear();
+        worker.counters.clear();
+        Err(anyhow::anyhow!(
+            "panicked while mapping read {query_id:?}: {}",
+            panic_message(&*panic_payload)
+        ))
+    })
 }
 
 /// Applies one read's already-rendered [`ReadOutput`] — the only place that
@@ -378,7 +380,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     loop {
                         let job = job_rx.lock().unwrap().recv();
                         let Ok(job) = job else { break };
-                        let result = catch_read_panic(&mut worker, sketcher, params, &job.query_id, &job.seq, &mut buckets);
+                        let result =
+                            catch_read_panic(&mut worker, sketcher, params, &job.query_id, &job.seq, &mut buckets);
                         if profiler.enabled() {
                             thread_timers += &worker.timers;
                             thread_counters += &worker.counters;
@@ -396,7 +399,13 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         }
                     }
                     if profiler.enabled() {
-                        profiler.record_thread(format!("worker-{worker_idx}"), "map", jobs_done, thread_timers, thread_counters);
+                        profiler.record_thread(
+                            format!("worker-{worker_idx}"),
+                            "map",
+                            jobs_done,
+                            thread_timers,
+                            thread_counters,
+                        );
                     }
                 });
             }
@@ -480,7 +489,13 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 }
             }
             if profiler.enabled() {
-                profiler.record_thread("collector", "output", handler.counters.count("reads") as u64, collector_timers, collector_counters);
+                profiler.record_thread(
+                    "collector",
+                    "output",
+                    handler.counters.count("reads") as u64,
+                    collector_timers,
+                    collector_counters,
+                );
             }
 
             let reader_timers = reader.join().expect("reader thread panicked")?;
@@ -661,7 +676,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     best.set_second_best(best2);
                 }
 
-                self.counters.inc("matches_in_reported_mappings", best.intersection() as i64);
+                self.counters
+                    .inc("matches_in_reported_mappings", best.intersection() as i64);
                 self.counters.inc("J_best", (10000.0 * best.score()) as i64);
                 self.counters.inc1("mappings");
                 self.counters.inc1("mapped_reads");
@@ -892,7 +908,9 @@ mod integration_tests {
         assert!(unmapped_paf.contains("unmapped_sim!chr1!0!10!+"));
 
         let profile_path = format!("{params_prefix}.profile.json");
-        profiler.finish_and_write(&profile_path, &handler.timers, &handler.counters).unwrap();
+        profiler
+            .finish_and_write(&profile_path, &handler.timers, &handler.counters)
+            .unwrap();
         let profile_json = std::fs::read_to_string(&profile_path).unwrap();
         assert!(profile_json.contains("\"threads\""));
         assert!(profile_json.contains("\"reader\""));
@@ -975,6 +993,9 @@ mod integration_tests {
         let returned_an_error = rx
             .recv_timeout(std::time::Duration::from_secs(30))
             .expect("map_reads hung instead of returning (deadlock regression)");
-        assert!(returned_an_error, "a panicking read should make map_reads return Err, not Ok");
+        assert!(
+            returned_an_error,
+            "a panicking read should make map_reads return Err, not Ok"
+        );
     }
 }

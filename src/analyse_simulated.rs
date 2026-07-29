@@ -20,7 +20,7 @@ use std::io::Write;
 use crate::buckets::Buckets;
 use crate::index::SketchIndex;
 use crate::mapping::Mapping;
-use crate::refine::{Matcher, MappingMetric};
+use crate::refine::{MappingMetric, Matcher};
 use crate::types::{BucketLoc, H2Cnt, H2Seed, QPos, RPos, SegmId};
 use crate::utils::ParsedQueryId;
 
@@ -30,8 +30,7 @@ use crate::utils::ParsedQueryId;
 /// rows on worker threads but writes (and headers) them from a single
 /// serial collector, so it can no longer track "is this the first row" via
 /// a `&mut bool` threaded through the render call itself.
-pub const TSV_HEADER: &str =
-    "query_id\tm\ttheta\thl\tsegm\tgt_l_bucket\tgt_r_bucket\tgt_next_bucket\tgt_J_l\tgt_J_r\tgt_J_next\tgt_C_l\tgt_C_r\tgt_C_next\tgt_C_l_lmax\tgt_C_r_lmax\t#J>theta\t#C>theta\tJ>theta\tC>theta\tmaxJ\tmaxC\tP";
+pub const TSV_HEADER: &str = "query_id\tm\ttheta\thl\tsegm\tgt_l_bucket\tgt_r_bucket\tgt_next_bucket\tgt_J_l\tgt_J_r\tgt_J_next\tgt_C_l\tgt_C_r\tgt_C_next\tgt_C_l_lmax\tgt_C_r_lmax\t#J>theta\t#C>theta\tJ>theta\tC>theta\tmaxJ\tmaxC\tP";
 
 pub struct AnalyseSimulatedReads<'idx, 'b, 'p, const AP: bool> {
     matcher: Matcher<'idx, 'b, AP>,
@@ -102,7 +101,9 @@ impl<'idx, 'b, 'p, const AP: bool> AnalyseSimulatedReads<'idx, 'b, 'p, AP> {
         let mut matcher = Matcher::new(tidx, buckets, diff_hist);
 
         let parsed_orig = ParsedQueryId::parse(query_id).expect("query_id must be ground-truth-encoded");
-        let segm = tidx.get_segment_by_name(&parsed_orig.segm_id).expect("ground-truth segment not found in index");
+        let segm = tidx
+            .get_segment_by_name(&parsed_orig.segm_id)
+            .expect("ground-truth segment not found in index");
         let mut gt_mapping = Mapping::default();
         gt_mapping.paf = crate::mapping::MappingPaf::new(
             0,
@@ -381,7 +382,17 @@ mod tests {
         buckets.propagate_seeds_to_buckets();
 
         let p_sz = read_seq.len() as QPos;
-        let gt = AnalyseSimulatedReads::<false>::new(&query_id, read_seq, p_sz, diff_hist, m, &p_ht, &tidx, &mut buckets, 0.5);
+        let gt = AnalyseSimulatedReads::<false>::new(
+            &query_id,
+            read_seq,
+            p_sz,
+            diff_hist,
+            m,
+            &p_ht,
+            &tidx,
+            &mut buckets,
+            0.5,
+        );
 
         assert_eq!(gt.segm_id, 0);
         assert_eq!(gt.segm_name, "chr1");

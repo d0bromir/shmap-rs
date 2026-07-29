@@ -38,9 +38,9 @@
 //! for mapping output.
 
 use std::collections::HashMap;
-use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::mpsc;
 
 use rustc_hash::FxHashMap;
 
@@ -337,8 +337,7 @@ impl SketchIndex {
                 Self::insert_hit(shard, kmer, tpos as RPos, segm_id, max_matches);
             }
         }
-        self.segments
-            .push(RefSegment::new(sketch, segm_name, segm_sz, segm_id));
+        self.segments.push(RefSegment::new(sketch, segm_name, segm_sz, segm_id));
     }
 
     fn get_kmer_stats(&self, counters: &mut Counters) {
@@ -593,7 +592,14 @@ impl SketchIndex {
                     counters.inc("sketched_kmers", sketch.len() as i64);
 
                     timers.start("index_collecting");
-                    self.add_segment(asm.meta.name.to_string(), seq_len, sketch, max_matches, n_threads == 1, counters);
+                    self.add_segment(
+                        asm.meta.name.to_string(),
+                        seq_len,
+                        sketch,
+                        max_matches,
+                        n_threads == 1,
+                        counters,
+                    );
                     timers.stop("index_collecting");
                     progress_bar.update(asm.meta.progress as f64);
                     next_idx += 1;
@@ -820,17 +826,31 @@ mod tests {
         assert!(counters1.count("blacklisted_kmers") > 0);
 
         assert_eq!(
-            tidx1.segments.iter().map(|s| (s.name.clone(), s.sz)).collect::<Vec<_>>(),
-            tidx8.segments.iter().map(|s| (s.name.clone(), s.sz)).collect::<Vec<_>>(),
+            tidx1
+                .segments
+                .iter()
+                .map(|s| (s.name.clone(), s.sz))
+                .collect::<Vec<_>>(),
+            tidx8
+                .segments
+                .iter()
+                .map(|s| (s.name.clone(), s.sz))
+                .collect::<Vec<_>>(),
             "segm_id assignment (file order) diverged between thread counts"
         );
         assert_eq!(tidx1.shards.len(), tidx8.shards.len());
         for (i, (a, b)) in tidx1.shards.iter().zip(tidx8.shards.iter()).enumerate() {
-            assert_eq!(a.h2single, b.h2single, "shard {i} h2single diverged between thread counts");
+            assert_eq!(
+                a.h2single, b.h2single,
+                "shard {i} h2single diverged between thread counts"
+            );
             assert_eq!(a.h2multi, b.h2multi, "shard {i} h2multi diverged between thread counts");
         }
         assert_eq!(counters1.count("indexed_hits"), counters8.count("indexed_hits"));
         assert_eq!(counters1.count("indexed_kmers"), counters8.count("indexed_kmers"));
-        assert_eq!(counters1.count("blacklisted_kmers"), counters8.count("blacklisted_kmers"));
+        assert_eq!(
+            counters1.count("blacklisted_kmers"),
+            counters8.count("blacklisted_kmers")
+        );
     }
 }
