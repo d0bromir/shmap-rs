@@ -44,7 +44,7 @@ use std::sync::Mutex;
 
 use rustc_hash::FxHashMap;
 
-use crate::io::read_fasta;
+use crate::io::read_fasta_parallel;
 use crate::profiling::Profiler;
 use crate::sketch::{FracMinHash, RefSegment, SketchT};
 use crate::types::{Hash, Hit, Kmer, RPos, SegmId};
@@ -521,7 +521,7 @@ impl SketchIndex {
                 let mut fasta_timers = Timers::new();
                 r_timers.start("index_reading");
                 let mut idx = 0u64;
-                read_fasta(t_file, &mut fasta_timers, |segm_name, seq, progress| {
+                read_fasta_parallel(t_file, n_threads, &mut fasta_timers, |segm_name, seq, progress| {
                     r_timers.stop("index_reading");
                     let n_windows = seq.len().saturating_sub((k - 1).max(0) as usize);
                     let per_chunk = chunk_windows(n_windows, n_threads);

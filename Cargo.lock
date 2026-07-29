@@ -525,6 +525,7 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "clap",
+ "memchr",
  "needletail",
  "predicates",
  "rustc-hash",
