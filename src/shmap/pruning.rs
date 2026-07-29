@@ -20,7 +20,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         if s.hits_in_t == 0 {
             // nothing to add
         } else if s.hits_in_t == 1 {
-            let hit = self.tidx.h2single[&s.kmer.h];
+            let hit = self.tidx.single_hit(s.kmer.h);
             let in_range = if AP {
                 buckets.begin(b) <= hit.r && hit.r < buckets.end(b)
             } else {
@@ -33,7 +33,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 bucket.r_max = bucket.r_max.max(hit.r);
             }
         } else {
-            let hits = &self.tidx.h2multi[&s.kmer.h];
+            let hits = self.tidx.multi_hits(s.kmer.h);
             let start = hits.partition_point(|hit| {
                 if hit.segm_id != b.segm_id {
                     hit.segm_id < b.segm_id

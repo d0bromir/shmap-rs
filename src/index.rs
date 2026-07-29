@@ -47,7 +47,7 @@ use rustc_hash::FxHashMap;
 use crate::io::read_fasta;
 use crate::profiling::Profiler;
 use crate::sketch::{FracMinHash, RefSegment, SketchT};
-use crate::types::{Hash, Hit, RPos, SegmId};
+use crate::types::{Hash, Hit, Kmer, RPos, SegmId};
 use crate::utils::{Counters, ProgressBar, Timers};
 
 /// An indexed reference: k-mer sketches of every segment, plus a hash map
@@ -58,14 +58,79 @@ use crate::utils::{Counters, ProgressBar, Timers};
 /// explicit parameters instead (the same convention the C++ itself already
 /// uses for e.g. `SHMapper::map_read`'s `params`/`sketcher` arguments),
 /// which keeps `SketchIndex` plain, aliasing-free data.
-#[derive(Default)]
-pub struct SketchIndex {
-    pub segments: Vec<RefSegment>,
+/// `log2` of the number of hash shards. Fixed rather than derived from `-@`
+/// so that the index's *contents* never depend on the thread count — see
+/// [`shard_of`].
+///
+/// Eight, not more. The build parallelises across shards, but that half of
+/// indexing bottoms out long before the shard count does: at 8 the serial
+/// insert phase is already ~1.0 s against a ~4.5 s floor set by reading and
+/// sketching, so more shards buy almost nothing there. They are not free
+/// either — every index probe in the *mapping* hot path indexes this array,
+/// and a wider one is colder. Measured on real HiFi at 10x `-@ 1`, where
+/// mapping is ~98% of the wall, 64 shards cost 3.4% overall while 8 cost
+/// 0.7%.
+const SHARD_BITS: u32 = 3;
+pub const N_SHARDS: usize = 1 << SHARD_BITS;
+
+/// Which shard a k-mer hash belongs to.
+///
+/// **Must use the low bits.** FracMinHash keeps a k-mer only when its hash is
+/// below `h_frac * u64::MAX`, so every hash that reaches the index is tiny:
+/// at `-r 0.01` every one of them is under `2^57`, and the top 7 bits are
+/// always zero. Sharding on the top bits — the usual advice, since they are
+/// normally the best-mixed — puts *every* k-mer in shard 0 and silently
+/// serialises the whole parallel build. That is not hypothetical: it is what
+/// the first version of this did (with 64 shards), and it cost ~7 s on one
+/// thread while the other 63 finished in 0.13 s. The entropy lives in the low
+/// bits here.
+///
+/// Sharing low bits within a shard does not degrade the shard's own hash map:
+/// `FxHasher` multiplies by a large odd constant, so its bucket choice depends
+/// on all the key's bits, not just the ones we sharded on.
+///
+/// Every occurrence of a given hash lands in the same shard by construction,
+/// which is what makes the parallel build safe: no two threads ever touch the
+/// same k-mer, so no locking is needed and the result cannot depend on
+/// scheduling.
+#[inline]
+fn shard_of(h: Hash) -> usize {
+    (h as usize) & (N_SHARDS - 1)
+}
+
+/// One hash shard: the same pair of maps the index used to hold globally,
+/// restricted to the hashes that [`shard_of`] assigns here.
+#[derive(Default, PartialEq, Eq, Debug)]
+pub struct Shard {
     /// K-mers with exactly one hit in the reference.
     pub h2single: FxHashMap<Hash, Hit>,
     /// K-mers with more than one hit, each list sorted by `(segm_id, r)`
     /// (equivalently `(segm_id, tpos)`) to allow binary search.
     pub h2multi: FxHashMap<Hash, Vec<Hit>>,
+}
+
+pub struct SketchIndex {
+    pub segments: Vec<RefSegment>,
+    /// The hash → hit(s) map, split into [`N_SHARDS`] independent pieces so
+    /// it can be built by all `-@` threads at once. `index_initializing` was
+    /// a single thread performing ~31 M cache-missing hash-map inserts and
+    /// was the whole serial floor of indexing (~7.7 s, ~80% of all indexing
+    /// time at `-@ 32`); it is the one phase that did not get faster with
+    /// more threads. Sharded, it is ~1.0 s at `-@ 16`. See `BENCHMARKS.md`.
+    /// A fixed-size array, not a `Vec`: every index probe in the mapping hot
+    /// path goes through this, and with a compile-time length the masked
+    /// index needs no bounds check and no load of a heap pointer. As a `Vec`
+    /// that extra dependent load cost `collect_kmer_info` up to 24%.
+    pub shards: [Shard; N_SHARDS],
+}
+
+impl Default for SketchIndex {
+    fn default() -> Self {
+        SketchIndex {
+            segments: Vec::new(),
+            shards: std::array::from_fn(|_| Shard::default()),
+        }
+    }
 }
 
 /// How many k-mer windows one sketching chunk should cover.
@@ -120,44 +185,131 @@ impl SketchIndex {
         &self.segments[segm_id as usize]
     }
 
+    /// The single hit for a k-mer known to have exactly one (`count(h) == 1`).
+    ///
+    /// Panics if absent, matching the `h2single[&h]` indexing this replaced.
+    #[inline]
+    pub fn single_hit(&self, h: Hash) -> Hit {
+        self.shards[shard_of(h)].h2single[&h]
+    }
+
+    /// The hit list for a k-mer known to have more than one (`count(h) > 1`),
+    /// sorted by `(segm_id, r)`.
+    #[inline]
+    pub fn multi_hits(&self, h: Hash) -> &[Hit] {
+        &self.shards[shard_of(h)].h2multi[&h]
+    }
+
     /// Number of hits in the reference for k-mer hash `h`.
     pub fn count(&self, h: Hash) -> RPos {
-        if self.h2single.contains_key(&h) {
+        let shard = &self.shards[shard_of(h)];
+        if shard.h2single.contains_key(&h) {
             return 1;
         }
-        if let Some(hits) = self.h2multi.get(&h) {
+        if let Some(hits) = shard.h2multi.get(&h) {
             return hits.len() as RPos;
         }
         0
     }
 
-    fn populate_h2pos(&mut self, sketch: &SketchT, segm_id: SegmId, max_matches: Option<i32>) {
-        for (tpos, kmer) in sketch.iter().enumerate() {
-            let hit = Hit::new(kmer, tpos as RPos, segm_id);
-            // `entry` instead of `contains_key` + `insert`/`entry`: hashes
-            // `kmer.h` once instead of twice for the common (single-hit)
-            // case — this loop runs once per indexed k-mer (~19M for the
-            // full CHM13 genome), so the redundant hash was a real,
-            // measurable cost in `index_initializing`.
-            match self.h2single.entry(kmer.h) {
-                std::collections::hash_map::Entry::Vacant(e) => {
-                    e.insert(hit);
-                }
-                std::collections::hash_map::Entry::Occupied(_) => {
-                    // `with_capacity(2)`, not `or_default()`: a k-mer that
-                    // reaches `h2multi` at all ends up holding at least two
-                    // hits (this one, plus the `h2single` entry that the
-                    // migration pass at the end of `build_index` pushes in),
-                    // and most hold exactly two. Starting empty made that
-                    // near-universal case allocate at capacity 1 and then
-                    // immediately reallocate to 2, once per repeated k-mer —
-                    // millions of avoidable reallocations on a whole genome,
-                    // for the same final memory.
-                    let multi = self.h2multi.entry(kmer.h).or_insert_with(|| Vec::with_capacity(2));
-                    if max_matches.is_none_or(|m| (multi.len() as i32) < m + 1) {
-                        multi.push(hit);
+    /// Fills every shard from the already-sketched segments, in parallel.
+    ///
+    /// Replaces the old per-segment, single-threaded `populate_h2pos` call in
+    /// the collector loop. Each thread owns a contiguous, disjoint range of
+    /// shards and makes exactly one pass over every segment's sketch, keeping
+    /// only the k-mers that hash into its own range. Threads therefore never
+    /// touch the same k-mer and need no synchronisation at all.
+    ///
+    /// The scan is the cost of not synchronising: every thread reads all
+    /// ~31 M hits (~500 MB) to keep its ~1/T share. That is sequential,
+    /// prefetcher-friendly streaming, whereas the inserts it distributes are
+    /// cache-missing random writes — trading the cheap one for the expensive
+    /// one is the whole point.
+    ///
+    /// Output is bit-identical to the serial build for any thread count and
+    /// any shard count: shard membership is a pure function of the hash, and
+    /// within a shard the segments are still visited in file order and their
+    /// k-mers in `tpos` order, so `max_matches` keeps the same hits.
+    fn populate_shards(&mut self, max_matches: Option<i32>, n_threads: usize) {
+        let n_threads = n_threads.clamp(1, N_SHARDS);
+        let per_thread = N_SHARDS.div_ceil(n_threads);
+        let segments = &self.segments;
+
+        std::thread::scope(|scope| {
+            for (chunk_idx, shard_chunk) in self.shards.chunks_mut(per_thread).enumerate() {
+                let lo = chunk_idx * per_thread;
+                scope.spawn(move || {
+                    let hi = lo + shard_chunk.len();
+                    for (segm_id, segm) in segments.iter().enumerate() {
+                        for (tpos, kmer) in segm.kmers.iter().enumerate() {
+                            let s = shard_of(kmer.h);
+                            if s < lo || s >= hi {
+                                continue;
+                            }
+                            Self::insert_hit(
+                                &mut shard_chunk[s - lo],
+                                kmer,
+                                tpos as RPos,
+                                segm_id as SegmId,
+                                max_matches,
+                            );
+                        }
                     }
+                });
+            }
+        });
+    }
+
+    #[inline]
+    fn insert_hit(shard: &mut Shard, kmer: &Kmer, tpos: RPos, segm_id: SegmId, max_matches: Option<i32>) {
+        let hit = Hit::new(kmer, tpos, segm_id);
+        // `entry` instead of `contains_key` + `insert`/`entry`: hashes
+        // `kmer.h` once instead of twice for the common (single-hit)
+        // case — this loop runs once per indexed k-mer (~19M for the
+        // full CHM13 genome), so the redundant hash was a real,
+        // measurable cost in `index_initializing`.
+        match shard.h2single.entry(kmer.h) {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(hit);
+            }
+            std::collections::hash_map::Entry::Occupied(_) => {
+                // `with_capacity(2)`, not `or_default()`: a k-mer that
+                // reaches `h2multi` at all ends up holding at least two
+                // hits (this one, plus the `h2single` entry that the
+                // migration pass at the end of `build_index` pushes in),
+                // and most hold exactly two. Starting empty made that
+                // near-universal case allocate at capacity 1 and then
+                // immediately reallocate to 2, once per repeated k-mer —
+                // millions of avoidable reallocations on a whole genome,
+                // for the same final memory.
+                let multi = shard.h2multi.entry(kmer.h).or_insert_with(|| Vec::with_capacity(2));
+                if max_matches.is_none_or(|m| (multi.len() as i32) < m + 1) {
+                    multi.push(hit);
                 }
+            }
+        }
+    }
+
+    /// Migrates a shard's split k-mers into `h2multi`, sorts each list, and
+    /// reclaims worthwhile slack. Independent per shard, so it parallelises.
+    fn finalize_shard(shard: &mut Shard) {
+        for (h, hits) in shard.h2multi.iter_mut() {
+            if let Some(single_hit) = shard.h2single.remove(h) {
+                hits.push(single_hit);
+            }
+            hits.sort_by(|a, b| a.segm_id.cmp(&b.segm_id).then(a.r.cmp(&b.r)));
+            // These lists are read-only for the rest of the run, so the slack
+            // left by doubling growth is dead weight held for the whole
+            // mapping phase — but reclaiming it costs a reallocation and a
+            // copy, so only do it where the slack is actually worth it. The
+            // count is dominated by two- and three-hit lists whose slack is a
+            // single `Hit`; shrinking those was ~5.8M reallocations for ~100 MB
+            // on a k=25 whole-genome index, and measured as a net loss. The
+            // bytes are dominated by the rare very-high-frequency k-mers,
+            // whose lists are big enough that this test passes easily.
+            let slack = hits.capacity() - hits.len();
+            if slack > hits.len() / 8 + 8 {
+                hits.shrink_to_fit();
             }
         }
     }
@@ -168,48 +320,59 @@ impl SketchIndex {
         segm_sz: RPos,
         sketch: SketchT,
         max_matches: Option<i32>,
+        interleave: bool,
         counters: &mut Counters,
     ) {
         let segm_id = self.segments.len() as SegmId;
         counters.inc1("segments");
         counters.inc("total_nucls", segm_sz as i64);
-        // Populate from `sketch` (a local, not-yet-stored value) before
-        // moving it into `self.segments`, so this doesn't need to borrow
-        // `self.segments` immutably while `populate_h2pos` borrows `self`
-        // mutably.
-        self.populate_h2pos(&sketch, segm_id, max_matches);
+        // With `-@ 1` there is nothing to parallelise, and deferring would
+        // *lose* the overlap this collector already gets: it inserts while the
+        // reader and the sketching worker run alongside it. So fill the shards
+        // inline here and skip `populate_shards` entirely. Above one thread the
+        // deferred parallel fill wins by far more than the overlap is worth.
+        if interleave {
+            for (tpos, kmer) in sketch.iter().enumerate() {
+                let shard = &mut self.shards[shard_of(kmer.h)];
+                Self::insert_hit(shard, kmer, tpos as RPos, segm_id, max_matches);
+            }
+        }
         self.segments
             .push(RefSegment::new(sketch, segm_name, segm_sz, segm_id));
     }
 
     fn get_kmer_stats(&self, counters: &mut Counters) {
         let mut max_occ: RPos = 0;
-        counters.inc("indexed_hits", self.h2single.len() as i64);
-        counters.inc("indexed_kmers", self.h2single.len() as i64);
-        for hits in self.h2multi.values() {
-            let occ = hits.len() as RPos;
-            counters.inc("indexed_hits", occ as i64);
-            counters.inc1("indexed_kmers");
-            if occ > max_occ {
-                max_occ = occ;
+        for shard in &self.shards {
+            counters.inc("indexed_hits", shard.h2single.len() as i64);
+            counters.inc("indexed_kmers", shard.h2single.len() as i64);
+            for hits in shard.h2multi.values() {
+                let occ = hits.len() as RPos;
+                counters.inc("indexed_hits", occ as i64);
+                counters.inc1("indexed_kmers");
+                if occ > max_occ {
+                    max_occ = occ;
+                }
             }
         }
         counters.inc("indexed_highest_freq_kmer", max_occ as i64);
     }
 
     fn erase_frequent_kmers(&mut self, max_matches: i32, counters: &mut Counters) {
-        let blacklisted: Vec<Hash> = self
-            .h2multi
-            .iter()
-            .filter(|(_, hits)| hits.len() as i32 > max_matches)
-            .map(|(h, hits)| {
-                counters.inc1("blacklisted_kmers");
-                counters.inc("blacklisted_hits", hits.len() as i64);
-                *h
-            })
-            .collect();
-        for h in blacklisted {
-            self.h2multi.remove(&h);
+        for shard in &mut self.shards {
+            let blacklisted: Vec<Hash> = shard
+                .h2multi
+                .iter()
+                .filter(|(_, hits)| hits.len() as i32 > max_matches)
+                .map(|(h, hits)| {
+                    counters.inc1("blacklisted_kmers");
+                    counters.inc("blacklisted_hits", hits.len() as i64);
+                    *h
+                })
+                .collect();
+            for h in blacklisted {
+                shard.h2multi.remove(&h);
+            }
         }
     }
 
@@ -429,9 +592,9 @@ impl SketchIndex {
                     counters.inc("original_kmers", sketch.len() as i64);
                     counters.inc("sketched_kmers", sketch.len() as i64);
 
-                    timers.start("index_initializing");
-                    self.add_segment(asm.meta.name.to_string(), seq_len, sketch, max_matches, counters);
-                    timers.stop("index_initializing");
+                    timers.start("index_collecting");
+                    self.add_segment(asm.meta.name.to_string(), seq_len, sketch, max_matches, n_threads == 1, counters);
+                    timers.stop("index_collecting");
                     progress_bar.update(asm.meta.progress as f64);
                     next_idx += 1;
                 }
@@ -443,29 +606,27 @@ impl SketchIndex {
         })?;
         eprintln!();
 
+        // The formerly-serial half of indexing: fill every shard from the
+        // stored sketches on all `-@` threads at once. Skipped at `-@ 1`,
+        // where `add_segment` already did it inline — see the note there.
+        timers.start("index_initializing");
+        if n_threads > 1 {
+            self.populate_shards(max_matches, n_threads);
+        }
+        timers.stop("index_initializing");
+
         // Migrate any k-mer that ended up in both `h2single` and `h2multi`
         // (its second occurrence was discovered after the first was
         // already placed in `h2single`) fully into `h2multi`, then sort
         // each multi-hit list by `(segm_id, r)` to allow binary search.
-        for (h, hits) in self.h2multi.iter_mut() {
-            if let Some(single_hit) = self.h2single.remove(h) {
-                hits.push(single_hit);
+        // Shards are independent, so this runs on all threads too.
+        timers.start("index_finalizing");
+        std::thread::scope(|scope| {
+            for shard in self.shards.iter_mut() {
+                scope.spawn(move || Self::finalize_shard(shard));
             }
-            hits.sort_by(|a, b| a.segm_id.cmp(&b.segm_id).then(a.r.cmp(&b.r)));
-            // These lists are read-only for the rest of the run, so the slack
-            // left by doubling growth is dead weight held for the whole
-            // mapping phase — but reclaiming it costs a reallocation and a
-            // copy, so only do it where the slack is actually worth it. The
-            // count is dominated by two- and three-hit lists whose slack is a
-            // single `Hit`; shrinking those was ~5.8M reallocations for ~100 MB
-            // on a k=25 whole-genome index, and measured as a net loss. The
-            // bytes are dominated by the rare very-high-frequency k-mers,
-            // whose lists are big enough that this test passes easily.
-            let slack = hits.capacity() - hits.len();
-            if slack > hits.len() / 8 + 8 {
-                hits.shrink_to_fit();
-            }
-        }
+        });
+        timers.stop("index_finalizing");
         timers.stop("indexing");
 
         self.get_kmer_stats(counters);
@@ -663,8 +824,11 @@ mod tests {
             tidx8.segments.iter().map(|s| (s.name.clone(), s.sz)).collect::<Vec<_>>(),
             "segm_id assignment (file order) diverged between thread counts"
         );
-        assert_eq!(tidx1.h2single, tidx8.h2single, "h2single diverged between thread counts");
-        assert_eq!(tidx1.h2multi, tidx8.h2multi, "h2multi diverged between thread counts");
+        assert_eq!(tidx1.shards.len(), tidx8.shards.len());
+        for (i, (a, b)) in tidx1.shards.iter().zip(tidx8.shards.iter()).enumerate() {
+            assert_eq!(a.h2single, b.h2single, "shard {i} h2single diverged between thread counts");
+            assert_eq!(a.h2multi, b.h2multi, "shard {i} h2multi diverged between thread counts");
+        }
         assert_eq!(counters1.count("indexed_hits"), counters8.count("indexed_hits"));
         assert_eq!(counters1.count("indexed_kmers"), counters8.count("indexed_kmers"));
         assert_eq!(counters1.count("blacklisted_kmers"), counters8.count("blacklisted_kmers"));
