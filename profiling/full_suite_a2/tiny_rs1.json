@@ -1,0 +1,69 @@
+{
+  "shmap_version": "1.1.0",
+  "started_at_unix": 1785312676,
+  "wall_seconds": 0.400892,
+  "meta": {
+    "k": "25",
+    "h_frac": "0.01",
+    "theta": "0.4",
+    "threads_requested": "1",
+    "available_parallelism": "64",
+    "t_file": "/home/mpiuser/minshmap_bench/data/ref.fa",
+    "p_file": "/home/mpiuser/minshmap_bench/data/reads.fa",
+    "os": "linux"
+  },
+  "global": {
+    "timers_secs": {"bucket_merge":0.002267,"collect_kmer_info":0.002148,"fasta_extract":0.009754,"fasta_parse_next":0.002993,"group_kmers":0.001183,"index_initializing":0.000120,"index_reading":0.000375,"index_sketching":0.000752,"indexing":0.001477,"mapping":0.214205,"match_collect":0.000000,"match_rest":0.013819,"match_rest_for_best":0.008017,"match_rest_for_best2":0.002743,"match_seeds":0.003102,"output":0.020188,"prepare":0.021312,"query_mapping":0.063841,"query_reading":0.014782,"refine":0.007022,"seed_heuristic":0.000000,"seeding":0.007140,"sketching":0.019459,"sort_kmers":0.001218,"total":0.400621},
+    "counters": {"J_best":18168241,"blacklisted_hits":0,"blacklisted_kmers":0,"final_buckets":7553,"indexed_highest_freq_kmer":0,"indexed_hits":1025,"indexed_kmers":1025,"intersection_diff":0,"kmers":22225,"kmers_notmatched":14940,"kmers_seeds":20069,"kmers_sketched":22225,"kmers_unique":22225,"lost_on_pruning":8000,"lost_on_seeding":0,"mapped_reads":2709,"mappings":2709,"mapq0":707,"mapq60":1992,"matches":0,"matches_freq":0,"matches_in_reported_mappings":4851,"max_seed_matches":3736,"original_kmers":23250,"possible_matches":7285,"read_len":2399780,"reads":8000,"refine_memo_hits":4876,"refined_buckets":5262,"seed_matches":5178,"seeded_buckets":8114,"seeds":0,"seeds_limit_reached":0,"segments":2,"sketched_kmers":23250,"sketched_len":2499780,"sketched_seqs":8002,"spurious_matches":0,"total_edit_distance":0,"total_matches":5178,"total_nucls":100000}
+  },
+  "threads": [
+    {
+      "label": "index-worker-0",
+      "role": "index_sketch",
+      "jobs": 2,
+      "timers_secs": {"index_sketching":0.000752},
+      "counters": {"sketched_len":100000}
+    },
+    {
+      "label": "indexer",
+      "role": "index",
+      "jobs": 2,
+      "timers_secs": {"fasta_extract":0.000119,"fasta_parse_next":0.000150,"index_initializing":0.000120,"index_reading":0.000375,"index_sketching":0.000752,"indexing":0.001477,"total":0.001929},
+      "counters": {"blacklisted_hits":0,"blacklisted_kmers":0,"indexed_highest_freq_kmer":0,"indexed_hits":1025,"indexed_kmers":1025,"original_kmers":1025,"segments":2,"sketched_kmers":1025,"sketched_len":100000,"sketched_seqs":2,"total_nucls":100000}
+    },
+    {
+      "label": "reader",
+      "role": "io",
+      "jobs": 8000,
+      "timers_secs": {"fasta_extract":0.009635,"fasta_parse_next":0.002843,"query_reading":0.014782},
+      "counters": {}
+    },
+    {
+      "label": "worker-0",
+      "role": "map",
+      "jobs": 8000,
+      "timers_secs": {"bucket_merge":0.002267,"collect_kmer_info":0.002148,"group_kmers":0.001183,"match_collect":0.000000,"match_rest":0.013819,"match_rest_for_best":0.008017,"match_rest_for_best2":0.002743,"match_seeds":0.003102,"output":0.020188,"prepare":0.021312,"query_mapping":0.063841,"refine":0.007022,"seed_heuristic":0.000000,"seeding":0.007140,"sketching":0.019459,"sort_kmers":0.001218,"worker_setup":0.000003},
+      "counters": {"J_best":18168241,"final_buckets":7553,"intersection_diff":0,"kmers":22225,"kmers_notmatched":14940,"kmers_seeds":20069,"kmers_sketched":22225,"kmers_unique":22225,"lost_on_pruning":8000,"lost_on_seeding":0,"mapped_reads":2709,"mappings":2709,"mapq0":707,"mapq60":1992,"matches":0,"matches_freq":0,"matches_in_reported_mappings":4851,"max_seed_matches":3736,"original_kmers":22225,"possible_matches":7285,"read_len":2399780,"refine_memo_hits":4876,"refined_buckets":5262,"seed_matches":5178,"seeded_buckets":8114,"seeds":0,"seeds_limit_reached":0,"sketched_kmers":22225,"sketched_len":2399780,"sketched_seqs":8000,"spurious_matches":0,"total_edit_distance":0,"total_matches":5178}
+    },
+    {
+      "label": "collector",
+      "role": "output",
+      "jobs": 8000,
+      "timers_secs": {"collector_busy":0.052212},
+      "counters": {"max_pending_reorder_buffer":1}
+    }
+  ],
+  "memory": {
+    "peak_rss_kb": 4272,
+    "samples": [
+      {"at_secs": 0.000, "label": "start", "rss_kb": 2956, "vmhwm_kb": 2956},
+      {"at_secs": 0.001, "label": "before_index", "rss_kb": 3288, "vmhwm_kb": 3288},
+      {"at_secs": 0.002, "label": "after_index", "rss_kb": 4000, "vmhwm_kb": 4000},
+      {"at_secs": 0.002, "label": "mapping_start", "rss_kb": 4000, "vmhwm_kb": 4000},
+      {"at_secs": 0.201, "rss_kb": 4272, "vmhwm_kb": 4272},
+      {"at_secs": 0.217, "label": "mapping_end", "rss_kb": 4240, "vmhwm_kb": 4240},
+      {"at_secs": 0.217, "label": "after_mapping", "rss_kb": 4240, "vmhwm_kb": 4240},
+      {"at_secs": 0.401, "label": "end", "rss_kb": 4240, "vmhwm_kb": 4240}
+    ]
+  }
+}
