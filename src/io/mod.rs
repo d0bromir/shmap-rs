@@ -3,10 +3,16 @@
 //! Port of the `read_fasta_klib` half of `shmap/src/io.h`, using `needletail`
 //! instead of `klib`/`kseq.h`.
 
+use std::path::Path;
+
 use anyhow::{Context, Result};
 use needletail::parse_fastx_file;
 
 use crate::utils::Timers;
+
+pub mod semantics;
+
+use semantics::Semantics;
 
 /// Byte range handed to one reader worker.
 const RANGE_BYTES: u64 = 16 << 20;
@@ -60,48 +66,6 @@ struct SegPlan {
     end_byte: u64,
 }
 
-/// True if the file starts with a magic number this reader can't split.
-fn is_compressed(file: &std::fs::File) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::FileExt;
-        let mut magic = [0u8; 4];
-        if file.read_at(&mut magic, 0).is_err() {
-            // Too short to hold a magic number, or unreadable: let the serial
-            // reader produce the real error.
-            true
-        } else {
-            magic[..2] == [0x1f, 0x8b]                        // gzip
-                || magic[..3] == *b"BZh"                      // bzip2
-                || magic == [0xfd, b'7', b'z', b'X']          // xz
-                || magic == [0x28, 0xb5, 0x2f, 0xfd] // zstd
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = file;
-        true
-    }
-}
-
-#[cfg(unix)]
-fn read_exact_at(file: &std::fs::File, buf: &mut [u8], mut off: u64) -> std::io::Result<()> {
-    use std::os::unix::fs::FileExt;
-    let mut done = 0;
-    while done < buf.len() {
-        match file.read_at(&mut buf[done..], off) {
-            Ok(0) => return Err(std::io::ErrorKind::UnexpectedEof.into()),
-            Ok(n) => {
-                done += n;
-                off += n as u64;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(())
-}
-
 /// Walks the lines that *start* inside `[start, end)`, in order.
 ///
 /// A line belongs to the range containing its first byte, which is what makes
@@ -123,7 +87,7 @@ fn walk_range(
     let from = start.saturating_sub(1);
     let mut len = (end + LINE_OVERSHOOT).min(file_len) - from;
     let mut buf = vec![0u8; len as usize];
-    read_exact_at(file, &mut buf, from)?;
+    file.read_exact_at(&mut buf, from)?;
 
     // Grow until the last line owned by this range is terminated (or EOF).
     let tail_from = (end - from) as usize;
@@ -134,7 +98,7 @@ fn walk_range(
         }
         let old = len as usize;
         buf.resize(grown as usize, 0);
-        read_exact_at(file, &mut buf[old..], from + old as u64)?;
+        file.read_exact_at(&mut buf[old..], from + old as u64)?;
         len = grown;
     }
 
@@ -259,7 +223,7 @@ fn read_fasta_ranged(
     {
         let file = std::fs::File::open(path).with_context(|| format!("failed to open {path}"))?;
         let file_len = file.metadata().with_context(|| format!("failed to stat {path}"))?.len();
-        if n_threads <= 1 || file_len < min_parallel_bytes || is_compressed(&file) {
+        if n_threads <= 1 || file_len < min_parallel_bytes || file.is_compressed() {
             return read_fasta(path, timers, callback);
         }
 
@@ -416,9 +380,12 @@ fn read_fasta_ranged(
 /// I/O plus line/sequence assembly) and `fasta_extract` (this function's own
 /// name-splitting and sequence hand-off). Added to answer "is reading
 /// parsing-bound or I/O-bound" from `PROFILING.md` rather than guess.
-pub fn read_fasta(path: &str, timers: &mut Timers, mut callback: impl FnMut(&str, Vec<u8>, f32)) -> Result<()> {
-    let total_bytes = std::fs::metadata(path)
-        .with_context(|| format!("failed to stat {path}"))?
+pub fn read_fasta<P>(path: P, timers: &mut Timers, mut callback: impl FnMut(&str, Vec<u8>, f32)) -> Result<()>
+where
+    P: AsRef<Path> + std::fmt::Debug,
+{
+    let total_bytes = std::fs::metadata(&path)
+        .with_context(|| format!("failed to stat {path:?}"))?
         .len()
         .max(1);
 
@@ -427,17 +394,16 @@ pub fn read_fasta(path: &str, timers: &mut Timers, mut callback: impl FnMut(&str
     // header is not valid UTF-8.
     let mut name = String::new();
 
-    let mut reader = parse_fastx_file(path).with_context(|| format!("failed to open {path}"))?;
-    loop {
+    let mut reader = parse_fastx_file(&path).with_context(|| format!("failed to open {path:?}"))?;
+
+    while let Some(record) = {
         timers.start("fasta_parse_next");
         let next = reader.next();
         timers.stop("fasta_parse_next");
-        let Some(record) = next else {
-            break;
-        };
-
+        next
+    } {
         timers.start("fasta_extract");
-        let record = record.with_context(|| format!("invalid FASTA record in {path}"))?;
+        let record = record.with_context(|| format!("invalid FASTA record in {path:?}"))?;
         let full_id = record.id();
         let name_bytes = full_id.split(|&b| b == b' ' || b == b'\t').next().unwrap_or(full_id);
         name.clear();

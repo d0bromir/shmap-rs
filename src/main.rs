@@ -2,12 +2,16 @@
 
 use anyhow::Context;
 use clap::Parser;
+use mimalloc::MiMalloc;
 
 use shmap::handler::Handler;
 use shmap::index::SketchIndex;
 use shmap::mapper::create_mapper;
 use shmap::params::Params;
 use shmap::profiling::Profiler;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() -> anyhow::Result<()> {
     let params = Params::parse();
@@ -31,7 +35,9 @@ fn main() -> anyhow::Result<()> {
     profiler.meta("threads_requested", params.threads);
     profiler.meta(
         "available_parallelism",
-        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(0),
     );
     profiler.meta("t_file", &t_file);
     profiler.meta("p_file", &p_file);
