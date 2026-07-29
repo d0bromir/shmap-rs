@@ -9,7 +9,104 @@ use super::SHMapper;
 use crate::buckets::Buckets;
 use crate::mapping::Mapping;
 use crate::sketch::RefSegment;
-use crate::types::{codirection_kmer_kmer, BucketContent, BucketLoc, H2Cnt, H2Seed, Kmer, Metric, QPos, RPos, Seeds};
+use crate::types::{codirection_kmer_kmer, BucketContent, BucketLoc, H2Seed, Kmer, Metric, QPos, RPos, Seeds};
+
+/// Per-read memo of [`SHMapper::find_best_mapping`] results across the two
+/// [`SHMapper::match_rest`] passes a read makes (best, then second-best).
+///
+/// Both passes sweep the *same* `sorted_buckets` slice in the same order,
+/// and on the `Containment`/`Jaccard` path `find_best_mapping` reduces to
+/// `best_fixed_length(segm, buckets.begin(b), buckets.end(b), p_ht,
+/// diff_hist, p_sz - k, lmax, metric)` — every argument of which is either a
+/// per-read constant or a pure function of `b`. In particular it does not
+/// read `content` (which the pruning pass mutates between the two calls),
+/// and it leaves `diff_hist` exactly as it found it: the `l` loop undoes
+/// every decrement the `r` loop made, which is what that function's closing
+/// `debug_assert_eq!(intersection, 0)` pins. So the second pass recomputes
+/// bit-identical results for every bucket the first pass already scored, and
+/// memoizing them is output-preserving rather than an approximation. Only
+/// `sh` differs between the passes, and that is stamped on after the fact.
+///
+/// The two passes' refined sets overlap but neither contains the other: pass
+/// 1's `thr` ratchets upward as `best` improves, so a bucket pruned late in
+/// pass 1 can still clear pass 2's flat `best * (1 - min_diff)`. Misses are
+/// therefore normal and are simply recomputed.
+///
+/// Entries are pushed in `sorted_buckets` order, so replay is a monotone
+/// cursor rather than a lookup structure — no hashing, and the whole thing
+/// is one reusable `Vec`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Mode {
+    /// Neither recording nor replaying — every bucket is scored from
+    /// scratch, exactly as before the memo existed. This is what
+    /// `SHMAP_NO_REFINE_MEMO` selects, so one binary can A/B the memo with
+    /// nothing else differing.
+    #[default]
+    Off,
+    Record,
+    Replay,
+}
+
+#[derive(Default)]
+pub struct RefineCache {
+    entries: Vec<(u32, Mapping)>,
+    cursor: usize,
+    mode: Mode,
+}
+
+impl RefineCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether the memo is compiled-in *and* enabled for this run. Read
+    /// once per process, not per read.
+    pub fn enabled() -> bool {
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ENABLED.get_or_init(|| std::env::var_os("SHMAP_NO_REFINE_MEMO").is_none())
+    }
+
+    /// Begins the first pass: forget the previous read and record results.
+    pub fn start_recording(&mut self) {
+        self.entries.clear();
+        self.cursor = 0;
+        self.mode = Mode::Record;
+    }
+
+    /// Begins the second pass: replay what the first pass recorded, and
+    /// stop recording (there is no third pass to serve).
+    pub fn start_replay(&mut self) {
+        self.cursor = 0;
+        self.mode = Mode::Replay;
+    }
+
+    /// Index of the memoized result for `sorted_buckets[idx]`, if the
+    /// recording pass scored that bucket.
+    fn lookup(&mut self, idx: u32) -> Option<usize> {
+        if self.mode != Mode::Replay {
+            return None;
+        }
+        // `idx` increases across the sweep and `entries` is in the same
+        // order, so this advance is amortized O(1).
+        while self.cursor < self.entries.len() && self.entries[self.cursor].0 < idx {
+            self.cursor += 1;
+        }
+        match self.entries.get(self.cursor) {
+            Some(&(at, _)) if at == idx => Some(self.cursor),
+            _ => None,
+        }
+    }
+
+    fn get(&self, i: usize) -> &Mapping {
+        &self.entries[i].1
+    }
+
+    fn record(&mut self, idx: u32, mapping: &Mapping) {
+        if self.mode == Mode::Record {
+            self.entries.push((idx, mapping.clone()));
+        }
+    }
+}
 
 impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, OS, AP> {
     /// All query positions (in `p`) whose k-mer hash also appears in
@@ -22,7 +119,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         let mut l = begin;
         while l < end {
             if let Some(seed) = p_ht.get(&t[l as usize].h) {
-                for &ppos in &seed.pmatches {
+                for &ppos in seed.pmatches.iter() {
                     ppos_in_t.push(ppos);
                 }
             }
@@ -89,7 +186,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         from: RPos,
         to: RPos,
         p_ht: &H2Seed,
-        diff_hist: &mut H2Cnt,
+        diff_hist: &mut [QPos],
         p_sz: QPos,
         m: QPos,
         metric: Metric,
@@ -105,18 +202,21 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         let mut best = Mapping::default();
 
         while l < end {
+            let tl = t[l as usize];
             while r < end {
-                let in_window = if AP {
-                    t[r as usize].r < t[l as usize].r + m
-                } else {
-                    r < l + m
-                };
+                let tr = t[r as usize];
+                let in_window = if AP { tr.r < tl.r + m } else { r < l + m };
                 if !in_window {
                     break;
                 }
-                if let Some(seed) = p_ht.get(&t[r as usize].h) {
-                    same_strand_seeds += codirection_kmer_kmer(&seed.kmer, &t[r as usize]);
-                    let cnt = diff_hist.entry(t[r as usize].h).or_insert(0);
+                if let Some(seed) = p_ht.get(&tr.h) {
+                    same_strand_seeds += codirection_kmer_kmer(&seed.kmer, &tr);
+                    // Indexed by the seed's dense `seed_num`, not hashed again:
+                    // this loop sweeps every reference k-mer of every candidate
+                    // bucket, and hashing the same key twice (once for `p_ht`,
+                    // once for the counter) was the hottest operation in
+                    // `refine`.
+                    let cnt = &mut diff_hist[seed.seed_num as usize];
                     *cnt -= 1;
                     if *cnt >= 0 {
                         intersection += 1;
@@ -143,9 +243,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 );
             }
 
-            if let Some(seed) = p_ht.get(&t[l as usize].h) {
-                same_strand_seeds -= codirection_kmer_kmer(&seed.kmer, &t[l as usize]);
-                let cnt = diff_hist.entry(t[l as usize].h).or_insert(0);
+            if let Some(seed) = p_ht.get(&tl.h) {
+                same_strand_seeds -= codirection_kmer_kmer(&seed.kmer, &tl);
+                let cnt = &mut diff_hist[seed.seed_num as usize];
                 *cnt += 1;
                 if *cnt >= 1 {
                     intersection -= 1;
@@ -169,7 +269,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         b: BucketLoc,
         content: &BucketContent,
         p_ht: &H2Seed,
-        diff_hist: &mut H2Cnt,
+        diff_hist: &mut [QPos],
         p_sz: QPos,
         m: QPos,
         lmax: QPos,
@@ -242,7 +342,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         p_unique: &Seeds,
         buckets: &Buckets<'idx, AP>,
         sorted_buckets: &mut [(BucketLoc, BucketContent)],
-        diff_hist: &mut H2Cnt,
+        diff_hist: &mut [QPos],
         p_ht: &H2Seed,
         mut thr: f64,
         forbidden: Option<&Mapping>,
@@ -250,6 +350,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         max_overlap: f64,
         metric: Metric,
         k: QPos,
+        cache: &mut RefineCache,
     ) -> Option<Mapping> {
         // Both inert upstream: `lost_on_seeding` is a hardcoded 0 (`int
         // lost_on_seeding = (0);`), and `lost_on_pruning` (threaded through
@@ -263,16 +364,50 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 
         let mut best: Option<Mapping> = None;
 
-        for (b, content) in sorted_buckets.iter_mut() {
+        // `find_best_mapping` is only a pure function of the bucket location
+        // on the fixed-length metrics; `BucketSh`/`BucketLcs` both build
+        // their result out of `content`, which the pruning pass mutates
+        // between the two sweeps, so they must not be memoized.
+        let memoizable = matches!(metric, Metric::Containment | Metric::Jaccard);
+
+        for (idx, (b, content)) in sorted_buckets.iter_mut().enumerate() {
             let b: BucketLoc = *b;
             let mut sh = 1.0;
             if self.seed_heuristic_pass(buckets, p_unique, m, &b, content, &mut sh, thr) {
                 self.timers.start("refine");
 
-                let best_in_bucket =
-                    self.find_best_mapping(buckets, b, content, p_ht, diff_hist, p_sz, m, lmax, sh, metric, k);
+                let memo = if memoizable { cache.lookup(idx as u32) } else { None };
+                let best_in_bucket = match memo {
+                    Some(i) => {
+                        self.counters.inc1("refine_memo_hits");
+                        // Cloning a `Mapping` allocates (it owns its segment
+                        // name), and the large majority of scored buckets
+                        // lose to `thr` — so check the memoized score first
+                        // and only materialize a winner.
+                        if cache.get(i).score() > thr {
+                            let mut winner = cache.get(i).clone();
+                            winner.set_sh(sh);
+                            Some(winner)
+                        } else {
+                            None
+                        }
+                    }
+                    None => {
+                        self.counters.inc1("refined_buckets");
+                        let scored =
+                            self.find_best_mapping(buckets, b, content, p_ht, diff_hist, p_sz, m, lmax, sh, metric, k);
+                        if memoizable {
+                            cache.record(idx as u32, &scored);
+                        }
+                        if scored.score() > thr {
+                            Some(scored)
+                        } else {
+                            None
+                        }
+                    }
+                };
 
-                if best_in_bucket.score() > thr {
+                if let Some(best_in_bucket) = best_in_bucket {
                     if verbose >= 2 {
                         eprintln!("Final bucket: {b} sh: {sh:.3} score: {:.3}", best_in_bucket.score());
                     }
@@ -316,9 +451,9 @@ mod tests {
         let bucket = BucketLoc::new(0, 1);
 
         let mut p_ht: H2Seed = H2Seed::default();
-        p_ht.insert(0x111111, Seed::new(Kmer::new(1, 0x111111, false), 99, 3, 0, vec![5, 1]));
-        p_ht.insert(0x222222, Seed::new(Kmer::new(2, 0x222222, false), 999, 2, 1, vec![4, 2]));
-        p_ht.insert(0x444444, Seed::new(Kmer::new(3, 0x444444, false), 9, 1, 2, vec![3]));
+        p_ht.insert(0x111111, Seed::new(Kmer::new(1, 0x111111, false), 99, 3, 0, vec![5, 1].into()));
+        p_ht.insert(0x222222, Seed::new(Kmer::new(2, 0x222222, false), 999, 2, 1, vec![4, 2].into()));
+        p_ht.insert(0x444444, Seed::new(Kmer::new(3, 0x444444, false), 9, 1, 2, vec![3].into()));
 
         let mapper: SHMapper<false, false, false> = SHMapper::new(&tidx);
         let lcs_cnt = mapper.lcs(&t, &buckets, &bucket, &p_ht);

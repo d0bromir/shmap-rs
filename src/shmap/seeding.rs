@@ -2,7 +2,7 @@
 
 use super::SHMapper;
 use crate::buckets::Buckets;
-use crate::types::{BucketContent, BucketLoc, Kmer, QPos, RPos, Seed, Seeds, SegmId};
+use crate::types::{BucketContent, BucketLoc, Kmer, PMatches, QPos, RPos, Seed, Seeds, SegmId};
 
 /// Emits one finished bucket accumulator from [`SHMapper::match_seeds`]'s
 /// streaming multi-hit path, clamping its match count to how many times the
@@ -35,32 +35,34 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.timers.stop("group_kmers");
 
         self.timers.start("collect_kmer_info");
-        let mut p_unique: Seeds = Vec::new();
-        let mut strike: QPos = 0;
+        // Upper bound: one seed per k-mer, when every hash is distinct.
+        let mut p_unique: Seeds = Vec::with_capacity(p.len());
         let mut nonzero: RPos = 0;
-        let mut matches: Vec<QPos> = Vec::new();
+        // `p` is sorted by hash, so each distinct hash is one contiguous run.
+        // Taking the run as a slice means the single-occurrence case (~96% of
+        // k-mers on real reads) stores its position inline instead of heap-
+        // allocating a one-element `Vec` per seed.
+        let mut group_start = 0usize;
         for ppos in 0..p.len() {
-            strike += 1;
-            matches.push(p[ppos].r);
-            if ppos == p.len() - 1 || p[ppos].h != p[ppos + 1].h {
+            if ppos + 1 == p.len() || p[ppos].h != p[ppos + 1].h {
+                let group = &p[group_start..=ppos];
+                let strike = group.len() as QPos;
+                let pmatches = match group {
+                    [only] => PMatches::One(only.r),
+                    _ => PMatches::Many(group.iter().map(|k| k.r).collect()),
+                };
                 let hits_in_t = self.tidx.count(p[ppos].h);
                 let seed_num = p_unique.len() as QPos;
-                p_unique.push(Seed::new(p[ppos], hits_in_t, strike, seed_num, matches.clone()));
+                p_unique.push(Seed::new(p[ppos], hits_in_t, strike, seed_num, pmatches));
                 // Fixed vs. upstream: the C++ resets `strike` to 0 *before*
-                // this check (`strike = 0;` appears above the
-                // `if (hits_in_t > 0) nonzero += strike;` line there), so
-                // `nonzero` there always adds 0 regardless of match count,
-                // and `kmers_notmatched` always reports the *entire*
-                // sketch size. Cosmetic/diagnostic-only (never read by the
-                // mapping algorithm or written into a PAF tag) — fixed per
-                // this port's general fix-real-bugs decision, not asked
-                // about separately since it's strictly lower-stakes than
-                // the counter-reset bug that decision was made for.
+                // this check, so its `nonzero` always adds 0 and
+                // `kmers_notmatched` always reports the entire sketch size.
+                // Cosmetic/diagnostic-only; fixed per this port's
+                // fix-real-bugs decision.
                 if hits_in_t > 0 {
                     nonzero += strike;
                 }
-                strike = 0;
-                matches.clear();
+                group_start = ppos + 1;
             }
         }
         self.timers.stop("collect_kmer_info");
@@ -245,7 +247,7 @@ mod tests {
             [vec![60, 30, 10], vec![70, 20], vec![40], vec![50]].into_iter().collect();
 
         let seeds = mapper.unique_elements_with_info(&mut p);
-        let pmatches_res: HashSet<Vec<QPos>> = seeds.iter().map(|s| s.pmatches.clone()).collect();
+        let pmatches_res: HashSet<Vec<QPos>> = seeds.iter().map(|s| s.pmatches.to_vec()).collect();
 
         assert_eq!(pmatches_res.len(), pmatches_gt.len());
         assert_eq!(pmatches_res, pmatches_gt);

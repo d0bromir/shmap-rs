@@ -122,6 +122,12 @@ const PER_READ_COUNTERS: &[&str] = &[
     "kmers_unique",
     "kmers_seeds",
     "seeded_buckets",
+    // Buckets that survived pruning and were actually scored, split by
+    // whether the second `match_rest` sweep could reuse the first's result.
+    // `final_buckets` only counts buckets that went on to *beat* the
+    // threshold, so on its own it says nothing about what refining costs.
+    "refined_buckets",
+    "refine_memo_hits",
 ];
 
 /// Everything a single `map_read` call would otherwise have written
@@ -527,11 +533,14 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.timers.stop("seeding");
 
         let mut p_ht: H2Seed = H2Seed::default();
-        let mut diff_hist: H2Cnt = H2Cnt::default();
+        // Indexed by `Seed::seed_num` (dense 0..n), not keyed by hash: the
+        // scoring sweep already has the seed in hand, so a flat index avoids
+        // hashing the same k-mer a second time. See `best_fixed_length`.
+        let mut diff_hist: Vec<QPos> = vec![0; p_unique.len()];
         let mut possible_matches: i32 = 0;
         for seed in &p_unique {
             p_ht.insert(seed.kmer.h, seed.clone());
-            diff_hist.insert(seed.kmer.h, seed.occs_in_p);
+            diff_hist[seed.seed_num as usize] = seed.occs_in_p;
             possible_matches += seed.hits_in_t;
         }
         self.counters.inc("possible_matches", possible_matches as i64);
@@ -586,6 +595,11 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 
         self.timers.start("match_rest");
         self.timers.start("match_rest_for_best");
+        let memo_refine = scoring::RefineCache::enabled();
+        let mut refine_cache = scoring::RefineCache::new();
+        if memo_refine {
+            refine_cache.start_recording();
+        }
         let best = self.match_rest(
             p_seq.len() as QPos,
             m,
@@ -601,11 +615,15 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             params.max_overlap,
             params.metric,
             params.k,
+            &mut refine_cache,
         );
         self.timers.stop("match_rest_for_best");
         self.timers.start("match_rest_for_best2");
         let best2 = if let Some(best) = &best {
             let second_best_thr = best.score() * (1.0 - params.min_diff);
+            if memo_refine {
+                refine_cache.start_replay();
+            }
             self.match_rest(
                 p_seq.len() as QPos,
                 m,
@@ -621,6 +639,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 params.max_overlap,
                 params.metric,
                 params.k,
+                &mut refine_cache,
             )
         } else {
             None
@@ -678,7 +697,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         query_id,
                         p_seq,
                         p_seq.len() as QPos,
-                        diff_hist.clone(),
+                        p_unique.iter().map(|s| (s.kmer.h, s.occs_in_p)).collect::<H2Cnt>(),
                         m,
                         &p_ht,
                         self.tidx,
@@ -717,7 +736,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         query_id,
                         p_seq,
                         p_seq.len() as QPos,
-                        diff_hist.clone(),
+                        p_unique.iter().map(|s| (s.kmer.h, s.occs_in_p)).collect::<H2Cnt>(),
                         m,
                         &p_ht,
                         self.tidx,
