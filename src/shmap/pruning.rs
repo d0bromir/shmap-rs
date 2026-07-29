@@ -21,11 +21,27 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             // nothing to add
         } else if s.hits_in_t == 1 {
             let hit = self.tidx.single_hit(s.kmer.h);
-            let in_range = if AP {
-                buckets.begin(b) <= hit.r && hit.r < buckets.end(b)
-            } else {
-                buckets.begin(b) <= hit.tpos && hit.tpos < buckets.end(b)
-            };
+            // Fixed vs. upstream: the C++'s single-hit branch tests only the
+            // position, never `segm_id` — while its multi-hit branch checks
+            // `segm_id` in both the `lower_bound` and the loop. A k-mer whose
+            // one genome-wide hit lies in a *different* segment, at a `tpos`
+            // (or `r`) that happens to fall in this bucket's span, was
+            // therefore counted into the bucket: its `matches` inflated `sh`
+            // and so weakened pruning, and its `r` — a coordinate in the wrong
+            // segment — merged into `r_min`/`r_max`. That is invisible under
+            // `Containment`/`Jaccard`, which recompute coordinates in
+            // `best_fixed_length` and discard `r_min`/`r_max`, but `bucket_SH`
+            // reports them directly and emitted positions past the end of the
+            // segment (measured: an end 1.28 Mb beyond chr6 on real HG002
+            // HiFi). Found by validating output invariants rather than by
+            // diffing against a previous build, which cannot catch a defect
+            // both builds share.
+            let in_range = hit.segm_id == b.segm_id
+                && if AP {
+                    buckets.begin(b) <= hit.r && hit.r < buckets.end(b)
+                } else {
+                    buckets.begin(b) <= hit.tpos && hit.tpos < buckets.end(b)
+                };
             if in_range {
                 bucket.matches += 1;
                 bucket.codirection += if hit.strand == s.kmer.strand { 1 } else { -1 };
