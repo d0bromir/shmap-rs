@@ -153,6 +153,42 @@ do next. Splitting per-read work at 10x: `match_rest` 31.9% (of which `refine` a
 almost all of the k=15 win came from, but it is nearly irrelevant to real-world k=25 use. The
 measured next targets are `refine`, `collect_kmer_info` and `match_seeds`, in that order.
 
+### Real long HiFi reads at 23.2 kb
+
+Real HG002 HiFi from the GIAB 20 kb-insert library, filtered to >= 22 kb: 149 438 reads,
+3.47 Gbp, mean 23 189 bp, 1.1117x of T2T-CHM13. Single-threaded, paper parameters. Full write-up,
+the C++ head-to-head and the length/yield tradeoff behind the >= 22 kb cut are in
+`profiling/real24kbp/`.
+
+This is the only real read set here materially longer than 13 kb — note that `allchr_real_24kbp`,
+despite the name, is real HiFi at **~13 kb** (the "24kbp" is the nominal library size).
+
+Per-read cost is **220 µs at 23.2 kb against 165 µs at 12.8 kb**: 1.81x the read length for 1.33x
+the cost, i.e. **~26% cheaper per base** on the longer reads (9.5 vs 12.9 µs/kb). The stage mix is
+what explains it — shares of `query_mapping`, same binary, same host, single-threaded:
+
+| stage | 23.2 kb | 12.8 kb |
+|---|---:|---:|
+| `match_rest` | 32.2% | 26.6% |
+| ⌐ `refine` | 19.0% | 14.7% |
+| `prepare` | 24.1% | 20.4% |
+| ⌐ `collect_kmer_info` | 15.9% | 13.3% |
+| `match_seeds` | **20.6%** | **32.3%** |
+| `sketching` | 20.4% | 15.7% |
+| `bucket_merge` | 2.6% | 4.7% |
+
+`match_seeds` nearly halves as a share while everything else grows. The cause is visible in the
+counters: a read seeds **194 buckets at 23.2 kb against 252 at 12.8 kb**, despite carrying 231
+k-mers against 128. Bucket width is the read's own half-length, so a longer read partitions the
+reference into fewer, wider buckets — it has more k-mers but fewer places to put them, and the
+per-bucket pruning and scoring work drops accordingly. `match_seeds` is bounded by hit volume
+(2 376 vs 1 886 hits/read, which grows only ~26% while k-mer count grows 81%), so it grows more
+slowly than the read.
+
+The practical consequence: **the mapper gets more efficient per base as reads get longer**, and
+work that looks dominant at 12.8 kb (`match_seeds`) is not what dominates at 23 kb, where
+`match_rest`/`refine` and `sketching` matter more.
+
 ## What's optimized
 
 - **`match_rest`'s second sweep reuses the first's scores.** `map_read` sweeps `sorted_buckets`
@@ -169,6 +205,36 @@ measured next targets are `refine`, `collect_kmer_info` and `match_seeds`, in th
   byte-identical. `SHMAP_NO_REFINE_MEMO=1` disables it so one binary can A/B the change.
   New `refined_buckets`/`refine_memo_hits` counters close a gap the older reports had: `final_buckets`
   only counted buckets that *beat* the threshold, so nothing recorded what refining actually cost.
+- **`h2single`/`h2multi` are sharded by k-mer hash, so the index build parallelises.**
+  `index_initializing` was the serial floor of indexing: one thread doing ~31 M cache-missing
+  hash-map inserts, ~8.4 s, and completely flat from 1 thread to 64 — ~80% of all indexing time at
+  `-@ 32`. The map is now 8 shards; every occurrence of a hash lands in the same shard, so threads
+  never touch the same k-mer and no locking is needed, and segments are still visited in file order
+  within a shard so `max_matches` keeps the same hits. **8.4 s → 1.1-1.8 s.** Three things had to be
+  right. *Shard on the low hash bits*: FracMinHash only keeps k-mers below `h_frac * u64::MAX`, so
+  at `-r 0.01` every hash reaching the index is under `2^57` and the top 7 bits are always zero —
+  sharding on the top bits (the usual advice) put every k-mer in shard 0 and silently serialised the
+  build, one thread taking 6.96 s while the other 63 finished in 0.13 s, with output still correct.
+  *Keep the interleaved fill at `-@ 1`*, where deferring the inserts loses the overlap the collector
+  already had with the reader and sketcher (9.2 → 15.1 s). *Hold the shards in a fixed-size array*,
+  not a `Vec`: every index probe in the mapping hot path goes through it, and the extra dependent
+  load cost `collect_kmer_info` up to 24%. Eight shards rather than more because the insert phase
+  bottoms out well before the shard count does, while a wider array is colder in the mapping path —
+  at 10x `-@ 1`, 64 shards cost 3.4% overall against 8 shards' 0.7%.
+- **The FASTA reader parses byte ranges in parallel, in two passes.** With the inserts sharded,
+  reading became the floor: 4.3-5.6 s regardless of `-@`, ~70-80% of indexing. It is not I/O bound —
+  the 3.18 GB reference streams in 0.87 s at 3.7 GB/s — so the cost is line splitting, newline
+  stripping and copying. A first version split the file into 16 MB ranges parsed by up to 8 workers,
+  but instrumenting it showed the win was capped by the collector: `recv_wait` 0.05 s against
+  2.8-3.2 s spent concatenating ranges into a growing per-segment buffer on one thread — not the
+  memcpy but the doubling reallocations and ~780 k serialised first-touch page faults. So pass 1
+  now counts only, yielding every segment's exact size and every range's offset within it, and pass
+  2 hands workers disjoint slices of an exactly-sized buffer to copy straight into. **4.4 s →
+  1.5-1.7 s** (`fasta_scan` ~0.3 s, `fasta_fill` ~1.3 s), and peak RSS falls slightly since the
+  growth reallocations are gone. Both passes drive one line-walker so they cannot disagree about
+  line boundaries; two `debug_assert`s pin that pass 2 writes exactly what pass 1 counted and that a
+  segment's parts tile its buffer with no gaps. Falls back to the serial reader for compressed
+  input, small files, `-@ 1`, and non-Unix targets.
 - **`Buckets` storage → append-only `Vec` + LSD radix sort**, not a hashmap. *(Superseded as the
   primary path by the dense accumulator below; this is what that replaced, and it survives as the
   bounded-memory fallback.)* An intermediate sparse
@@ -267,16 +333,15 @@ measured next targets are `refine`, `collect_kmer_info` and `match_seeds`, in th
   the "never degrade mapping" gate rules it out unless a future change can bound volume without
   touching results. The per-hit work itself is now down to an indexed accumulate, so the honest
   next step is measuring whether it is bound by streaming `h2multi` or by the per-hit arithmetic.
-- **`index_initializing` is now the serial floor of indexing.** On the k=25 whole genome it is one
-  thread performing ~31 M hash-map insert operations (one per sketched k-mer) that settle into
-  ~19 M distinct entries, in a table far larger than cache: 7.25 s, or ~230 ns per insert
-  (`allchr_real_24kbp-t1.profile.json`). That is almost entirely cache/TLB miss latency rather than
-  instruction count, which is why it barely moved from any of the work above. The two levers that would actually bite: (a) *shard* `h2single`/`h2multi` by hash across
-  `-@` threads, which is compatible with determinism because every occurrence of a given hash lands
-  in the same shard and shards would still see segments in file order (this is the big one — it
-  turns the phase from serial into parallel); (b) software-prefetch the bucket for k-mer `i + D`
-  while inserting `i`, which needs `hashbrown` as a direct dependency for a hash-supplied raw
-  entry API, since `std`'s `HashMap` exposes no bucket addresses.
+- **Indexing no longer has a single dominant phase, and is close to its floor.** The two serial
+  phases above are gone: `index_initializing` 8.4 → 1.1-1.8 s, `index_reading` 4.4 → 1.5-1.7 s.
+  Total indexing bottoms out near **2.9-3.4 s**, down from ~9.4 s, and no stage dominates — reading
+  and the shard fill are each ~1.5 s, both within ~2x of the 0.87 s it takes merely to stream the
+  3.18 GB reference off page cache. Further gains would have to come from *reading less* — a
+  persistent on-disk index, or 2-bit packed sequence — rather than from parallelising harder. The
+  software-prefetch idea (prefetch the bucket for k-mer `i + D` while inserting `i`, which would
+  need `hashbrown` as a direct dependency for a hash-supplied raw entry API) is still open, but it
+  now targets ~1.5 s rather than ~8 s. See `BENCHMARKS.md` for the per-thread breakdown.
 - **Sketching** is ~2.0 ns/base on the benchmark host (6.3 s for the 3.12 Gbp reference at `-@1`,
   `allchr_real_24kbp-t1.profile.json`) and still latency-bound on the base-by-base rolling hash;
   the remaining big win would need SIMD or 2-bit-packed sequence encoding (large effort).

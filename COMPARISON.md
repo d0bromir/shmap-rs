@@ -80,8 +80,10 @@ wall, against a C++ that cannot use more than one core at all.
   winnowmap2 maps more but is 100–380× slower and far heavier. `mapquik` maps nothing at these
   parameters.
 - shmap-rs additionally **scales to many threads** (the C++ original is single-threaded) — see
-  `BENCHMARKS.md` for up to ~20× at `-@ 32` on chrY. Whole-genome runs plateau around 4× because
-  `index_initializing` is still single-threaded.
+  `BENCHMARKS.md` for up to ~20× at `-@ 32` on chrY and ~10.7× on whole-genome 10x. The mapper
+  itself reaches ~7.7-11.4×; whole-run numbers fall short of that only by the fixed index build,
+  which is now ~3 s (`index_initializing` was single-threaded when the ~4× figure was measured; it
+  has since been sharded, and the FASTA reader parallelized).
 
 ## WGS long reads (minshmap/realworld benchmark)
 
