@@ -1,8 +1,8 @@
 #!/bin/bash
 set -u
-RS=$HOME/shmap-rs/target/release/shmap; REF=$HOME/_paper_work/hs1.fa
+RS=$HOME/shmap_2pass; REF=$HOME/_paper_work/hs1.fa
 P="-k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment"
-D=$HOME/final_sweep; mkdir -p $D
+D=$HOME/twopass_sweep; mkdir -p $D
 run_set() {
   local tag=$1 reads=$2
   for t in 1 2 4 8 16 32 64; do
@@ -16,4 +16,4 @@ run_set() {
 run_set w24k $HOME/wgs24k/reads_24kbp_1x.fa
 run_set hifi1x $HOME/hifi_real/hifi_1x.fa
 run_set hifi10x $HOME/hifi_real/hifi_10x.fa
-echo FINALSWEEP DONE
+echo TWOPASS DONE

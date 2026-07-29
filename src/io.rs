@@ -21,16 +21,42 @@ const MAX_READERS: usize = 8;
 /// Below this, the split isn't worth the thread setup.
 const MIN_PARALLEL_BYTES: u64 = 32 << 20;
 
-/// One byte range's contribution, in file order.
-struct RangeOut {
+/// One item of a byte range, in file order.
+#[cfg(unix)]
+enum RangeItem<'a> {
+    /// Header line, `>` already stripped.
+    Header(&'a [u8]),
+    /// One sequence line, newline (and any `\r`) already stripped.
+    Bases(&'a [u8]),
+}
+
+/// What one byte range contributes, as counts only.
+///
+/// `run_bases[i]` is how many bases sit between header `i - 1` and header `i`
+/// of this range, so `run_bases.len() == headers.len() + 1`: run 0 belongs to
+/// whichever segment was already open when the range started.
+#[cfg(unix)]
+struct ScanOut {
     idx: usize,
-    /// `(offset in `seq`, name)` for each header line found here: at that
-    /// offset a new segment begins. Bases before the first entry belong to
-    /// whichever segment was already open.
-    headers: Vec<(usize, String)>,
-    /// This range's sequence bases, newlines removed, concatenated.
-    seq: Vec<u8>,
-    /// Absolute end offset, for the progress fraction.
+    headers: Vec<String>,
+    run_bases: Vec<u64>,
+}
+
+/// Where one range's run of bases lands inside a segment's buffer.
+#[cfg(unix)]
+struct Part {
+    range_idx: usize,
+    run_idx: usize,
+    offset: u64,
+    len: u64,
+}
+
+/// A segment's exact size and the disjoint pieces that make it up.
+#[cfg(unix)]
+struct SegPlan {
+    name: String,
+    len: u64,
+    parts: Vec<Part>,
     end_byte: u64,
 }
 
@@ -76,13 +102,22 @@ fn read_exact_at(file: &std::fs::File, buf: &mut [u8], mut off: u64) -> std::io:
     Ok(())
 }
 
-/// Parses the lines that *start* inside `[start, end)`.
+/// Walks the lines that *start* inside `[start, end)`, in order.
 ///
 /// A line belongs to the range containing its first byte, which is what makes
 /// the split unambiguous: a range skips the partial line it opens in, and
 /// reads past its own end to finish the last line it owns.
+///
+/// Both passes go through here, so the counting pass and the filling pass can
+/// never disagree about where a line begins or which run it belongs to.
 #[cfg(unix)]
-fn parse_range(file: &std::fs::File, idx: usize, start: u64, end: u64, file_len: u64) -> Result<RangeOut> {
+fn walk_range(
+    file: &std::fs::File,
+    start: u64,
+    end: u64,
+    file_len: u64,
+    mut on: impl FnMut(RangeItem<'_>),
+) -> Result<()> {
     // One byte of lookbehind distinguishes "a line starts exactly at `start`"
     // from "`start` is mid-line".
     let from = start.saturating_sub(1);
@@ -115,12 +150,6 @@ fn parse_range(file: &std::fs::File, idx: usize, start: u64, end: u64, file_len:
         }
     };
 
-    let mut out = RangeOut {
-        idx,
-        headers: Vec::new(),
-        seq: Vec::new(),
-        end_byte: end.min(file_len),
-    };
     while pos < buf.len() && (from + pos as u64) < end {
         let rel_end = memchr::memchr(b'\n', &buf[pos..]).map_or(buf.len(), |i| pos + i);
         let mut line = &buf[pos..rel_end];
@@ -128,32 +157,79 @@ fn parse_range(file: &std::fs::File, idx: usize, start: u64, end: u64, file_len:
             line = &line[..line.len() - 1];
         }
         if line.first() == Some(&b'>') {
-            let name_bytes = line[1..]
-                .split(|&b| b == b' ' || b == b'\t')
-                .next()
-                .unwrap_or(&line[1..]);
-            out.headers.push((out.seq.len(), String::from_utf8_lossy(name_bytes).into_owned()));
+            on(RangeItem::Header(&line[1..]));
         } else {
-            out.seq.extend_from_slice(line);
+            on(RangeItem::Bases(line));
         }
         pos = rel_end + 1;
     }
-    Ok(out)
+    Ok(())
+}
+
+/// Pass 1: counts only, no sequence bytes are kept.
+#[cfg(unix)]
+fn scan_range(file: &std::fs::File, idx: usize, start: u64, end: u64, file_len: u64) -> Result<ScanOut> {
+    let mut headers = Vec::new();
+    let mut run_bases = vec![0u64];
+    walk_range(file, start, end, file_len, |item| match item {
+        RangeItem::Header(h) => {
+            let name = h.split(|&b| b == b' ' || b == b'\t').next().unwrap_or(h);
+            headers.push(String::from_utf8_lossy(name).into_owned());
+            run_bases.push(0);
+        }
+        RangeItem::Bases(b) => {
+            *run_bases.last_mut().expect("run_bases is never empty") += b.len() as u64;
+        }
+    })?;
+    Ok(ScanOut { idx, headers, run_bases })
+}
+
+/// Pass 2: copies one run's bases straight into its slice of the segment
+/// buffer. `dest` is exactly the length pass 1 counted.
+#[cfg(unix)]
+fn fill_run(
+    file: &std::fs::File,
+    start: u64,
+    end: u64,
+    file_len: u64,
+    run_idx: usize,
+    dest: &mut [u8],
+) -> Result<()> {
+    let mut cur = 0usize;
+    let mut at = 0usize;
+    walk_range(file, start, end, file_len, |item| match item {
+        RangeItem::Header(_) => cur += 1,
+        RangeItem::Bases(b) => {
+            if cur == run_idx {
+                dest[at..at + b.len()].copy_from_slice(b);
+                at += b.len();
+            }
+        }
+    })?;
+    debug_assert_eq!(at, dest.len(), "pass 2 wrote a different length than pass 1 counted");
+    Ok(())
 }
 
 /// Same contract as [`read_fasta`], but splits an uncompressed file into byte
-/// ranges parsed in parallel.
+/// ranges parsed in parallel, in two passes.
 ///
-/// Reading was the last serial phase of indexing: ~4.4 s flat from 1 thread to
-/// 64, ~70-80% of all indexing time once the index build itself was sharded.
-/// It is not I/O bound — the 3.18 GB human reference streams in 0.87 s at
-/// 3.7 GB/s — so the cost is line splitting, newline stripping and copying,
-/// and that parallelises.
+/// Reading was the last serial phase of indexing. It is not I/O bound — the
+/// 3.18 GB human reference streams in 0.87 s at 3.7 GB/s — so the cost is line
+/// splitting, newline stripping and copying, and that parallelises.
 ///
-/// Records are still delivered **in file order**, which the index build
-/// depends on for `segm_id` assignment and the `max_matches` cap. Workers pull
-/// ranges in increasing order and at most one each, so the reorder buffer
-/// holds at most `n_readers` entries.
+/// The two passes exist to keep the *copy* parallel too. A single pass has to
+/// concatenate every range into a growing per-segment buffer on one thread,
+/// and measured on the whole genome that concatenation was 2.8-3.2 s of a
+/// 2.9-3.2 s reader — not the memcpy itself but the doubling reallocations and
+/// ~780 k first-touch page faults, all serialised. So pass 1 only counts, which
+/// gives every segment's exact size and every range's exact offset within it;
+/// pass 2 then lets workers write straight into disjoint slices of a
+/// right-sized buffer, with no reallocation and the page faults spread across
+/// threads.
+///
+/// Records are still delivered **in file order**, which the index build depends
+/// on for `segm_id` assignment and the `max_matches` cap, and only one
+/// segment's buffer is live at a time, so peak memory is unchanged.
 ///
 /// Falls back to [`read_fasta`] for compressed input (byte offsets are
 /// meaningless there), for small files, for `n_threads <= 1`, and on non-Unix
@@ -192,72 +268,127 @@ fn read_fasta_ranged(
 
         let n_readers = n_threads.min(MAX_READERS);
         let n_ranges = file_len.div_ceil(range_bytes) as usize;
-        let next_range = std::sync::atomic::AtomicUsize::new(0);
-        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<RangeOut>>(n_readers * 2);
+        let bounds = |idx: usize| {
+            let start = idx as u64 * range_bytes;
+            (start, ((idx as u64 + 1) * range_bytes).min(file_len))
+        };
 
-        let total = file_len.max(1);
-        let mut err: Option<anyhow::Error> = None;
+        // ---- pass 1: count, in parallel ----
+        timers.start("fasta_scan");
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let scans: std::sync::Mutex<Vec<ScanOut>> = std::sync::Mutex::new(Vec::with_capacity(n_ranges));
+        let failure: std::sync::Mutex<Option<anyhow::Error>> = std::sync::Mutex::new(None);
         std::thread::scope(|scope| {
             for _ in 0..n_readers {
-                let tx = tx.clone();
-                let file = &file;
-                let next_range = &next_range;
-                scope.spawn(move || {
+                scope.spawn(|| {
                     loop {
-                        let idx = next_range.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        if idx >= n_ranges {
+                        let idx = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if idx >= n_ranges || failure.lock().unwrap().is_some() {
                             break;
                         }
-                        let start = idx as u64 * range_bytes;
-                        let end = ((idx as u64 + 1) * range_bytes).min(file_len);
-                        if tx.send(parse_range(file, idx, start, end, file_len)).is_err() {
-                            break;
+                        let (start, end) = bounds(idx);
+                        match scan_range(&file, idx, start, end, file_len) {
+                            Ok(s) => scans.lock().unwrap().push(s),
+                            Err(e) => {
+                                *failure.lock().unwrap() = Some(e);
+                                break;
+                            }
                         }
                     }
                 });
             }
-            drop(tx);
-
-            // Reassemble in file order. A segment stays open across ranges
-            // until some range reports the header that ends it.
-            let mut pending: std::collections::HashMap<usize, RangeOut> = std::collections::HashMap::new();
-            let mut next_idx = 0usize;
-            let mut open: Option<String> = None;
-            let mut seq: Vec<u8> = Vec::new();
-            for got in rx {
-                let got = match got {
-                    Ok(g) => g,
-                    Err(e) => {
-                        err = Some(e);
-                        break;
-                    }
-                };
-                pending.insert(got.idx, got);
-                while let Some(r) = pending.remove(&next_idx) {
-                    let progress = (r.end_byte as f64 / total as f64).min(1.0) as f32;
-                    let mut prev = 0usize;
-                    for (off, name) in r.headers {
-                        seq.extend_from_slice(&r.seq[prev..off]);
-                        if let Some(open_name) = open.take() {
-                            callback(&open_name, std::mem::take(&mut seq), progress);
-                        }
-                        seq.clear();
-                        open = Some(name);
-                        prev = off;
-                    }
-                    seq.extend_from_slice(&r.seq[prev..]);
-                    next_idx += 1;
-                }
-            }
-            if err.is_none()
-                && let Some(open_name) = open.take()
-            {
-                callback(&open_name, seq, 1.0);
-            }
         });
-        if let Some(e) = err {
+        if let Some(e) = failure.lock().unwrap().take() {
             return Err(e);
         }
+        let mut scans = scans.into_inner().unwrap();
+        scans.sort_by_key(|s| s.idx);
+        timers.stop("fasta_scan");
+
+        // ---- serial: plan every segment's size and its pieces ----
+        // O(ranges), not O(bases): a few hundred iterations on a human genome.
+        let mut segs: Vec<SegPlan> = Vec::new();
+        for s in &scans {
+            let (_, end) = bounds(s.idx);
+            for (run_idx, &n) in s.run_bases.iter().enumerate() {
+                if run_idx > 0 {
+                    segs.push(SegPlan {
+                        name: s.headers[run_idx - 1].clone(),
+                        len: 0,
+                        parts: Vec::new(),
+                        end_byte: end,
+                    });
+                }
+                // Bases before the very first header have no segment to belong
+                // to; a well-formed FASTA has none.
+                if n > 0
+                    && let Some(seg) = segs.last_mut()
+                {
+                    seg.parts.push(Part {
+                        range_idx: s.idx,
+                        run_idx,
+                        offset: seg.len,
+                        len: n,
+                    });
+                    seg.len += n;
+                }
+                if let Some(seg) = segs.last_mut() {
+                    seg.end_byte = end;
+                }
+            }
+        }
+
+        // ---- pass 2: fill each segment in parallel, one at a time ----
+        timers.start("fasta_fill");
+        let total = file_len.max(1);
+        for seg in segs {
+            // Lazily-zeroed and exactly sized: no reallocation, and the pages
+            // are faulted in by whichever worker first writes them.
+            let mut buf = vec![0u8; seg.len as usize];
+
+            // Carve `buf` into the disjoint pieces the parts describe. Parts
+            // are built in increasing offset order, so this walks forward once.
+            let mut rest = &mut buf[..];
+            let mut jobs: Vec<(usize, usize, &mut [u8])> = Vec::with_capacity(seg.parts.len());
+            let mut at = 0u64;
+            for part in &seg.parts {
+                // The carve below assumes the parts tile the buffer with no
+                // gaps, which is how the planner builds them; check it rather
+                // than trust it, since a gap would silently leave zero bases
+                // in the middle of a chromosome.
+                debug_assert_eq!(part.offset, at, "segment parts are not contiguous");
+                at += part.len;
+                let (piece, tail) = rest.split_at_mut(part.len as usize);
+                jobs.push((part.range_idx, part.run_idx, piece));
+                rest = tail;
+            }
+            debug_assert!(rest.is_empty(), "segment parts did not cover the whole buffer");
+
+            let per = jobs.len().div_ceil(n_readers).max(1);
+            let failure: std::sync::Mutex<Option<anyhow::Error>> = std::sync::Mutex::new(None);
+            std::thread::scope(|scope| {
+                for chunk in jobs.chunks_mut(per) {
+                    let file = &file;
+                    let failure = &failure;
+                    scope.spawn(move || {
+                        for (range_idx, run_idx, dest) in chunk {
+                            let (start, end) = bounds(*range_idx);
+                            if let Err(e) = fill_run(file, start, end, file_len, *run_idx, dest) {
+                                *failure.lock().unwrap() = Some(e);
+                                return;
+                            }
+                        }
+                    });
+                }
+            });
+            if let Some(e) = failure.into_inner().unwrap() {
+                return Err(e);
+            }
+
+            let progress = (seg.end_byte as f64 / total as f64).min(1.0) as f32;
+            callback(&seg.name, buf, progress);
+        }
+        timers.stop("fasta_fill");
         Ok(())
     }
 }

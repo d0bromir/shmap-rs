@@ -14,8 +14,8 @@ none of these tables is derived from another.
 
 ## Thread scaling (`-@`) on real whole-genome data
 
-Measured on a2 at `1f1f521` — with the sharded index build **and** the parallel FASTA reader.
-Output is **byte-identical across every thread count** on all three datasets, so threading stays
+Measured on a2 with the sharded index build and the two-pass parallel FASTA reader. Output is
+**byte-identical across every thread count** on all three datasets, so threading stays
 deterministic. `index`/`map` split the wall using the run's own `indexing` timer, so the mapper's
 own scaling can be read separately from the index build's.
 
@@ -29,77 +29,80 @@ for accuracy claims. All 125 000 reads map, 94.0% at Q60.
 
 | Threads | wall | speedup | index | map | map speedup | GB |
 |---:|---:|---:|---:|---:|---:|---:|
-| 1  | 39.01 s | 1.00x | 9.2 s | 29.8 s | 1.00x | 2.09 |
-| 2  | 24.43 s | 1.60x | 6.9 s | 17.6 s | 1.69x | 1.97 |
-| 4  | 15.65 s | 2.49x | 5.3 s | 10.4 s | 2.87x | 2.02 |
-| 8  | 12.16 s | 3.21x | 6.1 s | 6.1 s | 4.90x | 2.34 |
-| 16 | 8.70 s | 4.48x | 4.7 s | 4.0 s | **7.53x** | 2.31 |
-| 32 | **8.38 s** | **4.66x** | 4.4 s | 4.0 s | 7.44x | 2.58 |
-| 64 | 8.93 s | 4.37x | 4.8 s | 4.1 s | 7.28x | 2.74 |
+| 1  | 39.43 s | 1.00x | 9.2 s | 30.3 s | 1.00x | 2.18 |
+| 2  | 25.65 s | 1.54x | 8.0 s | 17.6 s | 1.72x | 1.78 |
+| 4  | 16.22 s | 2.43x | 5.0 s | 11.2 s | 2.70x | 1.84 |
+| 8  | 10.02 s | 3.94x | 3.5 s | 6.5 s | 4.67x | 2.02 |
+| 16 | 7.38 s | 5.34x | 3.5 s | 3.9 s | 7.83x | 2.05 |
+| 32 | 7.62 s | 5.17x | 3.8 s | 3.8 s | **7.98x** | 2.28 |
+| 64 | **7.10 s** | **5.55x** | 3.2 s | 3.9 s | 7.69x | 2.36 |
 
-**The mapper scales 7.53x; the whole run reaches 4.66x, and the difference is the index build.**
-By 16 threads mapping is down to 4.0 s against 4.7 s of indexing, so indexing is now over half the
-wall. Anyone asking why whole-genome 24 kbp runs "don't parallelize well" is looking at this: it
-is not the mapper, and it is not the read length.
+**The mapper scales ~7.9x; the whole run reaches 5.55x, and the difference is the index build.**
+By 16 threads mapping is 3.9 s against 3.5 s of indexing — the two are now about equal, where
+before the reader work indexing was over half the wall. Anyone asking why whole-genome 24 kbp runs
+"don't parallelize well" is looking at the index build, not the mapper and not the read length.
 
 ### 0.999x, 12.8 kbp reads — 242 534 real HG002 HiFi reads
 
 | Threads | wall | speedup | index | map | map speedup | GB |
 |---:|---:|---:|---:|---:|---:|---:|
-| 1  | 54.19 s | 1.00x | 9.6 s | 44.6 s | 1.00x | 1.91 |
-| 2  | 30.63 s | 1.77x | 7.1 s | 23.5 s | 1.90x | 1.97 |
-| 4  | 20.22 s | 2.68x | 5.1 s | 15.1 s | 2.96x | 2.15 |
-| 8  | 13.88 s | 3.90x | 5.2 s | 8.7 s | 5.11x | 2.45 |
-| 16 | **9.95 s** | **5.45x** | 4.2 s | 5.8 s | **7.70x** | 3.15 |
-| 32 | 11.14 s | 4.86x | 5.2 s | 6.0 s | 7.49x | 3.83 |
-| 64 | 11.42 s | 4.75x | 5.3 s | 6.2 s | 7.24x | 4.57 |
+| 1  | 54.59 s | 1.00x | 9.5 s | 45.1 s | 1.00x | 1.99 |
+| 2  | 32.44 s | 1.68x | 7.6 s | 24.8 s | 1.82x | 1.86 |
+| 4  | 21.02 s | 2.60x | 5.2 s | 15.8 s | 2.85x | 1.98 |
+| 8  | 12.23 s | 4.46x | 3.5 s | 8.7 s | 5.19x | 2.26 |
+| 16 | **9.39 s** | **5.81x** | 3.5 s | 5.9 s | 7.60x | 2.93 |
+| 32 | 9.47 s | 5.76x | 3.6 s | 5.8 s | **7.73x** | 3.55 |
+| 64 | 9.73 s | 5.61x | 3.6 s | 6.2 s | 7.31x | 4.16 |
 
 ### 9.987x, 12.8 kbp reads — 2 425 341 real HG002 HiFi reads
 
 | Threads | wall | speedup | index | map | map speedup | GB |
 |---:|---:|---:|---:|---:|---:|---:|
-| 1  | 431.66 s | 1.00x | 9.2 s | 422.4 s | 1.00x | 2.06 |
-| 2  | 243.94 s | 1.77x | 8.5 s | 235.5 s | 1.79x | 2.10 |
-| 4  | 143.20 s | 3.01x | 6.6 s | 136.6 s | 3.09x | 2.25 |
-| 8  | 75.84 s | 5.69x | 6.0 s | 69.9 s | 6.05x | 2.60 |
-| 16 | 43.63 s | 9.89x | 4.6 s | 39.0 s | 10.83x | 4.77 |
-| 32 | **41.80 s** | **10.33x** | 5.2 s | 36.6 s | **11.55x** | 6.68 |
-| 64 | 43.87 s | 9.84x | 5.5 s | 38.4 s | 11.00x | 7.87 |
+| 1  | 440.27 s | 1.00x | 9.6 s | 430.6 s | 1.00x | 1.94 |
+| 2  | 254.60 s | 1.73x | 7.3 s | 247.3 s | 1.74x | 1.92 |
+| 4  | 137.15 s | 3.21x | 4.6 s | 132.6 s | 3.25x | 1.99 |
+| 8  | 73.89 s | 5.96x | 3.6 s | 70.3 s | 6.12x | 2.30 |
+| 16 | 42.41 s | 10.38x | 2.9 s | 39.5 s | 10.90x | 4.42 |
+| 32 | **41.34 s** | **10.65x** | 3.7 s | 37.7 s | **11.43x** | 6.88 |
+| 64 | 42.07 s | 10.47x | 3.4 s | 38.7 s | 11.14x | 9.56 |
 
-Deep coverage is where whole-run scaling looks best (10.33x), simply because there is enough
-mapping work to bury the fixed index cost — at 10x indexing is 12% of the wall at `-@ 32`, against
-53% for the 24 kbp 1x run. **The mapper's own ceiling is a consistent ~7-12x in all three**,
+Deep coverage is where whole-run scaling looks best (10.65x), simply because there is enough
+mapping work to bury the fixed index cost — at 10x indexing is 9% of the wall at `-@ 32`, against
+50% for the 24 kbp 1x run. **The mapper's own ceiling is a consistent ~7.7-11.4x in all three**,
 reached around 16-32 threads.
 
 Peak memory grows with thread count only where the per-worker dense bucket accumulators do
-(1.9 → 4.6 GB from `-@ 1` to `-@ 64` at 1x, 2.1 → 7.9 GB at 10x); it is flat to ~8 threads
-everywhere.
+(1.9 → 9.6 GB from `-@ 1` to `-@ 64` at 10x); it is flat to ~8 threads everywhere, and at 1x it
+stays near 2 GB.
 
 ### What indexing is bounded by now
 
-Two serial floors have been removed in turn, and the numbers below are what is left.
+Three serial floors have been removed in turn, and the numbers below are what is left.
 
-`index_initializing` — one thread doing ~31 M cache-missing hash-map inserts — used to be flat at
-~8.4 s from 1 thread to 64. Sharding the index by k-mer hash put it at **1.5-1.9 s**. `index_reading`
-then became the floor at 4.3-5.6 s, also flat; parsing the FASTA over byte ranges put it at
-**2.9-3.4 s**. On the 10x run:
+`index_initializing` — one thread doing ~31 M cache-missing hash-map inserts — was flat at ~8.4 s
+from 1 thread to 64. Sharding the index by k-mer hash put it at **1.1-1.8 s**. `index_reading` then
+became the floor at 4.3-5.6 s, also flat. Parsing over byte ranges helped, but the collector still
+concatenated every range into a growing per-segment buffer on one thread — 2.8-3.2 s of a 2.9-3.2 s
+reader, dominated not by the memcpy but by doubling reallocations and ~780 k serialised first-touch
+page faults. Splitting that into a counting pass and a filling pass, so workers write straight into
+disjoint slices of an exactly-sized buffer, put reading at **1.5-1.7 s**. On the 10x run:
 
 | Threads | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `indexing` (wall) | 9.2 | 8.5 | 6.6 | 6.0 | **4.6** | 5.2 | 5.5 |
-| `index_reading` | 4.4 | 2.9 | 4.1 | 4.3 | 2.9 | 3.2 | 3.4 |
-| `index_initializing` | 0.0 | 4.5 | 2.3 | 1.5 | 1.5 | 1.9 | 1.8 |
-| `index_finalizing` | 0.7 | 0.7 | 0.2 | 0.2 | 0.2 | 0.2 | 0.1 |
+| `indexing` (wall) | 9.6 | 7.3 | 4.6 | 3.6 | **2.9** | 3.7 | 3.4 |
+| `index_reading` | 4.4 | 3.0 | 2.5 | 1.5 | 1.6 | 1.7 | 1.6 |
+| ⌐ `fasta_scan` (count) | — | 0.7 | 0.5 | 0.3 | 0.3 | 0.3 | 0.3 |
+| ⌐ `fasta_fill` (copy) | — | 3.1 | 2.1 | 1.2 | 1.3 | 1.4 | 1.3 |
+| `index_initializing` | 0.0 | 3.1 | 1.6 | 1.8 | 1.1 | 1.7 | 1.6 |
+| `index_finalizing` | 0.7 | 0.4 | 0.4 | 0.2 | 0.1 | 0.2 | 0.2 |
 
-(`index_initializing` is 0 at `-@ 1`, where the shard fill is folded into the collector so it can
-overlap reading and sketching instead — see `src/index.rs`.)
+(`index_initializing` is 0 and the two `fasta_*` timers are absent at `-@ 1`, where both phases are
+folded into their serial paths so they can overlap instead — see `src/index.rs` and `src/io.rs`.)
 
-Indexing now bottoms out near **4.6 s**, down from ~9.4 s. Reading is still the largest single
-piece and has not gone as far as the worker count should allow: ~8 readers over ~3.5 s of parse
-CPU plus a 0.87 s I/O floor predicts ~1.3 s. The gap is the collector, which still concatenates
-every byte range into per-segment buffers on one thread. Giving workers a counting pass so they
-can write straight into a preallocated segment buffer is the next thing that would move these
-numbers.
+**Indexing bottoms out near 2.9-3.4 s, down from ~9.4 s.** No single phase dominates any more:
+reading and the shard fill are each ~1.5 s, and both are within ~2x of the 0.87 s it takes to
+stream the 3.18 GB reference off page cache at all. Further gains here would have to come from
+reading less, not from parallelising harder.
 
 
 ## Thread scaling on the Table-1 datasets (older generation)
@@ -144,7 +147,7 @@ Output is byte-identical across thread counts; only wall-time/memory vary. Time 
   ~10-11 s regardless of `-@`. This is the dataset the indexing work targets, not the mapping work.
   It is also why that row says nothing about whether 24 kbp reads parallelize: at ~0.015x coverage
   there is almost no mapping to parallelize. The 125 000-read 24 kbp set above was built to answer
-  that question properly, and there the mapper scales 7.53x.
+  that question properly, and there the mapper scales ~7.9x.
 - **Memory is flat in thread count except on whole-genome 10 kbp**, where it climbs from 2.05 GB at
   `-@ 4` to 3.12 GB at `-@ 32`. Part of that is the dense bucket accumulator, which is per worker:
   those 10 kbp reads give a half-length of ~127, so the bucket space is ~246 k slots and each

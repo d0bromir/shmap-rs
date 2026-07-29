@@ -1,18 +1,18 @@
-	Command being timed: "/home/mpiuser/shmap-rs/target/release/shmap -s /home/mpiuser/_paper_work/hs1.fa -p /home/mpiuser/hifi_real/hifi_1x.fa -k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment -@ 16 -x --profile-log /home/mpiuser/final_sweep/hifi1x_t16.json"
-	User time (seconds): 83.36
-	System time (seconds): 9.66
-	Percent of CPU this job got: 934%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:09.95
+	Command being timed: "/home/mpiuser/shmap_2pass -s /home/mpiuser/_paper_work/hs1.fa -p /home/mpiuser/hifi_real/hifi_1x.fa -k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment -@ 16 -x --profile-log /home/mpiuser/twopass_sweep/hifi1x_t16.json"
+	User time (seconds): 85.80
+	System time (seconds): 11.69
+	Percent of CPU this job got: 1037%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:09.39
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 3302272
+	Maximum resident set size (kbytes): 3076416
 	Average resident set size (kbytes): 0
 	Major (requiring I/O) page faults: 0
-	Minor (reclaiming a frame) page faults: 2278370
-	Voluntary context switches: 128415
-	Involuntary context switches: 175
+	Minor (reclaiming a frame) page faults: 2283847
+	Voluntary context switches: 146739
+	Involuntary context switches: 279
 	Swaps: 0
 	File system inputs: 0
 	File system outputs: 224000
