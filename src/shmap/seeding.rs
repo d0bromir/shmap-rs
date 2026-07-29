@@ -105,7 +105,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 self.counters.update_max("max_seed_matches", seed.hits_in_t as i64);
 
                 if seed.hits_in_t == 1 {
-                    let hit = self.tidx.h2single[&seed.kmer.h];
+                    let hit = self.tidx.single_hit(seed.kmer.h);
                     let content = BucketContent::new(
                         1,
                         0,
@@ -155,7 +155,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     // contribution carries `matches == 1`.
                     let mut base: RPos = 0;
                     let mut acc = [BucketContent::default(); 2];
-                    for hit in &self.tidx.h2multi[&seed.kmer.h] {
+                    for hit in self.tidx.multi_hits(seed.kmer.h) {
                         let pos = if AP { hit.r } else { hit.tpos };
                         let content = BucketContent::new(
                             1,
