@@ -1,0 +1,23 @@
+	Command being timed: "/home/mpiuser/shmap-rs/target/release/shmap -s /home/mpiuser/_paper_work/hs1.fa -p /home/mpiuser/hifi_real/hifi_1x.fa -k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment -@ 1 -x --profile-log /home/mpiuser/a2_bench/sweep_1x_t1.json"
+	User time (seconds): 63.55
+	System time (seconds): 9.08
+	Percent of CPU this job got: 135%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:53.69
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 2055328
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 2654825
+	Voluntary context switches: 487624
+	Involuntary context switches: 194
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 224032
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
