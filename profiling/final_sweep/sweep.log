@@ -1,0 +1,25 @@
+w24k t=1 wall=0:39.01 rssKB=2189996
+w24k t=2 wall=0:24.43 rssKB=2064308
+w24k t=4 wall=0:15.65 rssKB=2114368
+w24k t=8 wall=0:12.16 rssKB=2456080
+w24k t=16 wall=0:08.70 rssKB=2426020
+w24k t=32 wall=0:08.38 rssKB=2709120
+w24k t=64 wall=0:08.93 rssKB=2878196
+w24k OUTPUT IDENTICAL across all thread counts
+hifi1x t=1 wall=0:54.19 rssKB=2006924
+hifi1x t=2 wall=0:30.63 rssKB=2066388
+hifi1x t=4 wall=0:20.22 rssKB=2250316
+hifi1x t=8 wall=0:13.88 rssKB=2571560
+hifi1x t=16 wall=0:09.95 rssKB=3302272
+hifi1x t=32 wall=0:11.14 rssKB=4012304
+hifi1x t=64 wall=0:11.42 rssKB=4790356
+hifi1x OUTPUT IDENTICAL across all thread counts
+hifi10x t=1 wall=7:11.66 rssKB=2160540
+hifi10x t=2 wall=4:03.94 rssKB=2204544
+hifi10x t=4 wall=2:23.20 rssKB=2354236
+hifi10x t=8 wall=1:15.84 rssKB=2721280
+hifi10x t=16 wall=0:43.63 rssKB=4997540
+hifi10x t=32 wall=0:41.80 rssKB=7009612
+hifi10x t=64 wall=0:43.87 rssKB=8254800
+hifi10x OUTPUT IDENTICAL across all thread counts
+FINALSWEEP DONE

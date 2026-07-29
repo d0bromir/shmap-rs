@@ -15,25 +15,28 @@ almost no mapping in it to parallelize.
 
 | Threads | wall | speedup | index | map | map speedup | GB |
 |---:|---:|---:|---:|---:|---:|---:|
-| 1  | 38.55 s | 1.00x | 9.3 s | 29.3 s | 1.00x | 2.05 |
-| 2  | 23.38 s | 1.65x | 7.8 s | 15.6 s | 1.87x | 1.72 |
-| 4  | 18.98 s | 2.03x | 7.9 s | 11.1 s | 2.64x | 1.73 |
-| 8  | 12.22 s | 3.15x | 6.0 s | 6.2 s | 4.68x | 1.77 |
-| 16 | **9.98 s** | **3.86x** | 6.4 s | 3.6 s | **8.07x** | 1.82 |
-| 32 | 10.07 s | 3.83x | 6.0 s | 4.1 s | 7.19x | 1.94 |
-| 64 | 9.88 s | 3.90x | 5.9 s | 4.0 s | 7.41x | 2.11 |
+| 1  | 39.01 s | 1.00x | 9.2 s | 29.8 s | 1.00x | 2.09 |
+| 2  | 24.43 s | 1.60x | 6.9 s | 17.6 s | 1.69x | 1.97 |
+| 4  | 15.65 s | 2.49x | 5.3 s | 10.4 s | 2.87x | 2.02 |
+| 8  | 12.16 s | 3.21x | 6.1 s | 6.1 s | 4.90x | 2.34 |
+| 16 | 8.70 s | 4.48x | 4.7 s | 4.0 s | **7.53x** | 2.31 |
+| 32 | **8.38 s** | **4.66x** | 4.4 s | 4.0 s | 7.44x | 2.58 |
+| 64 | 8.93 s | 4.37x | 4.8 s | 4.1 s | 7.28x | 2.74 |
 
-**The mapper scales 8.07x. The whole run reaches 3.90x, and the entire difference is the index
-build**, which sits at a ~6 s floor set by the single-threaded FASTA reader (`index_reading`,
-4.2-5.6 s regardless of `-@`). At 16 threads mapping is 3.6 s against 6.4 s of indexing — 64% of
-the wall is a phase that no longer responds to core count.
+**The mapper scales 7.53x. The whole run reaches 4.66x, and the difference is the index build.**
+At 16 threads mapping is 4.0 s against 4.7 s of indexing, so indexing is over half the wall. These
+numbers are from `1f1f521`, with both the sharded index build and the parallel FASTA reader in
+place; the first version of this table was taken before the reader was parallelized and read
+9.98 s / 3.86x at `-@ 16`.
 
 So "whole-genome 24 kbp doesn't parallelize" is not a property of the mapper or of the read
 length. It is the fixed index cost, and on this dataset it dominates because 1x coverage is only
 ~29 s of mapping to begin with.
 
-Per-read cost is 207 µs at 24 kbp against ~160 µs at 12.8 kbp on the real HiFi sets — sublinear in
-read length, as expected since the bucket space scales with the read's own half-length.
+Per-read cost is ~207 µs at 24 kbp against ~160 µs at 12.8 kbp on the real HiFi sets — sublinear
+in read length, as expected since the bucket space scales with the read's own half-length.
+
+The full three-dataset sweep this belongs to is in `../final_sweep/`.
 
 ## Files
 
