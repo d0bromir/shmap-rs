@@ -21,9 +21,10 @@ own scaling can be read separately from the index build's.
 
 ### 0.9624x, 24 kbp reads — 125 000 reads, 3.00 Gbp
 
-The dataset that was missing. Every other whole-genome set here is 12.8 kbp, and the only 24 kbp
-WGS set (`allchr_real_24kbp`, below) is 2 000 reads — about 0.015x coverage, ~93% of which is
-indexing, so it could never say anything about mapping parallelism. Simulated from `hs1.fa` with
+The dataset that was missing. Every other whole-genome set here is 12.8 kbp, and the set named
+`allchr_real_24kbp` (below) is neither 24 kbp nor large: its reads are real HiFi at **~13 kb** —
+the "24kbp" is the nominal library size — and there are only 2 000 of them, about 0.015x coverage,
+~93% of which is indexing. It could never say anything about mapping parallelism. Simulated from `hs1.fa` with
 0.5% substitution noise by `profiling/wgs24k/gen24k.py`; valid for throughput and scaling, **not**
 for accuracy claims. All 125 000 reads map, 94.0% at Q60.
 
@@ -108,8 +109,9 @@ reading less, not from parallelising harder.
 ## Thread scaling on the Table-1 datasets (older generation)
 
 Kept for continuity. These predate the `refine` memo and the allocation work, and they are **not
-reproducible on the current benchmark host** — `pesho_table1/` is no longer present there, so they
-could not be re-measured alongside the numbers above. Treat them as historical.
+reproducible on the current benchmark host**: the `pesho_table1/` scripts survive (under
+`minshmap_bench/realworld/`) but its `data/` directory is empty, so the read sets themselves are
+gone and these could not be re-measured alongside the numbers above. Treat them as historical.
 
 Output is byte-identical across thread counts; only wall-time/memory vary. Time is the whole run
 (shmap indexes and maps in one pass), speedup is vs `-@ 1`, memory is peak RSS:
@@ -127,7 +129,7 @@ Output is byte-identical across thread counts; only wall-time/memory vary. Time 
 
 ### Whole genome
 
-| Threads | 10kbp s | speedup | GB | real 24kbp s | speedup | GB |
+| Threads | 10kbp s | speedup | GB | real ~13kb s | speedup | GB |
 |---:|---:|---:|---:|---:|---:|---:|
 | 1  | 60.6 | 1.0x | 2.42 | 10.9 | 1.0x | 2.47 |
 | 2  | 36.7 | 1.7x | 2.05 | 10.7 | 1.0x | 2.01 |
@@ -143,11 +145,13 @@ Output is byte-identical across thread counts; only wall-time/memory vary. Time 
   `index_initializing` was single-threaded when these were taken). That floor has since been
   removed by sharding the index — see the sweeps above, where the remaining floor is the FASTA
   reader instead.
-- `real_24kbp` (only 2 000 reads) is ~90% indexing, so thread count barely moves it at all — flat
-  ~10-11 s regardless of `-@`. This is the dataset the indexing work targets, not the mapping work.
-  It is also why that row says nothing about whether 24 kbp reads parallelize: at ~0.015x coverage
-  there is almost no mapping to parallelize. The 125 000-read 24 kbp set above was built to answer
-  that question properly, and there the mapper scales ~7.9x.
+- `allchr_real_24kbp` (only 2 000 reads, and **~13 kb** reads despite the name — see above) is ~90%
+  indexing, so thread count barely moves it at all — flat ~10-11 s regardless of `-@`. This is the
+  dataset the indexing work targets, not the mapping work.
+  It is also why that row says nothing about whether long reads parallelize: at ~0.015x coverage
+  there is almost no mapping to parallelize, and the reads are not long either. The 125 000-read
+  24 kbp set above was built to answer that question properly, and there the mapper scales ~7.9x.
+  For *real* long reads see `profiling/real24kbp/` (23.2 kb, 149 438 reads).
 - **Memory is flat in thread count except on whole-genome 10 kbp**, where it climbs from 2.05 GB at
   `-@ 4` to 3.12 GB at `-@ 32`. Part of that is the dense bucket accumulator, which is per worker:
   those 10 kbp reads give a half-length of ~127, so the bucket space is ~246 k slots and each

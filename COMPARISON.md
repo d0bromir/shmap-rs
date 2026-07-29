@@ -19,7 +19,12 @@ tools have not changed. `map-shmap` is the original C++ shmap that shmap-rs port
 | minshmap | 15694 | 0 | 67.8 | 925 s | 0.71 GB |
 | mapquik | 0 | 0 | 100 | 17 s | 2.26 GB |
 
-### whole genome, REAL HG002 24 kbp (2,000 reads)
+### whole genome, REAL HG002 HiFi ~13 kb (2,000 reads)
+
+> Named `allchr_real_24kbp` upstream, but the reads are **~13 kb**, not 24 kb: the dataset is built
+> from `hifi_sample.fastq` (real HG002 HiFi) and the "24kbp" is the nominal library size. Earlier
+> revisions of this file repeated the name as though it described the read length. For real reads
+> that genuinely are long, see `profiling/real24kbp/` (23.2 kb, 149 438 reads).
 
 | mapper | correct Q60 | wrong | missed% | time | mem |
 |---|---:|---:|---:|---:|---:|
@@ -36,7 +41,9 @@ pattern.)
 
 > The two tables above are 2 000- and 48 673-read datasets. For the same comparison at genuine
 > sequencing depth — 0.24 M to 3.2 M real HG002 HiFi reads — see the section below; it is the same
-> two mappers on the same host, and it is the more representative number.
+> two mappers on the same host, and it is the more representative number. For long real reads
+> specifically (23.2 kb, 149 438 reads, 1.11x), see `profiling/real24kbp/`: shmap-rs is **2.13x**
+> the C++ single-threaded and **5.41x** at `-@ 4`, using 9.7x less memory.
 
 ### Whole genome, REAL HG002 HiFi at depth (0.999x → 13.160x)
 

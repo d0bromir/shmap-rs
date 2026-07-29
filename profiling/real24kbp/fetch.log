@@ -1,0 +1,8 @@
+[14:06:30] streaming m64011_190830_220126
+  kept 77313 reads
+[14:29:06] after m64011_190830_220126: 77313 reads
+[14:29:06] streaming m64011_190901_095311
+  kept 72125 reads
+[14:51:51] after m64011_190901_095311: 149438 reads
+FINAL reads=149438 bases=3465413132 mean=23189 coverage=1.1117x
+FETCH24K DONE

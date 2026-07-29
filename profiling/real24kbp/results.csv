@@ -1,0 +1,4 @@
+mapper,threads,wall_s,peak_rss_gb,mapped,mapq60,speedup_vs_cpp,indexing_s,mapping_cpu_s
+cpp_shmap,1,97.88,18.85,149194,139309,1.00,,
+shmap_rs,1,45.98,1.94,149194,139309,2.13,9.2,32.9
+shmap_rs,4,18.10,2.04,149194,139309,5.41,5.3,39.6
