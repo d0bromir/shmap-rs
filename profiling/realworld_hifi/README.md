@@ -18,11 +18,44 @@ reads; this is 0.24-2.4 million real PacBio CCS reads.
   retry per run. All six runs completed first time (`rc=0`, no retries used).
 - Versus **C++ `shmap`** (`~/Pesho/shmap/release/shmap`), which is single-threaded by design.
 
-| depth | reads | bases | coverage of hs1 |
-|---|---:|---:|---:|
-| 1x | 242 534 | 3 113 721 004 | 0.9989x |
-| 3x | 727 602 | 9 336 852 851 | 2.9952x |
-| 10x | 2 425 341 | 31 132 446 551 | 9.9870x |
+### Input files
+
+Reference:
+
+| file | path | size | bases | segments |
+|---|---|---:|---:|---:|
+| `hs1.fa` | `~/_paper_work/hs1.fa` | 3.18 GB (3 179 638 084 B) | 3 117 292 070 | 25 |
+
+Read sets (all derived from `master.fa`, 41.14 GB / 41 136 602 249 B, 18 SMRT cells):
+
+| file | size | reads | total bases | read length mean / min / max | coverage of hs1 |
+|---|---:|---:|---:|---:|---:|
+| `hifi_1x.fa` | 3.12 GB (3 122 427 506 B) | 242 534 | 3 113 721 004 | 12 838 / 114 / 17 603 bp | **0.9989x** |
+| `hifi_3x.fa` | 9.36 GB (9 362 987 268 B) | 727 602 | 9 336 852 851 | 12 832 / 114 / 18 106 bp | **2.9952x** |
+| `hifi_10x.fa` | 31.22 GB (31 219 607 763 B) | 2 425 341 | 31 132 446 551 | 12 836 / 62 / 18 314 bp | **9.9870x** |
+
+### Exact invocations
+
+Verbatim from `Command being timed:` in each `/usr/bin/time -v` record. `$N` is `1`, `3` or `10`.
+
+shmap-rs (1.1.0, `b0121aa`):
+
+```
+/home/mpiuser/shmap-rs/target/release/shmap \
+    -s /home/mpiuser/_paper_work/hs1.fa \
+    -p /home/mpiuser/hifi_real/hifi_${N}x.fa \
+    -k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment \
+    -@ 1 -x --profile-log /home/mpiuser/hifi_real/rs_${N}x.profile.json
+```
+
+C++ shmap (`~/Pesho/shmap/release/shmap`, no threading flag — single-threaded by design):
+
+```
+/home/mpiuser/Pesho/shmap/release/shmap \
+    -s /home/mpiuser/_paper_work/hs1.fa \
+    -p /home/mpiuser/hifi_real/hifi_${N}x.fa \
+    -k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment
+```
 
 ## Results
 

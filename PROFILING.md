@@ -117,11 +117,22 @@ here uses 6 000-read subsets or simulated reads). 0.24-2.4 M real HG002 PacBio C
 T2T-CHM13, paper parameters (`-k 25 -r 0.01 -t 0.4`), single-threaded. Full write-up and raw
 reports in `profiling/realworld_hifi/`.
 
+Inputs — reference `hs1.fa`, 3.18 GB, 3 117 292 070 bp, 25 segments:
+
+| reads file | size | reads | read bases | read len mean/min/max | coverage of hs1 |
+|---|---:|---:|---:|---:|---:|
+| `hifi_1x.fa` | 3.12 GB | 242 534 | 3 113 721 004 | 12 838 / 114 / 17 603 bp | 0.9989x |
+| `hifi_3x.fa` | 9.36 GB | 727 602 | 9 336 852 851 | 12 832 / 114 / 18 106 bp | 2.9952x |
+| `hifi_10x.fa` | 31.22 GB | 2 425 341 | 31 132 446 551 | 12 836 / 62 / 18 314 bp | 9.9870x |
+
+Invoked as `shmap -s hs1.fa -p hifi_${N}x.fa -k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment`,
+plus `-@ 1 -x --profile-log rs_${N}x.profile.json` for shmap-rs (the C++ has no threading flag).
+
 | depth | shmap-rs | C++ shmap | speedup | shmap-rs RSS | C++ RSS |
 |---|---:|---:|---:|---:|---:|
-| 1x (0.999x, 242 534 reads) | **66.9 s** | 108.6 s | **1.62x** | **2.11 GB** | 19.30 GB |
-| 3x (2.995x, 727 602 reads) | **177.8 s** | 264.2 s | **1.49x** | **2.35 GB** | 19.30 GB |
-| 10x (9.987x, 2 425 341 reads) | **566.1 s** | 810.7 s | **1.43x** | **2.54 GB** | 19.31 GB |
+| 1x | **66.9 s** | 108.6 s | **1.62x** | **2.11 GB** | 19.30 GB |
+| 3x | **177.8 s** | 264.2 s | **1.49x** | **2.35 GB** | 19.30 GB |
+| 10x | **566.1 s** | 810.7 s | **1.43x** | **2.54 GB** | 19.31 GB |
 
 Per-read cost is constant across depths (0.232 / 0.230 / 0.229 ms) and memory is nearly flat
 (2.11 -> 2.54 GB for 10x the reads), so throughput scales linearly and nothing degrades at depth.
