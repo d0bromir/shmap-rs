@@ -1,5 +1,8 @@
 # Real long HiFi reads at 1.1x: shmap-rs vs the C++ original
 
+> **Superseded by [`RESULTS.md`](../../RESULTS.md).** That file is the single, ordered source for current benchmark numbers. This directory is kept for its raw artifacts (`-x` reports, `/usr/bin/time -v` records, driver scripts) and for the provenance of how its dataset was built. Figures in the prose below may be from an earlier commit.
+
+
 The first benchmark here on **real** whole-genome reads meaningfully longer than
 13 kb, at a read count large enough for mapping — not indexing — to dominate.
 

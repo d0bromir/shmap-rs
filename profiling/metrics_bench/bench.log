@@ -1,0 +1,16 @@
+Containment rs1 wall=0:46.18 rssKB=1902840 mapped=149194 mapq60=139309
+Containment rs4 wall=0:17.51 rssKB=1925372 mapped=149194 mapq60=139309
+Containment cpp wall=1:46.68 rssKB=19766264 mapped=149194 mapq60=139309
+Containment: rs -@1 vs -@4 IDENTICAL
+Containment: rs-vs-cpp core agreement 146681 / 149194
+Jaccard rs1 wall=0:57.17 rssKB=2301172 mapped=146120 mapq60=138421
+Jaccard rs4 wall=0:20.80 rssKB=1925128 mapped=146120 mapq60=138421
+Jaccard cpp wall=2:06.75 rssKB=19766596 mapped=146120 mapq60=138421
+Jaccard: rs -@1 vs -@4 IDENTICAL
+Jaccard: rs-vs-cpp core agreement 145557 / 146120
+bucket_SH rs1 wall=0:38.59 rssKB=2100856 mapped=149236 mapq60=138250
+bucket_SH rs4 wall=0:16.35 rssKB=1924632 mapped=149236 mapq60=138250
+bucket_SH cpp wall=1:22.90 rssKB=19766776 mapped=149236 mapq60=138250
+bucket_SH: rs -@1 vs -@4 IDENTICAL
+bucket_SH: rs-vs-cpp core agreement 146440 / 149236
+METRICS DONE

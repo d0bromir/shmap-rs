@@ -1,5 +1,8 @@
 # shmap-rs benchmarks
 
+> **Current numbers live in [`RESULTS.md`](RESULTS.md)** — one ordered file with every benchmark table. This document keeps the narrative it is named for; where a figure here and one there disagree, `RESULTS.md` is authoritative.
+
+
 64-core AVX-512 server, 376 GB RAM, Ubuntu 24.04. Params throughout are `-k 25 -r 0.01 -t 0.4
 -d 0.075 -o 0.3 -m Containment`. Accuracy matches shmap closely (22 918 / 6 902 correct on chrY,
 228 165 vs 228 166 on the whole genome) and is unchanged across every thread count below. See

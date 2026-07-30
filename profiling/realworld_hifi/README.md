@@ -1,5 +1,8 @@
 # Real HG002 HiFi WGS at 1x / 3x / 10x
 
+> **Superseded by [`RESULTS.md`](../../RESULTS.md).** That file is the single, ordered source for current benchmark numbers. This directory is kept for its raw artifacts (`-x` reports, `/usr/bin/time -v` records, driver scripts) and for the provenance of how its dataset was built. Figures in the prose below may be from an earlier commit.
+
+
 > **Superseded by `../full_suite_a2/`.** These are `b0121aa` numbers. The same host, at
 > `f85d9a2`, now gives 53.05 / 136.57 / 430.56 s and speedups of 2.04x / 1.93x / 1.89x —
 > shmap-rs got 21-24% faster while the C++ reproduced to within 0.5%. This file is kept as

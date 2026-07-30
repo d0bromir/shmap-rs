@@ -1,5 +1,8 @@
 # shmap-rs vs other mappers (real-world data)
 
+> **Current numbers live in [`RESULTS.md`](RESULTS.md)** — one ordered file with every benchmark table. This document keeps the narrative it is named for; where a figure here and one there disagree, `RESULTS.md` is authoritative.
+
+
 Single-threaded (`-@ 1`), 64-core AVX-512 server. Same datasets/params as Pesho's `shmap` Table 1
 (`-k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment`). **shmap-rs rows were re-measured with the
 current build** (`profiling/table1_t1.csv`); the other mappers' numbers are the stored Table 1 run

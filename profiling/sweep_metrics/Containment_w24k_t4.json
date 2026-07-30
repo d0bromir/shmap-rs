@@ -1,0 +1,183 @@
+{
+  "shmap_version": "1.1.0",
+  "started_at_unix": 1785341427,
+  "wall_seconds": 14.820507,
+  "meta": {
+    "k": "25",
+    "h_frac": "0.01",
+    "theta": "0.4",
+    "threads_requested": "4",
+    "available_parallelism": "64",
+    "t_file": "/home/mpiuser/_paper_work/hs1.fa",
+    "p_file": "/home/mpiuser/wgs24k/reads_24kbp_1x.fa",
+    "os": "linux"
+  },
+  "global": {
+    "timers_secs": {"bucket_merge":0.889228,"collect_kmer_info":7.177515,"fasta_extract":1.171544,"fasta_parse_next":1.076088,"group_kmers":0.826240,"index_collecting":0.000078,"index_finalizing":0.364591,"index_initializing":1.888034,"index_reading":3.179860,"index_sketching":6.240925,"indexing":5.470623,"mapping":9.001811,"match_collect":0.000000,"match_rest":8.822531,"match_rest_for_best":7.288828,"match_rest_for_best2":1.477492,"match_seeds":7.689009,"output":0.711242,"prepare":9.927825,"query_mapping":33.174549,"query_reading":2.320662,"refine":3.217016,"seed_heuristic":0.000000,"seeding":8.735225,"sketching":5.786448,"sort_kmers":0.692964,"total":14.820263},
+    "counters": {"J_best":1091883293,"blacklisted_hits":0,"blacklisted_kmers":0,"final_buckets":286361,"indexed_highest_freq_kmer":67811,"indexed_hits":31009328,"indexed_kmers":18836539,"intersection_diff":0,"kmers":29830778,"kmers_notmatched":2075101,"kmers_seeds":20199856,"kmers_sketched":29830778,"kmers_unique":28435747,"lost_on_pruning":125000,"lost_on_seeding":0,"mapped_reads":125000,"mappings":125000,"mapq0":7425,"mapq60":117532,"matches":0,"matches_freq":0,"matches_in_reported_mappings":26076693,"max_seed_matches":34141178,"original_kmers":60840106,"possible_matches":14225558943,"read_len":3000000000,"reads":125000,"refine_memo_hits":175983,"refined_buckets":271457,"seed_matches":363351208,"seeded_buckets":25780303,"seeds":0,"seeds_limit_reached":0,"segments":25,"sketched_kmers":60840106,"sketched_len":6117292070,"sketched_seqs":125025,"spurious_matches":0,"total_edit_distance":0,"total_matches":363351208,"total_nucls":3117292070}
+  },
+  "threads": [
+    {
+      "label": "index-worker-0",
+      "role": "index_sketch",
+      "jobs": 102,
+      "timers_secs": {"index_sketching":1.608008},
+      "counters": {"sketched_len":822599556}
+    },
+    {
+      "label": "index-worker-3",
+      "role": "index_sketch",
+      "jobs": 96,
+      "timers_secs": {"index_sketching":1.567876},
+      "counters": {"sketched_len":736059143}
+    },
+    {
+      "label": "index-worker-2",
+      "role": "index_sketch",
+      "jobs": 105,
+      "timers_secs": {"index_sketching":1.562348},
+      "counters": {"sketched_len":822583129}
+    },
+    {
+      "label": "index-worker-1",
+      "role": "index_sketch",
+      "jobs": 106,
+      "timers_secs": {"index_sketching":1.502694},
+      "counters": {"sketched_len":736059458}
+    },
+    {
+      "label": "indexer",
+      "role": "index",
+      "jobs": 25,
+      "timers_secs": {"index_collecting":0.000078,"index_finalizing":0.364591,"index_initializing":1.888034,"index_reading":3.179860,"index_sketching":6.240925,"indexing":5.470623,"total":5.640680},
+      "counters": {"blacklisted_hits":0,"blacklisted_kmers":0,"indexed_highest_freq_kmer":67811,"indexed_hits":31009328,"indexed_kmers":18836539,"original_kmers":31009328,"segments":25,"sketched_kmers":31009328,"sketched_len":3117292070,"sketched_seqs":25,"total_nucls":3117292070}
+    },
+    {
+      "label": "reader",
+      "role": "io",
+      "jobs": 125000,
+      "timers_secs": {"fasta_extract":1.171544,"fasta_parse_next":1.076088,"query_reading":2.320662},
+      "counters": {}
+    },
+    {
+      "label": "worker-1",
+      "role": "map",
+      "jobs": 31227,
+      "timers_secs": {"bucket_merge":0.228884,"collect_kmer_info":1.736095,"group_kmers":0.210987,"match_collect":0.000000,"match_rest":2.184696,"match_rest_for_best":1.813656,"match_rest_for_best2":0.344592,"match_seeds":1.793782,"output":0.166134,"prepare":2.502991,"query_mapping":8.169378,"refine":0.829212,"seed_heuristic":0.000000,"seeding":2.163898,"sketching":1.444644,"sort_kmers":0.206859,"worker_setup":0.000004},
+      "counters": {"J_best":272833690,"final_buckets":71554,"intersection_diff":0,"kmers":7456230,"kmers_notmatched":518961,"kmers_seeds":5048959,"kmers_sketched":7456230,"kmers_unique":7121118,"lost_on_pruning":31227,"lost_on_seeding":0,"mapped_reads":31227,"mappings":31227,"mapq0":1853,"mapq60":29363,"matches":0,"matches_freq":0,"matches_in_reported_mappings":6519341,"max_seed_matches":8002596,"original_kmers":7456230,"possible_matches":3560008154,"read_len":749448000,"refine_memo_hits":43756,"refined_buckets":65729,"seed_matches":89219139,"seeded_buckets":6278840,"seeds":0,"seeds_limit_reached":0,"sketched_kmers":7456230,"sketched_len":749448000,"sketched_seqs":31227,"spurious_matches":0,"total_edit_distance":0,"total_matches":89219139}
+    },
+    {
+      "label": "worker-2",
+      "role": "map",
+      "jobs": 30641,
+      "timers_secs": {"bucket_merge":0.225918,"collect_kmer_info":1.790739,"group_kmers":0.203757,"match_collect":0.000000,"match_rest":2.209446,"match_rest_for_best":1.828041,"match_rest_for_best2":0.371288,"match_seeds":1.991558,"output":0.179657,"prepare":2.458103,"query_mapping":8.329689,"refine":0.812767,"seed_heuristic":0.000000,"seeding":2.169320,"sketching":1.429691,"sort_kmers":0.165308,"worker_setup":0.000026},
+      "counters": {"J_best":267622467,"final_buckets":70251,"intersection_diff":0,"kmers":7311834,"kmers_notmatched":507938,"kmers_seeds":4951152,"kmers_sketched":7311834,"kmers_unique":6967312,"lost_on_pruning":30641,"lost_on_seeding":0,"mapped_reads":30641,"mappings":30641,"mapq0":1817,"mapq60":28815,"matches":0,"matches_freq":0,"matches_in_reported_mappings":6390848,"max_seed_matches":8384272,"original_kmers":7311834,"possible_matches":3482558260,"read_len":735384000,"refine_memo_hits":43835,"refined_buckets":67582,"seed_matches":89892066,"seeded_buckets":6486698,"seeds":0,"seeds_limit_reached":0,"sketched_kmers":7311834,"sketched_len":735384000,"sketched_seqs":30641,"spurious_matches":0,"total_edit_distance":0,"total_matches":89892066}
+    },
+    {
+      "label": "worker-3",
+      "role": "map",
+      "jobs": 30267,
+      "timers_secs": {"bucket_merge":0.220078,"collect_kmer_info":1.821733,"group_kmers":0.201610,"match_collect":0.000000,"match_rest":2.206731,"match_rest_for_best":1.831327,"match_rest_for_best2":0.365412,"match_seeds":1.942512,"output":0.190045,"prepare":2.495756,"query_mapping":8.291077,"refine":0.789129,"seed_heuristic":0.000000,"seeding":2.199300,"sketching":1.410774,"sort_kmers":0.166726,"worker_setup":0.000002},
+      "counters": {"J_best":264392638,"final_buckets":69185,"intersection_diff":0,"kmers":7223877,"kmers_notmatched":503319,"kmers_seeds":4891608,"kmers_sketched":7223877,"kmers_unique":6887567,"lost_on_pruning":30267,"lost_on_seeding":0,"mapped_reads":30267,"mappings":30267,"mapq0":1753,"mapq60":28505,"matches":0,"matches_freq":0,"matches_in_reported_mappings":6314938,"max_seed_matches":8269524,"original_kmers":7223877,"possible_matches":3445613527,"read_len":726408000,"refine_memo_hits":42585,"refined_buckets":66230,"seed_matches":87494958,"seeded_buckets":6263748,"seeds":0,"seeds_limit_reached":0,"sketched_kmers":7223877,"sketched_len":726408000,"sketched_seqs":30267,"spurious_matches":0,"total_edit_distance":0,"total_matches":87494958}
+    },
+    {
+      "label": "worker-0",
+      "role": "map",
+      "jobs": 32865,
+      "timers_secs": {"bucket_merge":0.214349,"collect_kmer_info":1.828948,"group_kmers":0.209885,"match_collect":0.000000,"match_rest":2.221658,"match_rest_for_best":1.815805,"match_rest_for_best2":0.396201,"match_seeds":1.961157,"output":0.175406,"prepare":2.470975,"query_mapping":8.384405,"refine":0.785909,"seed_heuristic":0.000000,"seeding":2.202707,"sketching":1.501340,"sort_kmers":0.154071,"worker_setup":0.000002},
+      "counters": {"J_best":287034498,"final_buckets":75371,"intersection_diff":0,"kmers":7838837,"kmers_notmatched":544883,"kmers_seeds":5308137,"kmers_sketched":7838837,"kmers_unique":7459750,"lost_on_pruning":32865,"lost_on_seeding":0,"mapped_reads":32865,"mappings":32865,"mapq0":2002,"mapq60":30849,"matches":0,"matches_freq":0,"matches_in_reported_mappings":6851566,"max_seed_matches":9484786,"original_kmers":7838837,"possible_matches":3737379002,"read_len":788760000,"refine_memo_hits":45807,"refined_buckets":71916,"seed_matches":96745045,"seeded_buckets":6751017,"seeds":0,"seeds_limit_reached":0,"sketched_kmers":7838837,"sketched_len":788760000,"sketched_seqs":32865,"spurious_matches":0,"total_edit_distance":0,"total_matches":96745045}
+    },
+    {
+      "label": "collector",
+      "role": "output",
+      "jobs": 125000,
+      "timers_secs": {"collector_busy":2.136673},
+      "counters": {"max_pending_reorder_buffer":128}
+    }
+  ],
+  "memory": {
+    "peak_rss_kb": 2164832,
+    "samples": [
+      {"at_secs": 0.000, "label": "start", "rss_kb": 3112, "vmhwm_kb": 3112},
+      {"at_secs": 0.000, "label": "before_index", "rss_kb": 3364, "vmhwm_kb": 3364},
+      {"at_secs": 0.201, "rss_kb": 497788, "vmhwm_kb": 497788},
+      {"at_secs": 0.401, "rss_kb": 657044, "vmhwm_kb": 657044},
+      {"at_secs": 0.601, "rss_kb": 610028, "vmhwm_kb": 826776},
+      {"at_secs": 0.801, "rss_kb": 762224, "vmhwm_kb": 826776},
+      {"at_secs": 1.002, "rss_kb": 766356, "vmhwm_kb": 826776},
+      {"at_secs": 1.202, "rss_kb": 836712, "vmhwm_kb": 836712},
+      {"at_secs": 1.402, "rss_kb": 712800, "vmhwm_kb": 864324},
+      {"at_secs": 1.602, "rss_kb": 764452, "vmhwm_kb": 864324},
+      {"at_secs": 1.803, "rss_kb": 847256, "vmhwm_kb": 864324},
+      {"at_secs": 2.003, "rss_kb": 787184, "vmhwm_kb": 895988},
+      {"at_secs": 2.203, "rss_kb": 903308, "vmhwm_kb": 912916},
+      {"at_secs": 2.404, "rss_kb": 912604, "vmhwm_kb": 939076},
+      {"at_secs": 2.604, "rss_kb": 915024, "vmhwm_kb": 962708},
+      {"at_secs": 2.804, "rss_kb": 949804, "vmhwm_kb": 963224},
+      {"at_secs": 3.004, "rss_kb": 971164, "vmhwm_kb": 1008476},
+      {"at_secs": 3.205, "rss_kb": 934372, "vmhwm_kb": 1008476},
+      {"at_secs": 3.405, "rss_kb": 1232868, "vmhwm_kb": 1232868},
+      {"at_secs": 3.605, "rss_kb": 1414008, "vmhwm_kb": 1444724},
+      {"at_secs": 3.805, "rss_kb": 1488116, "vmhwm_kb": 1504760},
+      {"at_secs": 4.006, "rss_kb": 1657824, "vmhwm_kb": 1657824},
+      {"at_secs": 4.206, "rss_kb": 1977708, "vmhwm_kb": 1977708},
+      {"at_secs": 4.406, "rss_kb": 1989728, "vmhwm_kb": 2006372},
+      {"at_secs": 4.607, "rss_kb": 2107628, "vmhwm_kb": 2156392},
+      {"at_secs": 4.807, "rss_kb": 2116336, "vmhwm_kb": 2156392},
+      {"at_secs": 5.007, "rss_kb": 2124592, "vmhwm_kb": 2156392},
+      {"at_secs": 5.208, "rss_kb": 2140892, "vmhwm_kb": 2156392},
+      {"at_secs": 5.408, "rss_kb": 2153548, "vmhwm_kb": 2156392},
+      {"at_secs": 5.608, "rss_kb": 2155156, "vmhwm_kb": 2156392},
+      {"at_secs": 5.641, "label": "after_index", "rss_kb": 2155156, "vmhwm_kb": 2156392},
+      {"at_secs": 5.641, "label": "mapping_start", "rss_kb": 2155156, "vmhwm_kb": 2156392},
+      {"at_secs": 5.808, "rss_kb": 2161736, "vmhwm_kb": 2161736},
+      {"at_secs": 6.009, "rss_kb": 2161736, "vmhwm_kb": 2161736},
+      {"at_secs": 6.209, "rss_kb": 2161736, "vmhwm_kb": 2161736},
+      {"at_secs": 6.409, "rss_kb": 2161776, "vmhwm_kb": 2161776},
+      {"at_secs": 6.609, "rss_kb": 2161776, "vmhwm_kb": 2161776},
+      {"at_secs": 6.810, "rss_kb": 2161776, "vmhwm_kb": 2161776},
+      {"at_secs": 7.010, "rss_kb": 2161776, "vmhwm_kb": 2161776},
+      {"at_secs": 7.210, "rss_kb": 2164060, "vmhwm_kb": 2164060},
+      {"at_secs": 7.410, "rss_kb": 2164060, "vmhwm_kb": 2164060},
+      {"at_secs": 7.611, "rss_kb": 2164060, "vmhwm_kb": 2164060},
+      {"at_secs": 7.811, "rss_kb": 2164060, "vmhwm_kb": 2164060},
+      {"at_secs": 8.011, "rss_kb": 2164060, "vmhwm_kb": 2164060},
+      {"at_secs": 8.212, "rss_kb": 2164060, "vmhwm_kb": 2164060},
+      {"at_secs": 8.412, "rss_kb": 2164060, "vmhwm_kb": 2164060},
+      {"at_secs": 8.612, "rss_kb": 2164060, "vmhwm_kb": 2164060},
+      {"at_secs": 8.812, "rss_kb": 2164108, "vmhwm_kb": 2164108},
+      {"at_secs": 9.013, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 9.213, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 9.413, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 9.613, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 9.814, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 10.014, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 10.214, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 10.414, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 10.615, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 10.815, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 11.015, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 11.216, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 11.416, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 11.616, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 11.816, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 12.017, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 12.217, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 12.417, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 12.617, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 12.818, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 13.018, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 13.218, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 13.419, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 13.619, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 13.819, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 14.019, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 14.220, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 14.420, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 14.620, "rss_kb": 2164832, "vmhwm_kb": 2164832},
+      {"at_secs": 14.643, "label": "mapping_end", "rss_kb": 2157396, "vmhwm_kb": 2159976},
+      {"at_secs": 14.644, "label": "after_mapping", "rss_kb": 2157396, "vmhwm_kb": 2159976},
+      {"at_secs": 14.820, "label": "end", "rss_kb": 2157396, "vmhwm_kb": 2159976}
+    ]
+  }
+}

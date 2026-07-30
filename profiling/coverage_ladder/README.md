@@ -1,5 +1,8 @@
 # Coverage ladder: 1x → 100x whole-genome
 
+> **Superseded by [`RESULTS.md`](../../RESULTS.md).** That file is the single, ordered source for current benchmark numbers. This directory is kept for its raw artifacts (`-x` reports, `/usr/bin/time -v` records, driver scripts) and for the provenance of how its dataset was built. Figures in the prose below may be from an earlier commit.
+
+
 A scaling and soak test taking read depth an order of magnitude past anything
 measured before: **311.7 Gbp of reads (100x of the human genome) in a single
 run**. The question it answers is narrow and deliberate — *does anything

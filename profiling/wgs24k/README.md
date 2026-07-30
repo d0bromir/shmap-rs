@@ -1,5 +1,8 @@
 # 125 000 x 24 kbp whole-genome sweep
 
+> **Superseded by [`RESULTS.md`](../../RESULTS.md).** That file is the single, ordered source for current benchmark numbers. This directory is kept for its raw artifacts (`-x` reports, `/usr/bin/time -v` records, driver scripts) and for the provenance of how its dataset was built. Figures in the prose below may be from an earlier commit.
+
+
 Built to close a gap: every other whole-genome dataset in this repo is 12.8 kbp, and the only
 24 kbp WGS set (`allchr_real_24kbp`) is **2 000 reads** — about 0.015x coverage, ~93% of which is
 indexing. That set cannot say anything about whether 24 kbp reads parallelize, because there is

@@ -1,5 +1,8 @@
 # Full suite on the benchmark host: tiny → 13.2x real WGS
 
+> **Superseded by [`RESULTS.md`](../../RESULTS.md).** That file is the single, ordered source for current benchmark numbers. This directory is kept for its raw artifacts (`-x` reports, `/usr/bin/time -v` records, driver scripts) and for the provenance of how its dataset was built. Figures in the prose below may be from an earlier commit.
+
+
 Everything shmap-rs is benchmarked against, small and large, re-measured on the
 64-core benchmark host at `f85d9a2` — the first numbers taken there since the
 `refine` memo and the preceding allocation work landed.

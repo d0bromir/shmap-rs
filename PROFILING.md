@@ -1,5 +1,8 @@
 # shmap-rs profiling
 
+> **Benchmark numbers live in [`RESULTS.md`](RESULTS.md).** This file is the optimization log — what was changed, why, and what it measured at the time. Treat its figures as the record of each change, not as current results.
+
+
 Instrumentation: `-x`/`--profile` (`src/profiling.rs`), writing a per-run JSON report. Reproduce:
 
 ```
