@@ -1,1 +1,5 @@
 /target
+
+# Python bytecode from the benchmark tooling
+__pycache__/
+*.pyc
