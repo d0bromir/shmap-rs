@@ -85,3 +85,8 @@ jobs:
 
       - name: benchmark suite definition is consistent
         run: python3 benchmarks/validate_suite.py
+
+      # compare.py decides whether a PR may merge, so a bug in it either waves
+      # a regression through or blocks a good change. Cheap to check here.
+      - name: merge-gate verdicts are correct
+        run: python3 benchmarks/test_compare.py

@@ -104,17 +104,19 @@ impl<'idx, 'b, 'p, const AP: bool> AnalyseSimulatedReads<'idx, 'b, 'p, AP> {
         let segm = tidx
             .get_segment_by_name(&parsed_orig.segm_id)
             .expect("ground-truth segment not found in index");
-        let mut gt_mapping = Mapping::default();
-        gt_mapping.paf = crate::mapping::MappingPaf::new(
-            0,
-            p_sz,
-            parsed_orig.strand,
-            &segm.name,
-            segm.sz,
-            segm.id,
-            parsed_orig.start_pos,
-            parsed_orig.end_pos,
-        );
+        let gt_mapping = Mapping {
+            paf: crate::mapping::MappingPaf::new(
+                0,
+                p_sz,
+                parsed_orig.strand,
+                &segm.name,
+                segm.sz,
+                segm.id,
+                parsed_orig.start_pos,
+                parsed_orig.end_pos,
+            ),
+            ..Default::default()
+        };
 
         let (gt_start_nucl, gt_end_nucl, start, end, segm_id, segm_name) = Self::gt_start_end(tidx, query_id);
 
@@ -306,7 +308,7 @@ mod tests {
     /// of it is overwhelmingly likely to be unique, so a substring read
     /// maps cleanly back to one specific ground-truth region.
     fn pseudo_random_dna(seed: u64, len: usize) -> Vec<u8> {
-        let bases = [b'A', b'C', b'G', b'T'];
+        let bases = b"ACGT";
         let mut state = seed;
         (0..len)
             .map(|_| {

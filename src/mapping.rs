@@ -45,6 +45,9 @@ impl Default for MappingPaf {
 }
 
 impl MappingPaf {
+    // A PAF record has these fields; grouping them into a struct would just move
+    // the same eight values behind an extra name.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         p_start: QPos,
         p_end: QPos,

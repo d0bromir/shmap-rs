@@ -296,8 +296,9 @@ pub type H2Cnt = FxHashMap<Hash, QPos>;
 pub type H2Seed = FxHashMap<Hash, Seed>;
 
 /// The mapping-optimization metric used to score/refine a candidate bucket.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, clap::ValueEnum)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, clap::ValueEnum)]
 pub enum Metric {
+    #[default]
     #[value(name = "Containment")]
     Containment,
     #[value(name = "Jaccard")]
@@ -306,12 +307,6 @@ pub enum Metric {
     BucketSh,
     #[value(name = "bucket_LCS")]
     BucketLcs,
-}
-
-impl Default for Metric {
-    fn default() -> Self {
-        Metric::Containment
-    }
 }
 
 impl fmt::Display for Metric {

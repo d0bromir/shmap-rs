@@ -449,7 +449,8 @@ pub fn read_fasta(path: &str, timers: &mut Timers, mut callback: impl FnMut(&str
         // second time — for a chromosome-sized segment that second copy was
         // both a memcpy of hundreds of MB and hundreds of MB of extra peak RSS.
         let seq = record.seq().into_owned();
-        drop(record); // end the borrow of `reader` before calling `.position()`
+        // `seq` is owned, so the borrow of `reader` that `record` holds ends
+        // here on its own and `.position()` below is free to take `&reader`.
 
         let progress = (reader.position().byte() as f64 / total_bytes as f64).min(1.0) as f32;
         timers.stop("fasta_extract");

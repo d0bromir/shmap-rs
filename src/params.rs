@@ -122,15 +122,15 @@ impl Params {
                 self.h_frac
             );
         }
-        if let Some(s) = self.max_seeds {
-            if s <= 0 {
-                bail!("The number of seeds (-S) should be positive. You provided {s}.");
-            }
+        if let Some(s) = self.max_seeds
+            && s <= 0
+        {
+            bail!("The number of seeds (-S) should be positive. You provided {s}.");
         }
-        if let Some(m) = self.max_matches {
-            if m <= 0 {
-                bail!("The number of seed matches (-M) should be positive. You provided {m}.");
-            }
+        if let Some(m) = self.max_matches
+            && m <= 0
+        {
+            bail!("The number of seed matches (-M) should be positive. You provided {m}.");
         }
         if self.theta < 0.0 || self.theta > 1.0 {
             bail!(

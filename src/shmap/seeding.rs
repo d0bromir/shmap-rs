@@ -68,7 +68,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.timers.stop("collect_kmer_info");
 
         self.timers.start("sort_kmers");
-        p_unique.sort_by(|a, b| a.hits_in_t.cmp(&b.hits_in_t));
+        p_unique.sort_by_key(|s| s.hits_in_t);
         self.timers.stop("sort_kmers");
 
         self.counters.inc("kmers_notmatched", p.len() as i64 - nonzero as i64);

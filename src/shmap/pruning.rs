@@ -84,6 +84,11 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     /// moment it can't (bucket is prunable), `true` if it survives to the
     /// end of `p_unique` (or immediately, when `NBP` disables pruning
     /// entirely).
+    // Innermost loop of the mapper. Bundling these into a context struct adds a
+    // level of indirection to reach `bucket` and `sh`, and this workload is
+    // memory-latency bound — the same change has been measured as a net loss
+    // twice here (see RESULTS.md §5).
+    #[allow(clippy::too_many_arguments)]
     pub fn seed_heuristic_pass(
         &self,
         buckets: &Buckets<'idx, AP>,

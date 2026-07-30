@@ -12,7 +12,7 @@ use std::io::Write;
 /// `rand` dependency needed, matches the helper already used in
 /// `src/analyse_simulated.rs`'s own tests.
 fn pseudo_random_dna(seed: u64, len: usize) -> Vec<u8> {
-    let bases = [b'A', b'C', b'G', b'T'];
+    let bases = b"ACGT";
     let mut state = seed;
     (0..len)
         .map(|_| {
