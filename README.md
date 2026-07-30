@@ -1,1 +1,106 @@
-Based on https://github.com/pesho-ivanov/shmap
+# shmap-rs
+
+A Rust port of [`shmap`](https://github.com/pesho-ivanov/shmap) — a sketch-based long-read mapper
+that finds where a read belongs by k-mer set overlap rather than by alignment.
+
+**Latest release: [1.2.0](https://github.com/d0bromir/shmap-rs/releases/tag/1.2.0)** — optimized,
+multithreaded, verified.
+
+Against the C++ original on real whole-genome data: **2.1–2.4x faster single-threaded, up to 13.6x
+with threads, and 8–10x less memory**, with identical mapping counts.
+
+---
+
+## Results at a glance
+
+Real HG002 reads against the whole T2T-CHM13 genome (3.117 Gbp), on a 64-core host.
+The C++ is single-threaded by design, so `-@1` is the like-for-like column.
+
+| dataset | shmap-rs `-@1` | shmap-rs `-@4` | C++ `shmap` | speedup | memory |
+|---|---:|---:|---:|---:|---:|
+| HiFi, 23.2 kb, 149 438 reads | **46.2 s** | **17.5 s** | 98.3 s | **2.13x** / 5.61x | 1.9 GB vs 18.9 GB |
+| ONT, 23.8 kb, 92 220 reads | **24.1 s** | **11.1 s** | 54.3 s | **2.25x** / 4.91x | 2.1 GB vs 18.9 GB |
+
+- **Scales to many threads** — up to **13.63x** whole-run at `-@ 32`; the C++ cannot use more than
+  one core. Output is byte-identical at every thread count.
+- **Memory is flat in coverage** — 2.13 GB at 1x, 2.16 GB at **100x** (311.7 Gbp of reads in one
+  run). The C++ sits at 18.85 GB regardless.
+- **Identical mapping** — same reads mapped, same mapq-60 counts as the C++; 98.3% of records agree
+  byte-for-byte, the rest being adjacent-bucket ties broken differently by a stable sort.
+
+Full tables, all three scoring metrics, six datasets, and the correctness checks:
+**[RESULTS.md](RESULTS.md)**.
+
+## Install
+
+```sh
+cargo build --release      # target/release/shmap
+```
+
+Requires a recent stable Rust (edition 2024). No system dependencies.
+
+## Usage
+
+```sh
+shmap -s reference.fa -p reads.fa -k 25 -r 0.01 -t 0.4 -m Containment -@ 8 > out.paf
+```
+
+Output is [PAF](https://github.com/lh3/miniasm/blob/master/PAF.md) on stdout, with extra `k:i:`,
+`J:f:`, `sh:f:` and similar tags carrying scores and diagnostics.
+
+| flag | meaning |
+|---|---|
+| `-s`, `-p` | reference and reads, FASTA (gzip/bzip2/xz/zstd accepted) |
+| `-k` | k-mer length (paper runs use 25) |
+| `-r` | FracMinHash ratio — the fraction of k-mers sketched (0.01) |
+| `-t` | homology threshold in [0,1] (0.4) |
+| `-m` | scoring metric: `Containment`, `Jaccard`, `bucket_SH`, `bucket_LCS` |
+| `-@` | mapping threads (default 1) |
+| `-x` | write a JSON profiling report (`--profile-log`) |
+
+**Choosing `-m`.** `Containment` (`intersection / m`) is the default and the right choice almost
+always. `Jaccard` is stricter and ~24% slower, and it **collapses on high-error reads** — 6.5%
+mapped on ONT against Containment's 42.9% — because its denominator grows when errors shrink the
+intersection. `bucket_SH` skips refinement: ~16% faster, but it loses the precise scoring that
+separates confident mappings from ambiguous ones.
+
+## How it works
+
+1. **Sketch** the reference and each read with FracMinHash, keeping k-mers whose hash falls below
+   `r · u64::MAX`.
+2. **Seed** — look up each read k-mer in the index, rarest first.
+3. **Accumulate** hits into overlapping buckets, each two half-read-lengths wide, using a dense
+   array sized by the read's own half-length.
+4. **Prune** buckets by a seed-heuristic upper bound.
+5. **Refine** survivors with a sliding window that maximises k-mer set overlap, and report the best.
+
+This is set overlap, not alignment: no dynamic programming, no edit distance. Reported coordinates
+are window boundaries.
+
+## Documentation
+
+| file | contents |
+|---|---|
+| [RESULTS.md](RESULTS.md) | **all benchmark numbers** — the single source |
+| [PROFILING.md](PROFILING.md) | optimization log: what changed, why, and what it measured |
+| [BENCHMARKS.md](BENCHMARKS.md) | thread-scaling history |
+| [COMPARISON.md](COMPARISON.md) | against other mappers (minimap2, winnowmap2, blend, mapquik) |
+| `profiling/*/` | raw `-x` reports, `time -v` records, driver scripts, dataset provenance |
+
+## Correctness
+
+`cargo test` runs 53 tests; run it in **both** profiles, since debug activates the `debug_assert`s
+that guard the parallel index build and reader. Beyond that, changes are checked by byte-identical
+PAF against the previous build on the whole human genome, by thread-count invariance, and by
+`profiling/validate_paf.py`, which verifies structural, score and ground-truth invariants —
+99.70% of simulated reads land within one read length of their true position.
+
+That last check earns its keep: it found a bug byte-identical diffing structurally could not,
+because both implementations shared it. See [RESULTS.md §7](RESULTS.md#7-correctness).
+
+## Relationship to upstream
+
+A faithful port, with a documented policy of fixing real bugs rather than reproducing them — each
+divergence is commented at the site with what upstream does and why this differs. Output is not
+bit-identical to the C++ and is not meant to be: shmap-rs uses a stable sort where upstream uses
+`std::sort`, so tied buckets resolve deterministically here and arbitrarily there.
