@@ -1,0 +1,65 @@
+[11:02:40] (1) SRR11032669  3.62 GB
+[11:31:31]     total kept: 11634
+[11:31:32] (2) SRR11032723  0.98 GB
+awk: cmd. line:1: (FILENAME=- FNR=138822) warning: Invalid multibyte data detected. There may be a mismatch between your data and your locale
+[11:39:08]     total kept: 14143
+[11:39:08] (3) SRR11032754  3.01 GB
+[12:03:00]     total kept: 22492
+[12:03:00] (4) SRR11032722  0.93 GB
+awk: cmd. line:1: (FILENAME=- FNR=103574) warning: Invalid multibyte data detected. There may be a mismatch between your data and your locale
+[12:10:34]     total kept: 24162
+[12:10:34] (5) SRR11032684  2.33 GB
+[12:17:36]     total kept: 28028
+[12:17:37] (6) SRR11032656  2.49 GB
+[12:36:56]     total kept: 33942
+[12:36:57] (7) SRR11032661  0.55 GB
+awk: cmd. line:1: (FILENAME=- FNR=35462) warning: Invalid multibyte data detected. There may be a mismatch between your data and your locale
+[12:39:32]     total kept: 38051
+[12:39:33] (8) SRR11032660  1.58 GB
+[12:47:59]     total kept: 41855
+[12:47:59] (9) SRR11032675  1.75 GB
+[12:53:43]     total kept: 44524
+[12:53:43] (10) SRR11032683  1.50 GB
+[13:04:58]     total kept: 47403
+[13:04:58] (11) SRR11032736  1.89 GB
+[13:19:58]     total kept: 52005
+[13:19:59] (12) SRR11032758  1.94 GB
+[13:40:58]     total kept: 56016
+[13:40:59] (13) SRR11032720  0.53 GB
+awk: cmd. line:1: (FILENAME=- FNR=79902) warning: Invalid multibyte data detected. There may be a mismatch between your data and your locale
+[13:46:19]     total kept: 57521
+[13:46:20] (14) SRR11032657  1.60 GB
+[14:01:16]     total kept: 61065
+[14:01:16] (15) SRR11032664  1.97 GB
+[14:16:43]     total kept: 64728
+[14:16:43] (16) SRR11032759  1.53 GB
+[14:27:56]     total kept: 68496
+[14:27:57] (17) SRR11032668  1.07 GB
+[14:36:19]     total kept: 70983
+[14:36:19] (18) SRR11032659  0.98 GB
+[14:44:22]     total kept: 73094
+[14:44:23] (19) SRR11032667  1.12 GB
+[14:52:51]     total kept: 75086
+[14:52:52] (20) SRR11032698  0.93 GB
+[15:01:22]     total kept: 76793
+[15:01:23] (21) SRR11032755  1.11 GB
+[15:12:55]     total kept: 78784
+[15:12:56] (22) SRR11032719  0.36 GB
+[15:15:49]     total kept: 80692
+[15:15:50] (23) SRR11032702  0.89 GB
+[15:23:02]     total kept: 82636
+[15:23:03] (24) SRR11032658  1.13 GB
+[15:31:25]     total kept: 84580
+[15:31:26] (25) SRR11032752  0.75 GB
+[15:37:09]     total kept: 86825
+[15:37:10] (26) SRR11032676  0.82 GB
+[15:42:53]     total kept: 88257
+[15:42:54] (27) SRR11032701  0.18 GB
+awk: cmd. line:1: (FILENAME=- FNR=13818) warning: Invalid multibyte data detected. There may be a mismatch between your data and your locale
+[15:44:23]     total kept: 89514
+[15:44:24] (28) SRR11032677  0.57 GB
+[15:47:01]     total kept: 91530
+[15:47:02] (29) SRR11032665  0.44 GB
+[15:52:04]     total kept: 92220
+FINAL reads=92220 bases=2191178243 mean=23760 coverage=0.7029x
+FETCHONT DONE

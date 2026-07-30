@@ -1,0 +1,16 @@
+dataset: 92220 reads
+Containment_rs1 wall=0:24.13 rssKB=2190944 mapped=39608 mapq60=37839
+Containment_rs4 wall=0:11.05 rssKB=1923692 mapped=39608 mapq60=37839
+Containment_cpp wall=0:54.29 rssKB=19763192 mapped=39608 mapq60=37839
+Containment: rs -@1 vs -@4 IDENTICAL
+Containment: rs-vs-cpp core agreement 38786 / 39608
+Jaccard_rs1 wall=0:26.93 rssKB=2141184 mapped=5956 mapq60=5409
+Jaccard_rs4 wall=0:12.45 rssKB=1936768 mapped=5956 mapq60=5409
+Jaccard_cpp wall=1:01.42 rssKB=19763192 mapped=5956 mapq60=5409
+Jaccard: rs -@1 vs -@4 IDENTICAL
+Jaccard: rs-vs-cpp core agreement 5943 / 5956
+bucket_SH_rs1 wall=0:23.35 rssKB=1928048 mapped=41115 mapq60=39226
+bucket_SH_rs4 wall=0:10.38 rssKB=1928392 mapped=41115 mapq60=39226
+bucket_SH_cpp wall=0:55.27 rssKB=19763188 mapped=41115 mapq60=39225
+bucket_SH: rs -@1 vs -@4 IDENTICAL
+bucket_SH: rs-vs-cpp core agreement 40368 / 41115

@@ -23,7 +23,7 @@ Contents, in fixed order:
 
 | | |
 |---|---|
-| Speed vs C++ `shmap`, single-threaded | **2.13-2.31x** (all three metrics, real long reads) |
+| Speed vs C++ `shmap`, single-threaded | **2.13-2.31x** HiFi, **2.25-2.37x** ONT (all three metrics) |
 | Speed vs C++ at `-@ 4` | **5.13-6.35x** (the C++ cannot use more than one core) |
 | Peak memory | **~1.9-2.3 GB vs 18.85 GB — 8-10x less** |
 | Best whole-run thread speedup | **13.63x** (`-@ 32`, Jaccard, 10x coverage) |
@@ -67,6 +67,45 @@ slowly through the bucket sweep, pruning is weaker, and **2.7x more buckets reac
 agreement with the C++. Dropping refinement entirely (`bucket_SH`) buys only 16% of wall, because
 indexing and `match_seeds`/`sketching` are untouched — and it costs 1 059 reads at Q60 while
 raising mapq 0 by 1 085. Refinement is what separates confident from ambiguous.
+
+### ONT at ~24 kb (dataset D6)
+
+Real HG002 Oxford Nanopore, 92 220 reads, mean 23 760 bp, 0.7029x. Same parameters, so these are
+directly comparable with the HiFi block above — but see the mapping rates, which are a property of
+the platform rather than of either mapper.
+
+| metric | shmap-rs `-@1` | shmap-rs `-@4` | C++ | speedup `-@1` | speedup `-@4` | rs RSS | C++ RSS |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Containment | 24.13 s | 11.05 s | 54.29 s | **2.25x** | **4.91x** | 2.09 GB | 18.85 GB |
+| Jaccard | 26.93 s | 12.45 s | 61.42 s | **2.28x** | 4.93x | 2.04 GB | 18.85 GB |
+| bucket_SH | **23.35 s** | **10.38 s** | 55.27 s | **2.37x** | **5.32x** | 1.84 GB | 18.85 GB |
+
+| metric | mapped | of 92 220 | mapq 60 | agreement with C++ |
+|---|---:|---:|---:|---:|
+| Containment | 39 608 | 42.9% | 37 839 | 97.93% |
+| Jaccard | **5 956** | **6.5%** | 5 409 | 99.78% |
+| bucket_SH | 41 115 | 44.6% | 39 226 | 98.18% |
+
+**The speedup carries over unchanged — 2.25-2.37x single-threaded, 8-10x less memory — on a
+platform with a completely different error profile.** That is the useful result here.
+
+**Two things the mapping rates say, and one they do not.**
+
+ONT's ~5-10% error rate means only ~28% of 25-mers are error-free (`0.95^25`), so exact-seed
+matching loses most of its signal: 42.9% mapped against HiFi's 99.9%. Both implementations map
+*identically many* reads, so this is the data, not the mapper. Measured on a 468-read band sample,
+ONT-tuned parameters recover most of it — **95.9% mapped at `k=15 -r 0.0625 -t 0.15` against 65.4%
+at `k=25`**. A full `k=15` run at this scale was attempted and abandoned: it is the pathological
+regime (15-mers are hugely repetitive genome-wide), still unfinished after 2 881 s, and
+extrapolating from the 6 000-read ONT benchmark it would need ~8 h for shmap-rs and far longer for
+the C++.
+
+**Jaccard collapses on noisy reads: 6.5% mapped against Containment's 42.9%.** This is definitional,
+not a defect. Jaccard divides by `m + s_sz - intersection` while Containment divides by `m` alone;
+when errors make `intersection` small relative to the reference span, Jaccard's denominator
+inflates and almost nothing clears `theta = 0.4`. **Do not use Jaccard on high-error reads at this
+threshold** — and note its 99.78% agreement with the C++ is measured over the few reads that
+survive, so it is not evidence of quality.
 
 ---
 
@@ -192,6 +231,7 @@ the 3.18 GB reference off page cache. Further gains need *reading less*, not mor
 | D3 | HG002 HiFi 15 kb library (`hifi_1x.fa`) | 12 838 bp | 242 534 | 3.11 Gbp | 0.999x | **real** |
 | D4 | Same, 10x subset (`hifi_10x.fa`) | 12 836 bp | 2 425 341 | 31.1 Gbp | 9.987x | **real** |
 | D5 | D3-equivalent repeated N times, streamed via FIFO | 12 837 bp | ≤24.3 M | ≤311.7 Gbp | ≤100x | repeated |
+| D6 | HG002 **ONT**, 29 ENA runs, filtered to a 20-28 kb band | 23 760 bp | 92 220 | 2.19 Gbp | 0.7029x | **real** |
 
 Notes that matter when quoting these:
 
@@ -202,6 +242,9 @@ Notes that matter when quoting these:
 - **D5 is one read set repeated**, because the GIAB HG002 CCS set is only ~13x in total. So
   `mapped%`/`mapq60%` are trivially constant there and prove nothing; throughput, memory,
   per-read cost and overflow behaviour remain valid.
+- **D6 is the only dataset here that hits 24 kb with real reads.** Ultra-long ONT runs were
+  excluded: their 20-28 kb yield is 1.7-2.2%, against 6.7-8.8% for the 20-34 kb-mean runs used.
+  It reached 92 220 reads rather than the ~155 000 estimated, because band yield ran under 8%.
 - `allchr_real_24kbp`, used in older tables, is **not** 24 kbp reads — it is real HiFi at ~13 kb
   and only 2 000 reads (~0.015x). The "24kbp" is the nominal library size.
 

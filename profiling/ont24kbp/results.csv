@@ -1,0 +1,10 @@
+metric,threads,impl,wall_s,peak_rss_gb,mapped,mapq60,speedup_vs_cpp
+Containment,1,shmap_rs,24.13,2.09,39608,37839,2.25
+Containment,4,shmap_rs,11.05,1.83,39608,37839,4.91
+Containment,1,cpp_shmap,54.29,18.85,39608,37839,1.00
+Jaccard,1,shmap_rs,26.93,2.04,5956,5409,2.28
+Jaccard,4,shmap_rs,12.45,1.85,5956,5409,4.93
+Jaccard,1,cpp_shmap,61.42,18.85,5956,5409,1.00
+bucket_SH,1,shmap_rs,23.35,1.84,41115,39226,2.37
+bucket_SH,4,shmap_rs,10.38,1.84,41115,39226,5.32
+bucket_SH,1,cpp_shmap,55.27,18.85,41115,39225,1.00
