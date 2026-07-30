@@ -56,6 +56,7 @@ class HostLock:
     def __init__(self, wait: bool = True):
         self.wait = wait
         self.fh = None
+        self.started = None
 
     def __enter__(self):
         self.fh = open(LOCKFILE, "a+")
@@ -74,16 +75,17 @@ class HostLock:
             except BlockingIOError:
                 self.fh.seek(0)
                 sys.exit(f"benchmark already running: {self.fh.read().strip()}")
+        self.started = datetime.now(timezone.utc).isoformat()
         self.fh.seek(0)
         self.fh.truncate()
-        self.fh.write(f"pid={os.getpid()} started={datetime.now(timezone.utc).isoformat()}\n")
+        self.fh.write(f"pid={os.getpid()} started={self.started}\n")
         self.fh.flush()
         return self
 
     def note(self, text: str) -> None:
         self.fh.seek(0)
         self.fh.truncate()
-        self.fh.write(f"pid={os.getpid()} started={datetime.now(timezone.utc).isoformat()} {text}\n")
+        self.fh.write(f"pid={os.getpid()} started={self.started} {text}\n")
         self.fh.flush()
 
     def __exit__(self, *exc):
@@ -398,7 +400,8 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
                 sh(["bash", "-c", f"cat {shlex.quote(p)} > /dev/null"])
         grows = []
         for j in gjobs:
-            lock.note(f"commit={commit[:12]} {bid}/{metric} -@{j['threads']} ({n}/{len(groups)})")
+            rep = f" rep{j['repeat']+1}/{suite['run']['reference_impl']['repeats']}" if j["impl"] != "shmap-rs" else ""
+            lock.note(f"commit={commit[:12]} {bid}/{metric} {j['impl']} -@{j['threads']}{rep} ({n}/{len(groups)})")
             r = measure(j, binaries[j["impl"]], raw, suite)
             if r["rc"] != 0:
                 print(f"  !! {bid} {metric} -@{j['threads']} exited {r['rc']}")
@@ -431,7 +434,7 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
         med = dict(rs_[0])
         med["wall_s"] = statistics.median(x["wall_s"] for x in rs_)
         med["peak_rss_kb"] = statistics.median(x["peak_rss_kb"] for x in rs_)
-        med["repeat"] = f"median of {len(rs_)}"
+        med["repeat"] = f"median{len(rs_)}"
         reduced.append(med)
 
     cols = ["benchmark", "impl", "metric", "threads", "repeat", "reference_id", "reads_id",
@@ -461,6 +464,9 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
 
 
 def main() -> int:
+    # Unbuffered: a run is redirected to a log and watched live; buffering
+    # left that log empty for the whole 12 minutes during the first smoke test.
+    sys.stdout.reconfigure(line_buffering=True)
     ap = argparse.ArgumentParser()
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--commit", help="measure an already-trusted commit")

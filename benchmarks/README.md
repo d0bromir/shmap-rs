@@ -11,9 +11,9 @@ version means and for the rule a pull request has to satisfy.
 | `enumerate_datasets.sh` | regenerates the registry's measured columns | **in place** |
 | `validate_suite.py` | checks `suite.toml` resolves against the registry | **in place** |
 | `suite.toml` | benchmark definitions: which dataset × params × metric × threads | **in place** |
-| `run.py` | the runner: lock, authorization, dataset verification | **step 3a in place**; measurement loop is 3b |
-| `results/<suite>/current/` | the baseline a PR is compared against | planned (step 3) |
-| `results/<suite>/<commit>-<date>/` | archived, immutable result sets | planned (step 3) |
+| `run.py` | the runner: lock, authorization, verification, measurement | **in place** |
+| `results/<suite>/current/` | the baseline a PR is compared against | **written by run.py** |
+| `results/<suite>/<commit>-<date>/` | archived, immutable result sets | **written by run.py** |
 | `compare.py` | diffs two result sets and applies the PR rule | planned (step 4) |
 | `report.py` | regenerates `../RESULTS.md` from a result set | planned (step 5) |
 
@@ -81,3 +81,24 @@ Executes on `a2` only. Three things it does before it will measure anything:
 ./run.py --pr 42                  # measure a PR, subject to authorization
 ./run.py --impls shmap-rs,cpp-shmap   # also re-measure the reference (~187 min)
 ```
+
+### What a run produces
+
+```
+results/suite-1.0/<commit>-<date>/
+  manifest.json    suite + dataset versions, commit, host, who authorized, binaries, duration
+  results.tsv      one row per invocation: wall, peak RSS, mapped, mapq60, and the exact command
+  checks.tsv       every check, pass/fail, with the detail
+  raw/             -x JSON reports and time -v records
+```
+
+`results.tsv` carries the full command line for every row, so any number resolves to an exact
+invocation against an exact input. Reference-impl repeats are reduced by median and marked
+`median3` in the `repeat` column.
+
+Large PAFs are deleted once the checks that need them have run — B04 writes ~600 MB per
+invocation, and keeping 21 of those per metric would be ~12 GB for one benchmark.
+
+Smoke-tested end to end on B05 (30 invocations, 12.5 min): all nine checks passed and the numbers
+reproduced the hand-run measurements — Containment `-@1` 24.53 s against 24.13 s measured manually,
+C++ 53.5 s against 54.29 s, agreement 0.9792 identical.
