@@ -11,7 +11,7 @@ version means and for the rule a pull request has to satisfy.
 | `enumerate_datasets.sh` | regenerates the registry's measured columns | **in place** |
 | `validate_suite.py` | checks `suite.toml` resolves against the registry | **in place** |
 | `suite.toml` | benchmark definitions: which dataset × params × metric × threads | **in place** |
-| `run.sh` | one entry point that runs the suite and writes a result set | planned (step 3) |
+| `run.py` | the runner: lock, authorization, dataset verification | **step 3a in place**; measurement loop is 3b |
 | `results/<suite>/current/` | the baseline a PR is compared against | planned (step 3) |
 | `results/<suite>/<commit>-<date>/` | archived, immutable result sets | planned (step 3) |
 | `compare.py` | diffs two result sets and applies the PR rule | planned (step 4) |
@@ -58,3 +58,26 @@ The C++ is measured three times and reduced by median because it varies ~8% run-
 host, which is enough to move a quoted speedup by a tenth. `run.py` will refuse a C++ binary
 containing live Tracy symbols: upstream's Makefile adds `-DTRACY_ENABLE` unconditionally and it
 costs ~8.8%, which would silently flatter us.
+
+## run.py
+
+Executes on `a2` only. Three things it does before it will measure anything:
+
+1. **Takes a host-wide exclusive `flock`.** At most one benchmark runs at a time no matter how many
+   PRs are open; concurrent callers queue (`--no-wait` to fail instead). It is a kernel lock, so it
+   is released even if the process is killed — there is no stale state to clear. Two runs sharing
+   64 cores would contaminate each other's timings and produce results that are wrong rather than
+   obviously broken.
+2. **Authorizes the commit.** `--pr N` builds nothing until the author has write access, or a
+   write-access user applied `bench-approved` *and* the PR has not been pushed to since. Who
+   authorized it goes in the manifest.
+3. **Verifies every dataset** against the registry's identity triple, and refuses to run if an
+   input has changed.
+
+```sh
+./run.py --status                 # is anything running?
+./run.py --dry-run                # print the 105 planned invocations
+./run.py --commit <sha>           # measure a trusted commit
+./run.py --pr 42                  # measure a PR, subject to authorization
+./run.py --impls shmap-rs,cpp-shmap   # also re-measure the reference (~187 min)
+```

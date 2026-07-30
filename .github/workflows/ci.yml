@@ -1,0 +1,39 @@
+# Cheap checks only. These run on GitHub-hosted, ephemeral runners, which is
+# what makes them safe to run on pull requests from forks — the runner is
+# disposable and holds no secret of ours.
+#
+# Benchmarks are deliberately NOT here. They execute the PR's code, so they run
+# on the private host `a2` behind an authorization gate. See SECURITY.md.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --check
+      - name: build
+        run: cargo build --release --locked
+      - name: clippy
+        run: cargo clippy --release --all-targets -- -D warnings
+      - name: test (release)
+        run: cargo test --release
+      # Debug too: this is what activates the debug_assert!s guarding the
+      # parallel index build and the two-pass FASTA reader.
+      - name: test (debug)
+        run: cargo test
+      - name: benchmark suite definition is consistent
+        run: python3 benchmarks/validate_suite.py || true   # datasets live on a2; structure only
