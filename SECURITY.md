@@ -90,10 +90,15 @@ These are not in-repo and must be set once in the GitHub UI or API:
 
 | setting | value | why |
 |---|---|---|
+| Settings → Actions → Actions permissions | **Allow local actions only** — *already set; keep it* | third-party actions are the main supply-chain risk in public-repo CI. `.github/workflows/ci.yml` is written to need none |
 | Settings → Actions → Fork PR workflows | **Require approval for all outside collaborators** | stops fork PRs running even the cheap tier without a look |
 | Settings → Actions → Workflow permissions | **Read repository contents** | a compromised workflow cannot write to the repo |
 | Branch protection on `main` | require the cheap-tier check to pass | keeps a broken build off `main` |
 | Secrets | none needed by CI | `run.py` uses a local token on `a2`, never a repo secret |
+
+`local_only` has a sharp edge worth knowing before editing a workflow: a `uses:` line does not
+produce a failing step, it aborts the entire run as `startup_failure` with an empty log. Four
+consecutive pushes to `main` were silently unchecked before anyone read the run list.
 
 Branch protection deliberately does **not** require pull requests, so maintainers keep the
 direct-to-`main` workflow this project uses. It requires the status check only.

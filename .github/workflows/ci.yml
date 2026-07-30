@@ -1,9 +1,24 @@
 # Cheap checks only. These run on GitHub-hosted, ephemeral runners, which is
-# what makes them safe to run on pull requests from forks — the runner is
-# disposable and holds no secret of ours.
+# what makes them safe on pull requests from forks — the runner is disposable
+# and holds no secret of ours.
 #
-# Benchmarks are deliberately NOT here. They execute the PR's code, so they run
-# on the private host `a2` behind an authorization gate. See SECURITY.md.
+# Benchmarks are deliberately NOT here: they execute the PR's code, so they run
+# on the private host `a2` behind an authorization gate. See ../../SECURITY.md.
+#
+# ---------------------------------------------------------------------------
+# Why this workflow uses no actions at all
+# ---------------------------------------------------------------------------
+# The repository is set to `allowed_actions: local_only`, meaning only actions
+# stored in this repository may run — third-party ones, including
+# `actions/checkout`, are refused and the run dies before any step executes.
+# That setting is correct for a public repo: it reduces the supply-chain
+# surface to zero. So this workflow conforms to it rather than asking for it to
+# be loosened, and clones with plain git instead.
+#
+# The practical rule for anyone editing this file: **no `uses:` lines.** Adding
+# one does not fail visibly — the whole run dies as `startup_failure` with an
+# empty log and no annotation, which reads like a GitHub outage rather than a
+# mistake in this file. It cost four silently-broken runs to notice.
 name: ci
 
 on:
@@ -11,29 +26,62 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only: a compromised workflow cannot write to the repository.
 permissions:
   contents: read
+
+# A new push supersedes an in-flight run for the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - name: checkout
+        env:
+          # `github.token` is the ephemeral, read-only token for this run.
+          TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          git config --local advice.detachedHead false
+          # The token goes through an auth header, not the remote URL, so it
+          # cannot leak via `git remote -v` or a fetch error message.
+          git remote add origin "https://github.com/${REPO}.git"
+          git config --local http.https://github.com/.extraheader \
+            "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          git fetch -q --depth 1 origin "$SHA"
+          git checkout -q FETCH_HEAD
+          git --no-pager log --oneline -1
+
+      - name: toolchain
+        run: |
+          set -euo pipefail
+          rustup update --no-self-update stable
+          rustup default stable
+          rustup component add rustfmt clippy
+          cargo --version && rustc --version
+
       - name: fmt
         run: cargo fmt --check
+
       - name: build
         run: cargo build --release --locked
+
       - name: clippy
         run: cargo clippy --release --all-targets -- -D warnings
+
       - name: test (release)
         run: cargo test --release
+
       # Debug too: this is what activates the debug_assert!s guarding the
       # parallel index build and the two-pass FASTA reader.
       - name: test (debug)
         run: cargo test
+
       - name: benchmark suite definition is consistent
-        run: python3 benchmarks/validate_suite.py || true   # datasets live on a2; structure only
+        run: python3 benchmarks/validate_suite.py
