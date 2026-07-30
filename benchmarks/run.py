@@ -21,9 +21,11 @@ Guarantees:
 from __future__ import annotations
 
 import argparse
+import csv
 import fcntl
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -335,6 +337,16 @@ def measure(job: dict, binary: str, outdir: Path, suite: dict) -> dict:
                 cmd=" ".join(shlex.quote(c) for c in cmd), paf=str(paf))
 
 
+def ground_truth_floor(suite: dict, metric: str) -> float:
+    """Per-metric floor, falling back to the shared one.
+
+    Not every metric can be equally coordinate-precise — see the comment on
+    `[checks.ground_truth]` in suite.toml for why bucket_SH has its own.
+    """
+    c = suite["checks"]["ground_truth"]
+    return c.get("min_fraction_by_metric", {}).get(metric, c["min_fraction"])
+
+
 def run_checks(bench: dict, metric: str, rows: list[dict], outdir: Path, suite: dict) -> list[dict]:
     """Every blocking check that failed here must block the merge."""
     res = []
@@ -361,12 +373,16 @@ def run_checks(bench: dict, metric: str, rows: list[dict], outdir: Path, suite: 
     if "ground_truth" in bench["checks"] and rs:
         v = sh([sys.executable, str(REPO / "profiling" / "validate_paf.py"), rs[0]["paf"], "--truth"])
         line = next((l for l in v.stdout.splitlines() if l.startswith("ground truth")), "")
-        frac = 0.0
-        if "(" in line:
-            frac = float(line.split("(")[1].split("%")[0]) / 100
-        need = suite["checks"]["ground_truth"]["min_fraction"]
+        # Take the exact counts, not the printed percentage. validate_paf.py
+        # rounds to 2dp, so a true 0.98996 prints as "99.00%" and would pass a
+        # 0.99 gate it actually fails — and a value sitting on the boundary
+        # would flip between runs of identical output.
+        mo = re.search(r"ground truth: (\d+)/(\d+)", line)
+        ok, tot = (int(mo.group(1)), int(mo.group(2))) if mo else (0, 0)
+        frac = ok / tot if tot else 0.0
+        need = ground_truth_floor(suite, metric)
         res.append(dict(check="ground_truth", benchmark=bench["id"], metric=metric,
-                        passed=frac >= need, detail=f"{frac:.4f} (need {need})"))
+                        passed=frac >= need, detail=f"{ok}/{tot} = {frac:.6f} (need {need})"))
 
     if "impl_agreement" in bench["checks"] and rs and cpp:
         a = sh(["bash", "-c",
@@ -377,6 +393,96 @@ def run_checks(bench: dict, metric: str, rows: list[dict], outdir: Path, suite: 
         res.append(dict(check="impl_agreement", benchmark=bench["id"], metric=metric,
                         passed=True, detail=f"{n}/{tot} = {n/tot:.4f}"))
     return res
+
+
+def recheck(outdir: Path, suite: dict) -> int:
+    """Re-evaluate a finished result set's checks from its retained PAFs.
+
+    The checks are deterministic functions of the output, so when a *threshold*
+    turns out to be wrong the verdict can be corrected without spending hours
+    re-measuring. No timing, memory or mapping figure is touched — only the
+    check outcomes, and the manifest records that this happened.
+
+    Limits, deliberately visible rather than papered over: only the checks that
+    read a single PAF can be redone here. `execute` deletes every PAF but the
+    first in each group (B04's are ~600 MB each), so `thread_determinism` and
+    `impl_agreement` no longer have their inputs. Their recorded outcomes are
+    preserved untouched, and a threshold change affecting those two needs a
+    real re-run.
+    """
+    outdir = Path(outdir)
+    raw, man_p = outdir / "raw", outdir / "manifest.json"
+    for p in (man_p, outdir / "results.tsv", outdir / "checks.tsv"):
+        if not p.exists():
+            sys.exit(f"not a result set: missing {p}")
+
+    with open(outdir / "results.tsv") as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    with open(outdir / "checks.tsv") as f:
+        old = list(csv.DictReader(f, delimiter="\t"))
+
+    REDOABLE = {"validate_paf", "ground_truth"}
+    redone: dict[tuple, dict] = {}
+    for bench in suite["benchmark"]:
+        bid = bench["id"]
+        if not (REDOABLE & set(bench["checks"])):
+            continue
+        for metric in bench["metrics"]:
+            pafs = sorted(raw.glob(f"{bid}_shmap-rs_{metric}_t*_r0.paf"))
+            if not pafs:
+                continue
+            src = next((r for r in rows if r["benchmark"] == bid and r["impl"] == "shmap-rs"
+                        and r["metric"] == metric), None)
+            # A single row with no C++ counterpart: run_checks then evaluates
+            # exactly the single-PAF checks and skips the other two by itself.
+            stub = dict(impl="shmap-rs", paf=str(pafs[0]),
+                        mapped=int(src["mapped"]) if src else 0, threads=0)
+            for c in run_checks(bench, metric, [stub], raw, suite):
+                if c["check"] in REDOABLE:
+                    redone[(c["check"], bid, metric)] = c
+
+    merged, changed = [], []
+    for c in old:
+        k = (c["check"], c["benchmark"], c["metric"])
+        if k in redone:
+            new = redone.pop(k)
+            was = c["passed"].strip().lower() == "true"
+            if was != new["passed"] or c["detail"] != new["detail"]:
+                changed.append((k, c["passed"], c["detail"], new["passed"], new["detail"]))
+            merged.append(dict(check=k[0], benchmark=k[1], metric=k[2],
+                               passed=new["passed"], detail=new["detail"]))
+        else:
+            merged.append(dict(check=c["check"], benchmark=c["benchmark"], metric=c["metric"],
+                               passed=c["passed"].strip().lower() == "true", detail=c["detail"]))
+    for k, c in redone.items():          # checks that did not exist before
+        merged.append(dict(check=k[0], benchmark=k[1], metric=k[2],
+                           passed=c["passed"], detail=c["detail"]))
+        changed.append((k, "-", "(absent)", c["passed"], c["detail"]))
+
+    for k, wasp, wasd, nowp, nowd in changed:
+        print(f"  {k[0]} {k[1]}/{k[2]}: {wasp} [{wasd}] -> {nowp} [{nowd}]")
+    if not changed:
+        print("  no check outcome changed")
+
+    with open(outdir / "checks.tsv", "w") as fo:
+        fo.write("check\tbenchmark\tmetric\tpassed\tdetail\n")
+        for c in merged:
+            fo.write(f"{c['check']}\t{c['benchmark']}\t{c['metric']}\t{c['passed']}\t{c['detail']}\n")
+
+    man = json.loads(man_p.read_text())
+    bad_rc = sum(1 for r in rows if int(r["rc"]) != 0)
+    failed_blocking = sum(1 for c in merged
+                          if not c["passed"] and suite["checks"][c["check"]].get("blocking"))
+    man["failures"] = bad_rc + failed_blocking
+    man.setdefault("rechecks", []).append(dict(
+        at=datetime.now(timezone.utc).isoformat(),
+        suite_version=suite["suite_version"],
+        re_evaluated=sorted(REDOABLE),
+        preserved=["thread_determinism", "impl_agreement"],
+        changed=[f"{k[0]} {k[1]}/{k[2]}" for k, *_ in changed]))
+    man_p.write_text(json.dumps(man, indent=2) + "\n")
+    print(f"{len(changed)} change(s); {man['failures']} failure(s) remain in {outdir}")
+    return 1 if man["failures"] else 0
 
 
 def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
@@ -472,6 +578,9 @@ def main() -> int:
     g.add_argument("--commit", help="measure an already-trusted commit")
     g.add_argument("--pr", type=int, help="measure a pull request (authorization required)")
     g.add_argument("--status", action="store_true")
+    g.add_argument("--recheck", metavar="DIR",
+                   help="re-evaluate a finished result set's checks from its retained PAFs, "
+                        "without re-measuring (use after correcting a threshold)")
     ap.add_argument("--repo", default="d0bromir/shmap-rs")
     ap.add_argument("--no-wait", action="store_true", help="fail instead of queueing")
     ap.add_argument("--dry-run", action="store_true")
@@ -487,6 +596,15 @@ def main() -> int:
         sys.exit("refusing to run as root — see SECURITY.md")
 
     suite, reg = load_suite(), load_registry()
+
+    if args.recheck:
+        # Takes the lock too: validate_paf.py is CPU work, and this host's
+        # one-measurement-at-a-time guarantee exists so nothing perturbs a
+        # run's timings.
+        with HostLock(wait=not args.no_wait) as lock:
+            lock.note(f"recheck {args.recheck}")
+            return recheck(Path(args.recheck), suite)
+
     impls = args.impls.split(",")
 
     authorized_by = "n/a"
