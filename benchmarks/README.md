@@ -8,7 +8,9 @@ version means and for the rule a pull request has to satisfy.
 | path | what | status |
 |---|---|---|
 | `datasets.tsv` | dataset registry — id, host, path, identity triple, provenance | **in place** |
-| `suite.toml` | benchmark definitions: which dataset × params × metric × threads | planned (step 2) |
+| `enumerate_datasets.sh` | regenerates the registry's measured columns | **in place** |
+| `validate_suite.py` | checks `suite.toml` resolves against the registry | **in place** |
+| `suite.toml` | benchmark definitions: which dataset × params × metric × threads | **in place** |
 | `run.sh` | one entry point that runs the suite and writes a result set | planned (step 3) |
 | `results/<suite>/current/` | the baseline a PR is compared against | planned (step 3) |
 | `results/<suite>/<commit>-<date>/` | archived, immutable result sets | planned (step 3) |
@@ -37,3 +39,22 @@ a single runner, so that a PR can be measured by one command rather than by reme
 nineteen scripts applies.
 
 Migration order and rationale are in `../VERSIONING.md`; the steps are listed in the table above.
+
+## suite.toml
+
+Five benchmarks (B01–B05), three metrics each, seven thread counts, against both implementations.
+`validate_suite.py` checks it before a run commits an hour to it.
+
+| | invocations | wall |
+|---|---:|---:|
+| PR run — shmap-rs only, C++ from cache | 105 | ~78 min |
+| C++ re-measure — 3x for a median, only when it is rebuilt | 45 | ~187 min |
+
+One tier, no fast/slow split: a gate that gets skipped catches nothing, and a2 is idle and free.
+B04 (10x depth) is ~52 min of the PR run on its own and stays anyway — it is the only benchmark
+where indexing is a small enough share of the wall for mapping scaling to be read directly.
+
+The C++ is measured three times and reduced by median because it varies ~8% run-to-run on this
+host, which is enough to move a quoted speedup by a tenth. `run.py` will refuse a C++ binary
+containing live Tracy symbols: upstream's Makefile adds `-DTRACY_ENABLE` unconditionally and it
+costs ~8.8%, which would silently flatter us.

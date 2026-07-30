@@ -1,0 +1,188 @@
+# shmap-rs benchmark suite — the single definition of what gets measured.
+#
+# Consumed by run.py. Nothing here is duplicated in a script: if a parameter is
+# not in this file, it is not passed to the binary.
+#
+# See ../VERSIONING.md for what the versions mean. In short:
+#   suite_version MAJOR bump  -> results across the boundary are NOT comparable
+#   suite_version MINOR bump  -> a benchmark was added; old rows stay comparable
+
+schema = 1
+suite_version = "1.0"
+dataset_version = 1
+
+# Full matrix, one tier — deliberately not split into a fast PR tier and a slow
+# release tier: a gate that is skipped catches nothing, and this host is idle
+# and free. Measured cost, from the times in ../RESULTS.md:
+#
+#   PR run, C++ cached          ~78 min   105 invocations   (shmap-rs only)
+#   C++ re-measure, 3x median  ~187 min    45 invocations   (only when it is rebuilt)
+#   both together              ~265 min   150 invocations
+#
+# The C++ is `role = "reference"`, so a normal PR does not re-run it — its
+# numbers come from the cached set and the run takes ~78 min. B04 is 52 of
+# those minutes on its own; drop it and the suite loses the only benchmark deep
+# enough to read mapping scaling directly.
+[run]
+host = "a2"                       # must match datasets.tsv `host` for every dataset used
+sequential = true                 # never two measured runs at once
+warm_cache = true                 # cat reference and reads to /dev/null before each benchmark
+repeats = 1                       # shmap-rs; see [run.reference_impl] for the C++
+stdout = "file"                   # PAF is written, not discarded — checks need it
+
+# The C++ varies ~8% run-to-run on this host, enough to move a speedup ratio by
+# a tenth, so it is measured three times and the median taken.
+[run.reference_impl]
+repeats = 3
+reduce = "median"
+
+# ---------------------------------------------------------------------------
+# Implementations
+# ---------------------------------------------------------------------------
+
+[impl.shmap-rs]
+binary = "{repo}/target/release/shmap"
+version_cmd = "{binary} --version"
+threads_flag = "-@"
+supports_threads = true
+profile_flag = "-x --profile-log {out}.json"
+role = "subject"                  # rebuilt and re-measured on every run
+
+[impl.cpp-shmap]
+binary = "~/Pesho/shmap/release/shmap"
+supports_threads = false          # single-threaded by design
+role = "reference"                # re-measured only when the binary changes
+# Upstream's Makefile adds -DTRACY_ENABLE unconditionally, which costs ~8.8%.
+# run.py refuses to use a binary containing live Tracy symbols.
+forbid_build_flag = "TRACY_ENABLE"
+
+# ---------------------------------------------------------------------------
+# Parameter sets — every flag actually passed, nothing implicit
+# ---------------------------------------------------------------------------
+
+[params.paper]
+description = "Paper / Table-1 real-world parameters. Used for every headline number."
+k = 25
+hashratio = 0.01
+threshold = 0.4
+min_diff = 0.075
+max_overlap = 0.3
+
+[params.ont-k15]
+description = "ONT-appropriate. k=25 exact seeds mostly do not survive ~5-10% error; this is what the minshmap ONT benchmark uses. NOT run by default — at whole-genome scale k=15 is the pathological regime (15-mers are hugely repetitive) and a single 92k-read run exceeded 2 881 s without finishing."
+k = 15
+hashratio = 0.0625
+threshold = 0.15
+min_diff = 0.075
+max_overlap = 0.3
+enabled = false
+
+# ---------------------------------------------------------------------------
+# Benchmarks
+# ---------------------------------------------------------------------------
+
+[[benchmark]]
+id = "B01"
+title = "Real HiFi 23.2 kb, 1.11x — the headline C++ comparison"
+reference = "REF-HS1"
+reads = "D1-HIFI23K"
+params = "paper"
+metrics = ["Containment", "Jaccard", "bucket_SH"]
+threads = [1, 2, 4, 8, 16, 32, 64]
+reference_impl_threads = [1]
+impls = ["shmap-rs", "cpp-shmap"]
+checks = ["thread_determinism", "validate_paf", "impl_agreement"]
+note = "Longest real reads available. 23.2 kb not 24.0: no real set gives both >=125k reads and a 24 kb mean."
+
+[[benchmark]]
+id = "B02"
+title = "Simulated 24 kb, 0.96x — long reads with ground truth"
+reference = "REF-HS1"
+reads = "D2-SIM24K"
+params = "paper"
+metrics = ["Containment", "Jaccard", "bucket_SH"]
+threads = [1, 2, 4, 8, 16, 32, 64]
+reference_impl_threads = [1]
+impls = ["shmap-rs", "cpp-shmap"]
+checks = ["thread_determinism", "validate_paf", "ground_truth", "impl_agreement"]
+note = "Simulated, so it carries ground truth and is the only accuracy check that catches stably-wrong output. Not evidence about real-data accuracy."
+
+[[benchmark]]
+id = "B03"
+title = "Real HiFi 12.8 kb, 1x — the long-standing reference workload"
+reference = "REF-HS1"
+reads = "D3-HIFI1X"
+params = "paper"
+metrics = ["Containment", "Jaccard", "bucket_SH"]
+threads = [1, 2, 4, 8, 16, 32, 64]
+reference_impl_threads = [1]
+impls = ["shmap-rs", "cpp-shmap"]
+checks = ["thread_determinism", "validate_paf", "impl_agreement"]
+
+[[benchmark]]
+id = "B04"
+title = "Real HiFi 12.8 kb, 10x — depth, where mapping dominates indexing"
+reference = "REF-HS1"
+reads = "D4-HIFI10X"
+params = "paper"
+metrics = ["Containment", "Jaccard", "bucket_SH"]
+threads = [1, 2, 4, 8, 16, 32, 64]
+reference_impl_threads = [1]
+impls = ["shmap-rs", "cpp-shmap"]
+checks = ["thread_determinism", "validate_paf", "impl_agreement"]
+note = "~52 min of the ~78 min PR run, the single most expensive benchmark. Also the only one where indexing is a small enough share (~9% at -@32) for mapping scaling to be read directly, which is why it stays."
+
+[[benchmark]]
+id = "B05"
+title = "Real ONT 23.8 kb, 0.70x — a different error profile"
+reference = "REF-HS1"
+reads = "D6-ONT24K"
+params = "paper"
+metrics = ["Containment", "Jaccard", "bucket_SH"]
+threads = [1, 2, 4, 8, 16, 32, 64]
+reference_impl_threads = [1]
+impls = ["shmap-rs", "cpp-shmap"]
+checks = ["thread_determinism", "validate_paf", "impl_agreement"]
+note = "Maps ~43% at k=25 because ~5-10% error leaves only ~28% of 25-mers intact. Both implementations map identically many reads, so the speed comparison holds; the rate is the platform, not the mapper."
+
+# ---------------------------------------------------------------------------
+# Checks — every one of these blocks a merge if it fails. See ../VERSIONING.md.
+# ---------------------------------------------------------------------------
+
+[checks.thread_determinism]
+description = "PAF identical across every thread count, after stripping the wall-clock t:f: tag."
+blocking = true
+
+[checks.validate_paf]
+description = "Structural, score and span invariants via ../profiling/validate_paf.py."
+blocking = true
+tool = "{repo}/profiling/validate_paf.py"
+
+[checks.ground_truth]
+description = "Simulated reads land within one read length of their encoded true position."
+blocking = true
+min_fraction = 0.99
+
+[checks.impl_agreement]
+description = "Fraction of the 12 core PAF columns matching the C++. Recorded always; only blocking if it drops versus the baseline."
+blocking = false
+
+# ---------------------------------------------------------------------------
+# Regression thresholds applied by compare.py
+# ---------------------------------------------------------------------------
+
+[thresholds]
+wall_regression_review = 0.03     # >3% slower on any benchmark needs justification (host noise)
+wall_regression_block = 0.10      # >10% blocks outright
+peak_rss_regression_review = 0.05
+mapped_regression_block = 0        # any drop in mapped reads blocks
+mapq60_regression_block = 0        # any drop in mapq-60 reads blocks
+
+# ---------------------------------------------------------------------------
+# Other mappers — measured once per suite version, not per PR, since they do
+# not change between our commits. Not yet wired; see benchmarks/README.md.
+# ---------------------------------------------------------------------------
+
+[external]
+enabled = false
+mappers = ["minimap2", "winnowmap2", "blend", "mapquik", "minshmap"]
