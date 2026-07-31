@@ -786,55 +786,56 @@ than labelling it.
 
 ## 9 Error tolerance
 
-What the published accuracy numbers do and do not cover, measured with
-`simulate/sweep_error_rates.py`: 20 000 reads of 24 kb sampled from `hs1.fa` at
-each error profile, `-k 25 -r 0.01 -t 0.4`, scored against known true positions.
+Measured with `simulate/sweep_error_rates.py`: 20 000 reads of 24 kb sampled from `hs1.fa` at each
+error profile, `-k 25 -r 0.01 -t 0.4`, scored against known true positions.
 
 **First, what D2 actually is.** Measured, not taken from its description
-(`simulate/measure_error_rate.py`): **0.498% error, length delta +0.004%**. So it
-is substitutions with essentially no indels, and every accuracy figure in §7 is a
-substitution-only figure. That is the gap this section closes.
+(`simulate/measure_error_rate.py`): **0.498% error, length delta +0.004%**. Substitutions, with
+essentially no indels — so every accuracy figure in §7 is a substitution-only figure.
 
-| profile | sub | indel | mapped | correct of 20 000 | span error |
-|---|---:|---:|---:|---:|---:|
-| clean | 0% | 0% | 20 000 | 99.51% | 0.93% |
-| sub 0.5% *(= D2)* | 0.5% | 0% | 20 000 | 99.08% | 2.78% |
-| sub 1% | 1% | 0% | 20 000 | 98.85% | 3.79% |
-| sub 2% | 2% | 0% | 19 996 | 98.32% | 5.07% |
-| **sub 5%** | 5% | 0% | **43** | **0.08%** | 23.24% |
-| indel 0.5% | 0% | 0.5% | 20 000 | 99.17% | 2.77% |
-| indel 1% | 0% | 1% | 20 000 | 99.05% | 3.69% |
-| indel 2% | 0% | 2% | 19 991 | 98.62% | 4.97% |
-| deletions only, 1% | 0% | 1% | 20 000 | 99.06% | 3.88% |
-| insertions only, 1% | 0% | 1% | 20 000 | 99.02% | 3.72% |
-| HiFi-like | 0.4% | 0.1% | 20 000 | 99.17% | 2.79% |
-| **ONT-like** | 3% | 2% | **53** | **0.12%** | 25.05% |
+The first block holds the error rate identical across reads, which is what makes the
+substitution-versus-indel comparison controlled. The second block adds the per-read spread and
+homopolymer clustering that real data has; the two blocks are not comparable with each other and
+are not meant to be.
+
+| profile | sub | indel | spread | hp | mapped | correct of 20 000 | span error |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| clean | 0% | 0% | — | — | 20 000 | 99.51% | 0.93% |
+| sub 0.5% *(= D2)* | 0.5% | 0% | — | — | 20 000 | 99.08% | 2.78% |
+| sub 1% | 1% | 0% | — | — | 20 000 | 98.85% | 3.79% |
+| sub 2% | 2% | 0% | — | — | 19 996 | 98.32% | 5.07% |
+| **sub 5%** | 5% | 0% | — | — | **43** | **0.08%** | 23.24% |
+| indel 0.5% | 0% | 0.5% | — | — | 20 000 | 99.24% | 2.76% |
+| indel 1% | 0% | 1% | — | — | 20 000 | 98.97% | 3.73% |
+| indel 2% | 0% | 2% | — | — | 19 993 | 98.66% | 4.99% |
+| deletions only | 0% | 1% | — | — | 20 000 | 99.06% | 3.88% |
+| insertions only | 0% | 1% | — | — | 20 000 | 98.98% | 3.76% |
+| HiFi realistic | 0.4% | 0.1% | 0.4 | 5x | 20 000 | 99.12% | 2.97% |
+| ONT 5%, uniform | 3% | 2% | — | — | **43** | **0.11%** | 23.11% |
+| ONT 5%, spread | 3% | 2% | 0.5 | 5x | 3 240 | **15.84%** | 5.21% |
+| ONT 5%, wide spread | 3% | 2% | 0.8 | 5x | 6 501 | **32.02%** | 4.60% |
 
 ### Indels are not worse than substitutions
 
-The expectation going in was that they would be: shmap scores a bucket over a
-window bounded by the read's own k-mer count, which assumes the read and its
-reference interval are about the same length, and indels break that assumption
-while substitutions do not.
+The expectation going in was that they would be: shmap scores a bucket over a window bounded by the
+read's own k-mer count, which assumes read and reference interval are about the same length, and
+indels break that while substitutions do not.
 
-They are consistently **slightly better** — 99.05% against 98.85% at 1%, 98.62%
-against 98.32% at 2% — and insertion-only, deletion-only and mixed are all within
-0.04% of each other. The span assumption is not what governs this.
+They are consistently **slightly better** — 98.97% against 98.85% at 1%, 98.66% against 98.32% at
+2% — and insertion-only, deletion-only and mixed all land within 0.1% of each other. The span
+assumption is not what governs this.
 
-The reason is that shmap compares k-mer *sets*, where position carries no
-information. An indel and a substitution each destroy about `k` k-mers, so they
-cost the same; a deletion destroys `k-1` rather than `k`, which is the small
-edge. **Anything that degrades k-mer survival at a given rate costs the same,
-whatever its biological form.** That is a useful robustness property, and it is
-the opposite of what chain-based mappers experience.
+The reason is that shmap compares k-mer *sets*, where position carries no information. An indel and
+a substitution each destroy about `k` k-mers, so they cost the same; a deletion destroys `k-1`
+rather than `k`, which is the small edge. **Anything that degrades k-mer survival at a given rate
+costs the same, whatever its biological form.** That is a useful robustness property and the
+opposite of what chain-based mappers experience.
 
 ### The cliff is a threshold crossing, and it is predictable
 
-Between 2% and 5% substitutions the mapper does not degrade — it stops. 19 996
-reads mapped becomes 43.
-
-That is not a bug. A read's containment is approximately the fraction of its
-k-mers that survive, `(1-e)^k`, and a bucket has to clear `-t` to be reported:
+Between 2% and 5% substitutions the mapper does not degrade — it stops. 19 996 reads mapped becomes
+43. A read's containment is approximately the fraction of its k-mers that survive, `(1-e)^k`, and a
+bucket has to clear `-t`:
 
 | error | k=25 | k=15 | k=11 |
 |---:|---:|---:|---:|
@@ -844,26 +845,37 @@ k-mers that survive, `(1-e)^k`, and a bucket has to clear `-t` to be reported:
 | 3% | 46.7% | 63.3% | 71.5% |
 | **5%** | **27.7%** | 46.3% | 56.9% |
 
-At `-k 25`, 5% error leaves 27.7% of k-mers — below `-t 0.4`, so nothing clears
-threshold and the mapper correctly reports almost nothing rather than reporting
-noise. The model is confirmed independently: D2's *measured* 25-mer survival is
-88.28% against 88.2% predicted at its measured 0.498% error.
+At `-k 25`, 5% error leaves 27.7% — below `-t 0.4`, so nothing clears threshold and the mapper
+reports almost nothing rather than reporting noise. Confirmed independently: D2's *measured* 25-mer
+survival is 88.28% against 88.2% predicted at its measured 0.498% error.
 
-So the operating envelope is `(1-e)^k > t`, and the two ways to widen it are
-lowering `k` or lowering `t`. This is what `[params.ont-k15]` in `suite.toml`
-is for, and it is now a derived setting rather than a guess: at 5% error, k=15
-leaves 46.3%, back above the threshold.
+So the operating envelope is `(1-e)^k > t`, and the two ways to widen it are lowering `k` or
+lowering `t`. That is what `[params.ont-k15]` in `suite.toml` is for, and it is now a derived
+setting rather than a guess: at 5% error, k=15 leaves 46.3%, back above the threshold.
 
-### This also explains the ONT numbers, and corrects them
+### Why a uniform error model is not just imprecise but wrong
 
-B05 maps ~43% of real ONT reads at k=25, but uniform 5% simulated error maps
-**0.08%**. Both are right, and the difference is the point: real error rates are
-a *distribution*, and what maps is the low-error tail. A uniform model at the
-same mean is far harsher than real data, because it denies every read the chance
-of being better than average.
+The three ONT rows are the same mean error rate and differ only in how it is *distributed* across
+reads:
 
-Two consequences. Quoting "shmap-rs handles 5% error" from a uniform simulation
-would be wrong in both directions — too pessimistic about real reads, too
-optimistic about the worst of them. And the ~43% ONT mapping rate is not a
-tuning failure at all: at k=25 it is the fraction of reads whose *own* error
-rate leaves them above threshold.
+| | mapped of 20 000 |
+|---|---:|
+| every read at exactly 5% | 0.11% |
+| spread 0.5 | 15.84% |
+| spread 0.8 | 32.02% |
+| **real ONT (B05), for reference** | **42.95%** |
+
+A factor of ~300 between the first and third rows, from a change that leaves the mean untouched.
+Because mapping is a threshold on each read's *own* rate, the mean is close to uninformative near
+the cliff, and the population that maps is the low-error tail. Realistic spread accounts for
+essentially the whole distance to the real ONT figure.
+
+This is why the earlier uniform-model conclusion — "5% error maps 0.08%" — was wrong to quote as a
+property of shmap-rs. It is a property of the simulator. `simulate_reads.py` now defaults
+`--error-sd` to 0 only so the controlled comparison above stays controlled; any figure meant to
+describe real data has to use a spread.
+
+**Precision holds while recall falls.** Of the ONT-like reads that do map, 97.8% and 98.5% are
+placed correctly. shmap-rs degrades by *declining to map* the reads it cannot resolve, not by
+mis-placing them — which is the failure mode you want, and is consistent with §8's finding that
+every satellite misplacement already carries mapq 0.

@@ -92,11 +92,18 @@ def mutate(seq: str, sub: float, ins: float, dele: float, rng: random.Random,
     gives roughly 1% of each rather than 1% total. Insertions are emitted
     before the base so a run can grow, and a deleted base emits nothing.
 
-    `hp_bias` multiplies the indel rate inside homopolymer runs (a base equal to
-    the one before it). Real long-read indels are overwhelmingly homopolymer
+    `hp_bias` multiplies the indel *rate* inside homopolymer runs (a base equal
+    to the one before it). Real long-read indels are overwhelmingly homopolymer
     length errors rather than uniformly scattered, and the difference matters
     for a k-mer method: clustering the damage into runs leaves more intact
-    k-mers than the same number of errors spread evenly. 1.0 disables it.
+    k-mers than the same number of errors spread evenly.
+
+    `hp_bias = 1.0` switches off the rate multiplier but NOT the run-extension
+    below: an insertion landing inside a run always duplicates that base rather
+    than inserting a random one, because that is what makes it a homopolymer
+    error at all. So 1.0 is "no rate bias", not "identical to a version without
+    homopolymer awareness" — indel rows moved by <0.1% when this was added, and
+    the substitution-versus-indel ordering was unaffected.
     """
     out = []
     prev = ""
