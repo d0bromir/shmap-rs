@@ -613,6 +613,10 @@ def main() -> int:
                     help="comma-separated; add cpp-shmap to re-measure the reference (~187 min)")
     ap.add_argument("--only", help="comma-separated benchmark ids, e.g. B05")
     ap.add_argument("--out", help="result set directory (default: results/suite-<v>/<commit>-<date>)")
+    ap.add_argument("--no-compare", action="store_true",
+                    help="skip the comparison against current/ (measure only)")
+    ap.add_argument("--post", action="store_true",
+                    help="post the comparison to the PR as a comment (needs --pr)")
     args = ap.parse_args()
 
     if args.status:
@@ -664,9 +668,44 @@ def main() -> int:
                        f"{commit[:12]}-{datetime.now(timezone.utc):%Y-%m-%d}")
         out = Path(args.out) if args.out else default_out
         try:
-            return execute(jobs, suite, reg, commit, wt, out, authorized_by, lock)
+            rc = execute(jobs, suite, reg, commit, wt, out, authorized_by, lock)
         finally:
             sh(["git", "-C", str(REPO), "worktree", "remove", "--force", str(wt)])
+
+    # Measuring and judging used to be two manual steps, which meant the verdict
+    # depended on someone remembering to run compare.py against the right
+    # baseline. Chaining them is what makes `run.py --pr N` a merge gate rather
+    # than a data-collection tool.
+    if args.no_compare or args.only:
+        # --only produces a partial set; comparing it would report every absent
+        # benchmark as an incomplete run.
+        if args.only and not args.no_compare:
+            print("\n(skipping comparison: --only produces a partial result set)")
+        return rc
+
+    baseline = HERE / "results" / f"suite-{suite['suite_version']}" / "current"
+    if not baseline.is_dir():
+        print(f"\nno baseline at {baseline}; nothing to compare against.\n"
+              f"If this run should become the baseline:  cp -r {out} {baseline}")
+        return rc
+
+    print("\n" + "=" * 72)
+    report = out / "comparison.md"
+    v = subprocess.run([sys.executable, str(HERE / "compare.py"), str(out), str(baseline),
+                        "--out", str(report)], capture_output=True, text=True)
+    print(v.stdout or v.stderr)
+    verdict = {0: "ACCEPT", 1: "REVIEW", 2: "BLOCK", 3: "ERROR"}.get(v.returncode, str(v.returncode))
+    print(f"verdict: {verdict}   (written to {report})")
+
+    if args.post and args.pr:
+        body = f"### Benchmark gate: **{verdict}**\n\n{report.read_text()}"
+        p = subprocess.run([GH, "pr", "comment", str(args.pr), "--repo", args.repo,
+                            "--body-file", "-"], input=body, capture_output=True, text=True)
+        print("posted to PR" if p.returncode == 0 else f"could not post: {p.stderr.strip()[:200]}")
+
+    # A failed check during measurement outranks the comparison: it means the
+    # run itself is untrustworthy, not merely worse than the baseline.
+    return max(rc, v.returncode)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,159 @@
+# Contributing
+
+Pull requests are welcome. This document is the whole process: what runs automatically, what a
+maintainer runs by hand, and what decides whether a change merges.
+
+The short version: **speed never outranks accuracy.** A change that is faster everywhere and maps
+one read fewer is blocked, not traded off.
+
+---
+
+## 1 Two tiers of checking
+
+| tier | where | when | cost |
+|---|---|---|---|
+| **Cheap** | GitHub-hosted runner | automatically, every push and PR | ~2.5 min |
+| **Benchmarks** | the private host `a2` | on request, by a maintainer | ~78 min |
+
+### The cheap tier — automatic
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+`cargo fmt --check` · `cargo build --release --locked` · `cargo clippy -D warnings` ·
+`cargo test --release` · `cargo test` (debug) · `benchmarks/validate_suite.py` ·
+`benchmarks/test_compare.py` · `benchmarks/test_concordance.py` · `benchmarks/report.py --check`
+
+Two of those are easy to trip over:
+
+- **Debug tests are not redundant.** They activate the `debug_assert!`s that pin the risky designs —
+  that `best_fixed_length` restores `diff_hist` exactly, that the parallel reader's second pass
+  writes what its first pass counted, that a segment's parts tile its buffer with no gaps.
+- **`report.py --check` fails if `RESULTS.md` was hand-edited.** Regenerate it instead
+  (`python3 benchmarks/report.py`); see §5.
+
+**Do not add a `uses:` line to the workflow.** The repository is set to `allowed_actions: local_only`,
+so a third-party action does not produce a failing step — it aborts the whole run as
+`startup_failure` with an empty log, which reads like a GitHub outage. Four commits merged unchecked
+before anyone noticed. The workflow is written to need no actions at all.
+
+### The benchmark tier — on request
+
+Benchmarks build and execute the PR's code, so they run on a private host behind an authorization
+gate rather than on a runner. See [`SECURITY.md`](SECURITY.md) for why `a2` is deliberately not a
+GitHub self-hosted runner.
+
+A maintainer runs, on `a2`:
+
+```bash
+python3 benchmarks/run.py --pr 123 --post
+```
+
+That single command authorizes, measures, compares against the baseline, and posts the verdict to
+the PR. Its exit code *is* the verdict: `0` ACCEPT, `1` REVIEW, `2` BLOCK, `3` not comparable.
+
+It refuses to build or execute anything until it has confirmed against the GitHub API that **either**
+the PR author has push/admin, **or** a user with push/admin applied the `bench-approved` label — and
+that no push has landed since the label. The label is the human review step: someone reads the diff
+before the code runs.
+
+At most one benchmark runs at a time, host-wide. Concurrent invocations queue on a kernel file lock
+rather than failing, so two of them cannot contaminate each other's timings.
+
+---
+
+## 2 What decides the merge
+
+`benchmarks/compare.py` applies the table in [`VERSIONING.md`](VERSIONING.md) mechanically, with the
+numbers from `benchmarks/suite.toml`:
+
+| verdict | condition |
+|---|---|
+| **BLOCK** | fewer reads mapped, fewer at mapq 60, ground truth down, or C++ agreement down |
+| **BLOCK** | a blocking check failed — `thread_determinism`, `validate_paf`, `ground_truth` |
+| **BLOCK** | wall time >10% worse on a benchmark, a non-zero exit, or an incomplete run |
+| **REVIEW** | wall time >3% worse, or peak RSS >5% worse — justify or fix |
+| **ACCEPT** | within noise or better, no accuracy change |
+| **ERROR** | the two sets are not comparable at all — different suite MAJOR, dataset version, or host |
+
+Wall-time verdicts use the geometric mean across thread counts within a benchmark, not individual
+rows: shmap-rs is measured once per configuration, so a single row carries this host's 1-2% noise,
+and testing ~105 of them against a 3% line would flag several every run by chance.
+
+**If your change alters output on purpose** — a correctness fix, where the previous output was wrong
+— say so in the PR, and a maintainer re-runs with `--allow-output-change`, which downgrades the
+accuracy blocks to REVIEW. Name the affected records in the commit message, as `8bc38f1` does.
+
+---
+
+## 3 Before you open a PR
+
+```bash
+cargo fmt && cargo clippy --release --all-targets -- -D warnings
+cargo test --release && cargo test
+python3 benchmarks/validate_suite.py
+```
+
+That is the cheap tier, locally. It takes about a minute and saves a round trip.
+
+Match the surrounding code: this codebase carries comments explaining *why* a design is the way it
+is, especially where the obvious alternative was measured and lost. Several optimizations here were
+reverted for being slower; the comments recording that are load-bearing and should not be dropped.
+
+**This workload is memory-latency bound.** Adding a level of indirection to shrink a struct has been
+measured as a net loss more than once. Measure before and after; do not reason about it.
+
+---
+
+## 4 Adding or changing a benchmark
+
+Everything measured is defined in `benchmarks/suite.toml`. If a parameter is not in that file, it is
+not passed to the binary — do not add flags in a script.
+
+- **Adding** a benchmark is a `suite_version` MINOR bump. Old results stay comparable.
+- **Changing** an existing one — parameters, thread counts, dataset binding — is a MAJOR bump, and
+  results across that boundary must not be diffed. `compare.py` enforces this and returns ERROR.
+- **Datasets are append-only.** A regenerated input gets a new id in `benchmarks/datasets.tsv`,
+  never a redefinition, so historical results keep resolving to what they actually measured. Every
+  run re-checks each file's identity and fails rather than measuring a changed input.
+
+---
+
+## 5 Results and reporting
+
+`RESULTS.md` is the single place benchmark numbers live. The tables between
+`<!-- BEGIN GENERATED -->` markers are produced by `benchmarks/report.py` from a result set — edit
+them and CI fails. The prose around them is written by people and is not derivable from a TSV.
+
+```bash
+python3 benchmarks/report.py            # regenerate from results/suite-<v>/current/
+python3 benchmarks/report.py --check    # what CI runs
+```
+
+External mappers (Winnowmap2, mapquik) are a **concordance** corpus, not ground truth. They are run
+once per dataset by `benchmarks/reference_mappers.py` and cached; `run.py` only joins against them.
+Where shmap-rs and Winnowmap2 disagree, nothing says which is right — accuracy claims come from B02,
+whose reads carry true positions. Report the two separately and label them.
+
+---
+
+## 6 Releases
+
+Software version is SemVer, no `v` prefix (tags are `1.2.0`).
+
+| bump | when |
+|---|---|
+| MAJOR | output changes in a way that is not a bug fix |
+| MINOR | new capability or a performance change with identical output |
+| PATCH | bug fixes that correct wrong output, and doc/build changes |
+
+Output-affecting *fixes* are PATCH even though the bytes change — the previous output was wrong.
+
+```bash
+# bump Cargo.toml, commit, then:
+git tag -a 1.2.1 -m "$(cat release-notes.md)"
+git push origin 1.2.1
+gh release create 1.2.1 --verify-tag --notes-file release-notes.md
+```
+
+Tag the commit you mean: `git tag -f -a` retargets `HEAD`, which has silently moved a published tag
+in this repo before. Pass the SHA explicitly.
