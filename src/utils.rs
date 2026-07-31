@@ -496,13 +496,20 @@ mod tests {
         t.start();
         sleep(Duration::from_millis(10));
         t.stop();
-        assert!(approx(t.secs(), 0.01, 0.02));
-        assert!(approx(t.range_ratio(), 1.0, 0.05));
+        let first = t.secs();
+        assert!(first >= 0.010, "slept at least 10 ms, got {first}");
+        assert!(first < 5.0, "implausible duration {first}");
+        // One run: min == max, so this is exactly 1.0 whatever the clock did.
+        assert!(approx(t.range_ratio(), 1.0, 1e-9));
 
         t.start();
         sleep(Duration::from_millis(20));
         t.stop();
-        assert!(approx(t.range_ratio(), 2.0, 0.3));
+        // A 20 ms run after a 10 ms one, so max/min must exceed 1 -- but not by
+        // a predictable amount. `sleep` has no upper bound, and asserting ~2.0
+        // assumes both sleeps overshoot proportionally, which is what made the
+        // sibling test flake on a loaded CI runner.
+        assert!(t.range_ratio() > 1.0, "the longer run must widen the range");
     }
 
     #[test]
@@ -563,16 +570,37 @@ mod tests {
         sleep(Duration::from_millis(10));
         t.stop("t2");
 
-        assert!(approx(t.secs("t1"), 0.01, 0.02));
-        assert!(approx(t.secs("t2"), 0.02, 0.02));
-        assert!(approx(t.perc("t1", "t2"), 50.0, 5.0));
-        assert!(approx(t.perc("t2", "t1"), 200.0, 15.0));
+        // `sleep` guarantees a lower bound and no upper one, so a loaded
+        // runner can overshoot one sleep and not the other. Asserting that
+        // t2/t1 lands near 2.0 assumes both overshoot equally, which is what
+        // made this test flake in CI (185-215% required; a 13ms + 10ms split
+        // gives 177%). Assert what is actually guaranteed — lower bounds and
+        // ordering — and check the arithmetic exactly against the recorded
+        // values rather than against the nominal sleep durations.
+        let (s1, s2) = (t.secs("t1"), t.secs("t2"));
+        assert!(s1 >= 0.010, "t1 slept at least 10 ms, got {s1}");
+        assert!(s2 >= 0.020, "t2 spans both sleeps, got {s2}");
+        // Generous, but still 500x below the ~10 s a unit error would produce.
+        assert!(s1 < 5.0 && s2 < 5.0, "implausible durations: {s1}, {s2}");
+        // t2 covers a strictly longer interval, and the ~10 ms gap is far
+        // above scheduler noise, so this holds without bounding overshoot.
+        assert!(s2 > s1, "t2={s2} should exceed t1={s1}");
 
-        assert!(approx(t.range_ratio("t2"), 1.0, 0.3));
+        // perc is exact arithmetic over those same recorded values.
+        assert!((t.perc("t1", "t2") - s1 / s2 * 100.0).abs() < 1e-9);
+        assert!((t.perc("t2", "t1") - s2 / s1 * 100.0).abs() < 1e-9);
+        assert!(t.perc("t1", "t2") < 100.0, "t1 is the shorter of the two");
+        assert!(t.perc("t2", "t1") > 100.0, "arguments are not swapped");
+
+        // One run, so min == max and the ratio is exactly 1.0 whatever the
+        // clock did.
+        assert!(approx(t.range_ratio("t2"), 1.0, 1e-9));
         t.start("t2");
         sleep(Duration::from_millis(10));
         t.stop("t2");
-        assert!(approx(t.range_ratio("t2"), 2.0, 0.5));
+        // Two runs of deliberately different length: max/min must exceed 1,
+        // but by how much depends on how the OS rounded each sleep.
+        assert!(t.range_ratio("t2") > 1.0, "a longer and a shorter run differ");
     }
 
     #[test]
