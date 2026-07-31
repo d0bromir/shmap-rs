@@ -242,9 +242,14 @@ output = "stdout"
 threads = 32
 role = "gold"
 # Per-reference repetitive k-mer set, built once by meryl. Winnowmap2's weighted
-# minimizer sampling needs it; without -W it degrades towards plain minimap2.
-#   meryl count k=15 memory=64 threads=32 output <ref>.meryl <ref>.fa
-#   meryl print greater-than distinct=0.9998 <ref>.meryl > <ref>.repetitive.k15.txt
+# minimizer sampling needs it; without -W it degrades towards plain minimap2, so
+# reference_mappers.py refuses to run rather than produce a quietly weaker
+# "gold standard". Named by REGISTRY ID, not by the FASTA's filename: a
+# replaced reference gets a new id (VERSIONING.md §3), which forces the k-mer
+# set to be rebuilt instead of silently reused against different sequence.
+#   meryl count k=15 memory=64 threads=32 output REF-HS1.meryl hs1.fa
+#   meryl print greater-than distinct=0.9998 REF-HS1.meryl > REF-HS1.repetitive.k15.txt
+# For hs1 this yields 66 872 k-mers, ~0.02% of the distinct 15-mers, in ~25 min.
 repetitive = "~/bench-refs/{reference_id}.repetitive.k15.txt"
 note = "Emits PAF (no -a): we compare coordinates, and base-level alignment would cost far more for output we do not use."
 

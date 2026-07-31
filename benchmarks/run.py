@@ -384,6 +384,31 @@ def run_checks(bench: dict, metric: str, rows: list[dict], outdir: Path, suite: 
         res.append(dict(check="ground_truth", benchmark=bench["id"], metric=metric,
                         passed=frac >= need, detail=f"{ok}/{tot} = {frac:.6f} (need {need})"))
 
+    # Concordance against the cached external mappers. These are never run
+    # here — reference_mappers.py built their PAFs once, and this is a join.
+    # A missing cache entry is reported, not fatal: the corpus is optional and
+    # takes hours to build.
+    ext = suite.get("external", {})
+    if ext.get("enabled") and rs:
+        cache = Path(os.path.expanduser(ext["cache_dir"]))
+        for mapper in sorted(k for k, v in ext.items()
+                             if isinstance(v, dict) and k != "presets"):
+            if bench["id"] in ext[mapper].get("skip_benchmarks", []):
+                continue
+            ref_paf = cache / mapper / f"{bench['id']}.paf"
+            if not ref_paf.exists():
+                continue
+            v = sh([sys.executable, str(HERE / "concordance.py"), rs[0]["paf"], str(ref_paf),
+                    "--min-overlap", str(ext.get("concordance_min_overlap", 0.1)), "--json"])
+            try:
+                c = json.loads(v.stdout)
+            except json.JSONDecodeError:
+                continue
+            res.append(dict(check=f"concordance_{mapper}", benchmark=bench["id"], metric=metric,
+                            passed=True,
+                            detail=f"good={c['good']:.4f} recall={c['recall']:.4f} "
+                                   f"agreement={c['agreement']:.4f} ref={c['reference_mapped']}"))
+
     if "impl_agreement" in bench["checks"] and rs and cpp:
         a = sh(["bash", "-c",
                 f"comm -12 <(cut -f1-12 {shlex.quote(rs[0]['paf'])}|sort) "
