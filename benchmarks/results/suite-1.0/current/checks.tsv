@@ -1,0 +1,49 @@
+check	benchmark	metric	passed	detail
+thread_determinism	B01	Containment	True	identical across all thread counts
+validate_paf	B01	Containment	True	all structural and score invariants hold
+impl_agreement	B01	Containment	True	146681/149194 = 0.9832
+thread_determinism	B01	Jaccard	True	identical across all thread counts
+validate_paf	B01	Jaccard	True	all structural and score invariants hold
+impl_agreement	B01	Jaccard	True	145557/146120 = 0.9961
+thread_determinism	B01	bucket_SH	True	identical across all thread counts
+validate_paf	B01	bucket_SH	True	all structural and score invariants hold
+impl_agreement	B01	bucket_SH	True	146440/149236 = 0.9813
+thread_determinism	B02	Containment	True	identical across all thread counts
+validate_paf	B02	Containment	True	all structural and score invariants hold
+ground_truth	B02	Containment	True	124008/125000 = 0.992064 (need 0.98)
+impl_agreement	B02	Containment	True	123295/125000 = 0.9864
+thread_determinism	B02	Jaccard	True	identical across all thread counts
+validate_paf	B02	Jaccard	True	all structural and score invariants hold
+ground_truth	B02	Jaccard	True	123744/125000 = 0.989952 (need 0.98)
+impl_agreement	B02	Jaccard	True	124385/125000 = 0.9951
+thread_determinism	B02	bucket_SH	True	identical across all thread counts
+validate_paf	B02	bucket_SH	True	all structural and score invariants hold
+ground_truth	B02	bucket_SH	True	123451/125000 = 0.987608 (need 0.98)
+impl_agreement	B02	bucket_SH	True	122850/125000 = 0.9828
+thread_determinism	B03	Containment	True	identical across all thread counts
+validate_paf	B03	Containment	True	all structural and score invariants hold
+impl_agreement	B03	Containment	True	238472/241991 = 0.9855
+thread_determinism	B03	Jaccard	True	identical across all thread counts
+validate_paf	B03	Jaccard	True	all structural and score invariants hold
+impl_agreement	B03	Jaccard	True	239499/241265 = 0.9927
+thread_determinism	B03	bucket_SH	True	identical across all thread counts
+validate_paf	B03	bucket_SH	True	all structural and score invariants hold
+impl_agreement	B03	bucket_SH	True	236885/242050 = 0.9787
+thread_determinism	B04	Containment	True	identical across all thread counts
+validate_paf	B04	Containment	True	all structural and score invariants hold
+impl_agreement	B04	Containment	True	2383940/2419796 = 0.9852
+thread_determinism	B04	Jaccard	True	identical across all thread counts
+validate_paf	B04	Jaccard	True	all structural and score invariants hold
+impl_agreement	B04	Jaccard	True	2393344/2411461 = 0.9925
+thread_determinism	B04	bucket_SH	True	identical across all thread counts
+validate_paf	B04	bucket_SH	True	all structural and score invariants hold
+impl_agreement	B04	bucket_SH	True	2368033/2420331 = 0.9784
+thread_determinism	B05	Containment	True	identical across all thread counts
+validate_paf	B05	Containment	True	all structural and score invariants hold
+impl_agreement	B05	Containment	True	38786/39608 = 0.9792
+thread_determinism	B05	Jaccard	True	identical across all thread counts
+validate_paf	B05	Jaccard	True	all structural and score invariants hold
+impl_agreement	B05	Jaccard	True	5943/5956 = 0.9978
+thread_determinism	B05	bucket_SH	True	identical across all thread counts
+validate_paf	B05	bucket_SH	True	all structural and score invariants hold
+impl_agreement	B05	bucket_SH	True	40368/41115 = 0.9818

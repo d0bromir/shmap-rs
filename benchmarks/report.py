@@ -270,6 +270,44 @@ def block_checks(rs: dict) -> str:
     return "\n".join(out) + "\n"
 
 
+def block_concordance(rs: dict) -> str:
+    """From the concordance_<mapper> check rows, which run.py records by joining
+    against the cached external PAFs."""
+    rows = [c for c in rs["checks"] if c["check"].startswith("concordance_")]
+    if not rows:
+        return ("_No concordance data in this result set — the external-mapper corpus had not been "
+                "built when it was measured. Build it with `benchmarks/reference_mappers.py --run`, "
+                "then a subsequent run will populate this._\n")
+
+    def parse(detail: str) -> dict:
+        out = {}
+        for part in detail.split():
+            if "=" in part:
+                k, v = part.split("=", 1)
+                try:
+                    out[k] = float(v)
+                except ValueError:
+                    pass
+        return out
+
+    mappers = sorted({c["check"].removeprefix("concordance_") for c in rows})
+    out = []
+    for mapper in mappers:
+        out.append(f"### vs {mapper}\n")
+        out.append("| benchmark | metric | reference mapped | recall | agreement | **good** |")
+        out.append("|---|---|---:|---:|---:|---:|")
+        for c in sorted((c for c in rows if c["check"].endswith(mapper)),
+                        key=lambda c: (c["benchmark"], c["metric"])):
+            d = parse(c["detail"])
+            out.append(f"| {c['benchmark']} | {c['metric']} | "
+                       f"{num(d['ref']) if 'ref' in d else '—'} | "
+                       f"{d.get('recall', float('nan')):.4f} | "
+                       f"{d.get('agreement', float('nan')):.4f} | "
+                       f"**{d.get('good', float('nan')):.4f}** |")
+        out.append("")
+    return "\n".join(out)
+
+
 BUILDERS = {
     "provenance": lambda rs, reg: block_provenance(rs, reg),
     "summary": lambda rs, reg: block_summary(rs),
@@ -277,6 +315,7 @@ BUILDERS = {
     "thread-scaling": lambda rs, reg: block_thread_scaling(rs),
     "datasets": lambda rs, reg: block_datasets(rs, reg),
     "checks": lambda rs, reg: block_checks(rs),
+    "concordance": lambda rs, reg: block_concordance(rs),
 }
 
 

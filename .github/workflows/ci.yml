@@ -90,3 +90,11 @@ jobs:
       # a regression through or blocks a good change. Cheap to check here.
       - name: merge-gate verdicts are correct
         run: python3 benchmarks/test_compare.py
+
+      - name: concordance scoring is correct
+        run: python3 benchmarks/test_concordance.py
+
+      # Catches a hand-edited results table, which is how this repo previously
+      # came to carry contradictory numbers.
+      - name: RESULTS.md matches the current result set
+        run: python3 benchmarks/report.py --check
