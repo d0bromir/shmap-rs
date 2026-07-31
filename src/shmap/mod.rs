@@ -262,6 +262,13 @@ pub struct SHMapper<'idx, const NBP: bool, const OS: bool, const AP: bool> {
     /// merged via `H->C += C`).
     counters: Counters,
     timers: Timers,
+    /// Per-read rarity weights indexed by `Seed::seed_num`, and their total
+    /// over the read (so `w_intersection / m_weight` is the weighted
+    /// containment). Left empty when `--rarity-weight` is 0, and every scoring
+    /// path checks `is_empty()` first — so the default stays exactly the
+    /// integer counting the C++ does, with no float arithmetic on the hot path.
+    rarity: Vec<f64>,
+    m_weight: f64,
 }
 
 impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, OS, AP> {
@@ -270,6 +277,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             tidx,
             counters: Counters::new(),
             timers: Timers::new(),
+            rarity: Vec::new(),
+            m_weight: 0.0,
         }
     }
 
@@ -557,6 +566,24 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             p_ht.insert(seed.kmer.h, seed.clone());
             diff_hist[seed.seed_num as usize] = seed.occs_in_p;
             possible_matches += seed.hits_in_t;
+        }
+
+        // Rarity weights, when asked for. `m_weight` is the total a bucket
+        // could reach if every one of the read's k-mers matched, so it is the
+        // weighted analogue of `m` and keeps the score in [0, 1].
+        self.rarity.clear();
+        self.m_weight = 0.0;
+        if params.rarity_weight > 0.0 {
+            self.rarity.resize(p_unique.len(), 0.0);
+            for seed in &p_unique {
+                // hits_in_t is 0 for a k-mer absent from the reference; such a
+                // seed can never match, so its weight is irrelevant, but max(1)
+                // keeps the exponent well defined.
+                let h = seed.hits_in_t.max(1) as f64;
+                let w = h.powf(-params.rarity_weight);
+                self.rarity[seed.seed_num as usize] = w;
+                self.m_weight += w * seed.occs_in_p as f64;
+            }
         }
         self.counters.inc("possible_matches", possible_matches as i64);
 

@@ -60,6 +60,22 @@ pub struct Params {
     #[arg(short = 'o', long = "max_overlap", default_value_t = 0.5)]
     pub max_overlap: f64,
 
+    /// Weight each matched k-mer by `1 / hits_in_reference^alpha` when scoring
+    /// a bucket, instead of counting every match equally.
+    ///
+    /// `0` (the default) is plain counting and leaves output bit-for-bit
+    /// identical to the C++. Above 0, rare k-mers carry more of the score than
+    /// repetitive ones, which is what distinguishes near-identical repeat
+    /// copies: inside a satellite array almost every k-mer matches everywhere,
+    /// and only the rare paralog-specific ones say WHICH copy a read came from.
+    ///
+    /// Deliberately weighting rather than filtering. Deleting frequent k-mers
+    /// (`-M`) was measured and made accuracy monotonically worse — inside an
+    /// array it removes nearly all the evidence, so reads become unmappable
+    /// rather than better placed. See RESULTS.md section 8.
+    #[arg(long = "rarity-weight", default_value_t = 0.0)]
+    pub rarity_weight: f64,
+
     /// Optimization metric: bucket_SH, bucket_LCS, Containment, Jaccard
     #[arg(short = 'm', long = "metric", value_enum, default_value_t = Metric::Containment)]
     pub metric: Metric,
@@ -142,6 +158,25 @@ impl Params {
             bail!(
                 "The minimum difference (-d) should be >= 0. You provided {}.",
                 self.min_diff
+            );
+        }
+        if self.rarity_weight < 0.0 || self.rarity_weight > 4.0 {
+            bail!(
+                "The rarity weight (--rarity-weight) should be between 0 and 4. You provided {}.",
+                self.rarity_weight
+            );
+        }
+        // Containment's denominator is the read's own k-mer total, which has a
+        // well-defined weighted form. Jaccard's also counts reference k-mers
+        // that the read never had, and those carry no seed and so no
+        // hits_in_t — there is no honest weight for them, so rather than
+        // invent one the flag is refused.
+        if self.rarity_weight > 0.0 && self.metric != Metric::Containment {
+            bail!(
+                "--rarity-weight is only defined for -m Containment (got {}). \
+                 Jaccard's denominator includes reference k-mers absent from the read, \
+                 which have no frequency to weight by.",
+                self.metric
             );
         }
         if self.max_overlap < 0.0 || self.max_overlap > 1.0 {

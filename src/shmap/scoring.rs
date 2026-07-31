@@ -207,6 +207,13 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         let mut same_strand_seeds: i32 = 0;
         let mut best = Mapping::default();
 
+        // Weighted containment runs alongside the plain count rather than
+        // replacing it: `intersection` is still what gets reported and what
+        // `diff_hist`'s invariant is checked against, so the default path is
+        // untouched and the debug_assert at the end still means what it did.
+        let weighted = !self.rarity.is_empty();
+        let mut w_intersection: f64 = 0.0;
+
         while l < end {
             let tl = t[l as usize];
             while r < end {
@@ -226,6 +233,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     *cnt -= 1;
                     if *cnt >= 0 {
                         intersection += 1;
+                        if weighted {
+                            w_intersection += self.rarity[seed.seed_num as usize];
+                        }
                     }
                 }
                 debug_assert!(l <= r);
@@ -233,7 +243,11 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             }
 
             let s_kmers = r - l;
-            let score = self.mapping_score(intersection, m, s_kmers, metric);
+            let score = if weighted {
+                (w_intersection / self.m_weight).clamp(0.0, 1.0)
+            } else {
+                self.mapping_score(intersection, m, s_kmers, metric)
+            };
             debug_assert!((-0.0..=1.0).contains(&score));
             if l < r && score > best.score() {
                 best.update(
@@ -255,6 +269,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 *cnt += 1;
                 if *cnt >= 1 {
                     intersection -= 1;
+                    if weighted {
+                        w_intersection -= self.rarity[seed.seed_num as usize];
+                    }
                 }
             }
 
