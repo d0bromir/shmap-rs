@@ -39,6 +39,10 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 LOCKFILE = Path.home() / ".shmap-bench.lock"
 WORKROOT = Path.home() / "bench-work"
+# Where result sets are written on the benchmark host — deliberately not
+# inside the checkout; see the comment at `default_out`.
+RESULTS_ROOT = Path(os.environ.get("SHMAP_BENCH_RESULTS",
+                                   str(Path.home() / "bench-results")))
 APPROVAL_LABEL = "bench-approved"
 GH = os.environ.get("GH_BIN", "gh")
 
@@ -664,8 +668,13 @@ def main() -> int:
         print(f"suite {suite['suite_version']}  datasets v{suite['dataset_version']}  "
               f"commit {commit[:12]}  {len(jobs)} invocations")
         wt = prepare_worktree(commit)
-        default_out = (HERE / "results" / f"suite-{suite['suite_version']}" /
-                       f"{commit[:12]}-{datetime.now(timezone.utc):%Y-%m-%d}")
+        # Outside the checkout on purpose. A run writes ~700 KB of TSVs plus
+        # gigabytes of PAFs, and writing them into `benchmarks/results/` left
+        # the host's working tree dirty with files that later became tracked
+        # upstream — every subsequent `git pull` on the host then aborted.
+        # Promotion copies the small files into the repo; the PAFs stay here,
+        # where `--recheck` can still find them after a reboot.
+        default_out = (RESULTS_ROOT / f"{commit[:12]}-{datetime.now(timezone.utc):%Y-%m-%d}")
         out = Path(args.out) if args.out else default_out
         try:
             rc = execute(jobs, suite, reg, commit, wt, out, authorized_by, lock)
