@@ -84,9 +84,17 @@ def plan_entry(name: str, spec: dict, bench: dict, suite: dict, reg: dict, cache
 
     out_dir = cache / name
     paf = out_dir / f"{bench['id']}.paf"
+    # A mapper may need the reference in a different form than the registry's
+    # canonical copy — mapquik miscounts a line-wrapped FASTA. The override is
+    # a per-mapper path, and run_one refuses to run if it is missing rather
+    # than silently falling back to the wrapped one.
+    ref_path = ref["path"]
+    override = spec.get("reference_override")
+    if override:
+        ref_path = expand(override.format(reference_id=ref_id))
     fields = dict(
         binary=expand(spec["binary"]),
-        reference=ref["path"], reads=reads["path"],
+        reference=ref_path, reads=reads["path"],
         threads=spec.get("threads", 32), preset=preset,
         repetitive=expand(spec.get("repetitive", "").format(reference_id=ref_id)) if spec.get("repetitive") else "",
         out_prefix=str(out_dir / bench["id"]),
@@ -96,7 +104,7 @@ def plan_entry(name: str, spec: dict, bench: dict, suite: dict, reg: dict, cache
         mapper=name, benchmark=bench["id"], cmd=cmd, paf=paf,
         out_dir=out_dir, output=spec.get("output", "stdout"),
         role=spec.get("role", "peer"),
-        needs=[f for f in (fields["repetitive"],) if f],
+        needs=[f for f in (fields["repetitive"], override and ref_path) if f],
         key=dict(mapper=name, benchmark=bench["id"], cmd=cmd,
                  reference_id=ref_id, reads_id=reads_id,
                  reference_identity=[ref["bytes"], ref["records"], ref["bases"]],

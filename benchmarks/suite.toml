@@ -260,6 +260,18 @@ cmd = "{binary} {reads} --reference {reference} --threads {threads} -p {out_pref
 output = "prefix"   # writes {out_prefix}.paf itself rather than to stdout
 threads = 32
 role = "peer"
+# mapquik COUNTS NEWLINES AS BASES. Given a line-wrapped reference it reports
+# coordinates in "file offset" space, not sequence space, and does so silently:
+# against `hs1.fa` (wrapped at 50 columns) it reported every chromosome as
+# exactly 1.02x its true length — 1 + 1/50 — and placed 3 of 39 965 simulated
+# reads correctly. With a one-line reference it places 98.09% of them and
+# reports chr1 at its true 248 387 328. mapquik's own experiments/chm13/ scripts
+# use `chm13v2.0.oneline.fa` for this reason.
+#
+# Build it once per reference (~20 s for 3.1 Gbp):
+#   awk '/^>/ {if (NR>1) printf "\n"; print; next} {printf "%s", $0} END {printf "\n"}' \
+#       hs1.fa > ~/bench-refs/REF-HS1.oneline.fa
+reference_override = "~/bench-refs/{reference_id}.oneline.fa"
 # The closest published analogue to shmap-rs: sketch-based, minimizer-space,
 # PAF out, no base-level alignment. Its paper states performance degrades
 # markedly below 97% read-reference identity — the same wall shmap-rs hits on
