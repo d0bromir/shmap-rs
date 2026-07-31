@@ -141,10 +141,12 @@ right. Accuracy comes from B02, whose reads carry true positions. See `../RESULT
 
 **mapquik's coordinates are not currently comparable.** It reports reference lengths exactly 1.02x
 the true ones and places only 3 of 39 965 simulated reads within a read length of their true
-position — its PAF positions are not in reference coordinate space in this configuration, most
-likely because homopolymer compression is on by default (`--nohpc`). Its concordance figure is
-therefore meaningless and must not be read as disagreement with shmap-rs. Its mapped counts and
-timings are still valid.
+position — its PAF positions are not in reference coordinate space in this configuration.
+Homopolymer compression was the obvious explanation and was tested: `--nohpc` leaves the 1.02x
+scaling unchanged and lifts ground truth only to 0.55%, so that is not the cause. Most likely
+remaining candidate is parameters — mapquik's own `experiments/chm13/` scripts pass explicit `-k`,
+`-l` and `-d`, and this corpus used defaults. Its concordance figure is meaningless and must not be
+read as disagreement with shmap-rs; its mapped counts and timings are still valid.
 
 Smoke-tested end to end on B05 (30 invocations, 12.5 min): all nine checks passed and the numbers
 reproduced the hand-run measurements — Containment `-@1` 24.53 s against 24.13 s measured manually,

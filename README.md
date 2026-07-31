@@ -28,8 +28,31 @@ The C++ is single-threaded by design, so `-@1` is the like-for-like column.
 - **Identical mapping** — same reads mapped, same mapq-60 counts as the C++; 98.3% of records agree
   byte-for-byte, the rest being adjacent-bucket ties broken differently by a stable sort.
 
-Full tables, all three scoring metrics, six datasets, and the correctness checks:
-**[RESULTS.md](RESULTS.md)**.
+### Accuracy in repeats is a sampling choice, not a limit of the method
+
+Measured against 125 000 simulated reads whose true positions are known, and against
+[Winnowmap2](https://github.com/marbl/Winnowmap), the most accurate long-read mapper available:
+
+| | correct placements | wall |
+|---|---:|---:|
+| shmap-rs, `-r 0.01` (paper default) | 99.187% | **7.6 s** |
+| C++ `shmap`, `-r 0.01` | 99.19% | 88.4 s |
+| **shmap-rs, `-r 0.10`** | **99.626%** | **68.6 s** |
+| Winnowmap2 | 99.65% | 1 008 s |
+
+At the default sampling rate, **81% of shmap-rs's placement errors are in satellite/rDNA regions**
+— a 10.4% error rate there against 0.16% elsewhere. Three attempts to fix that by changing the
+*scoring* all failed, and measurably made it worse. The cause is that FracMinHash at `-r 0.01`
+keeps 1% of k-mers uniformly at random, so most reads retain none of the rare variants that
+distinguish one repeat copy from another: there is no signal for a scoring rule to use.
+
+Sampling more k-mers fixes what no scoring change could. At `-r 0.10` shmap-rs lands **within 30
+reads of Winnowmap2, roughly 15x faster** — and still faster than the C++ at its own default, which
+is 0.44 points less accurate. The paper numbers stay at `-r 0.01`; the point is that the ceiling
+usually attributed to sketch-based mapping in repeats belongs to the sampling rate, not the method.
+
+Full tables, all three scoring metrics, six datasets, the correctness checks, and the rejected
+approaches with their data: **[RESULTS.md](RESULTS.md)**.
 
 ## Install
 

@@ -5,9 +5,9 @@
 
 | | |
 |---|---|
-| commit | `93ced641d8b9` |
+| commit | `6d6f6a4f0844` |
 | host | `a2` (64-core AVX-512, 376 GB RAM, Ubuntu 24.04, idle) |
-| measured | 2026-07-30 |
+| measured | 2026-07-31 |
 | suite / datasets | 1.0 / v1 |
 | parameters | `-k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3` |
 | invocations | 150 (0 failed) |
@@ -38,10 +38,10 @@ Contents, in fixed order:
 <!-- BEGIN GENERATED: summary -->
 | | |
 |---|---|
-| Speed vs C++ `shmap`, single-threaded | **1.83–2.28x** |
-| Speed vs C++ at `-@ 4` | **5.06–6.62x** (the C++ cannot use more than one core) |
-| Peak memory | **1.82 GB – 2.12 GB vs 18.85 GB — 8.9x less** |
-| Best whole-run thread speedup | **13.51x** (`-@ 32`, Jaccard, B04) |
+| Speed vs C++ `shmap`, single-threaded | **1.83–2.29x** |
+| Speed vs C++ at `-@ 4` | **4.78–6.72x** (the C++ cannot use more than one core) |
+| Peak memory | **1.82 GB – 2.19 GB vs 18.85 GB — 8.6x less** |
+| Best whole-run thread speedup | **15.81x** (`-@ 32`, Jaccard, B04) |
 | Determinism | output byte-identical across all thread counts (15/15 benchmark×metric combinations) |
 <!-- END GENERATED: summary -->
 
@@ -63,9 +63,9 @@ Reads `D1-HIFI23K` against `REF-HS1`. Single-threaded is the like-for-like colum
 
 | metric | shmap-rs `-@1` | shmap-rs `-@4` | C++ | speedup `-@1` | speedup `-@4` | rs RSS | C++ RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Containment | 45.96 s | 17.26 s | 103.70 s | **2.26x** | **6.01x** | 2.09 GB | 18.85 GB |
-| Jaccard | 58.18 s | 21.02 s | 131.60 s | **2.26x** | **6.26x** | 2.03 GB | 18.85 GB |
-| bucket_SH *(no refinement)* | 38.77 s | 15.58 s | 87.12 s | **2.25x** | **5.59x** | 1.96 GB | 18.85 GB |
+| Containment | 46.97 s | 18.30 s | 104.66 s | **2.23x** | **5.72x** | 1.99 GB | 18.85 GB |
+| Jaccard | 60.18 s | 21.09 s | 131.62 s | **2.19x** | **6.24x** | 2.16 GB | 18.85 GB |
+| bucket_SH *(no refinement)* | 38.77 s | 16.12 s | 86.12 s | **2.22x** | **5.34x** | 2.14 GB | 18.85 GB |
 
 | metric | mapped | mapq 60 | agreement with C++ (12 core PAF cols) |
 |---|---:|---:|---:|
@@ -79,9 +79,9 @@ Reads `D2-SIM24K` against `REF-HS1`. Single-threaded is the like-for-like column
 
 | metric | shmap-rs `-@1` | shmap-rs `-@4` | C++ | speedup `-@1` | speedup `-@4` | rs RSS | C++ RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Containment | 38.76 s | 15.82 s | 88.37 s | **2.28x** | **5.59x** | 1.98 GB | 18.85 GB |
-| Jaccard | 51.59 s | 19.17 s | 117.80 s | **2.28x** | **6.15x** | 1.94 GB | 18.85 GB |
-| bucket_SH *(no refinement)* | 36.35 s | 14.55 s | 81.11 s | **2.23x** | **5.57x** | 1.82 GB | 18.85 GB |
+| Containment | 40.19 s | 15.65 s | 87.54 s | **2.18x** | **5.59x** | 1.89 GB | 18.85 GB |
+| Jaccard | 55.00 s | 19.74 s | 117.89 s | **2.14x** | **5.97x** | 1.94 GB | 18.85 GB |
+| bucket_SH *(no refinement)* | 35.79 s | 15.05 s | 80.86 s | **2.26x** | **5.37x** | 1.94 GB | 18.85 GB |
 
 | metric | mapped | mapq 60 | agreement with C++ (12 core PAF cols) |
 |---|---:|---:|---:|
@@ -95,9 +95,9 @@ Reads `D3-HIFI1X` against `REF-HS1`. Single-threaded is the like-for-like column
 
 | metric | shmap-rs `-@1` | shmap-rs `-@4` | C++ | speedup `-@1` | speedup `-@4` | rs RSS | C++ RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Containment | 53.59 s | 20.95 s | 116.14 s | **2.17x** | **5.54x** | 2.03 GB | 18.85 GB |
-| Jaccard | 66.61 s | 23.75 s | 144.26 s | **2.17x** | **6.07x** | 2.09 GB | 18.85 GB |
-| bucket_SH *(no refinement)* | 46.62 s | 18.95 s | 99.01 s | **2.12x** | **5.22x** | 1.94 GB | 18.85 GB |
+| Containment | 56.21 s | 20.70 s | 115.70 s | **2.06x** | **5.59x** | 1.82 GB | 18.85 GB |
+| Jaccard | 69.39 s | 23.64 s | 144.33 s | **2.08x** | **6.11x** | 2.01 GB | 18.85 GB |
+| bucket_SH *(no refinement)* | 46.42 s | 18.79 s | 99.20 s | **2.14x** | **5.28x** | 2.07 GB | 18.85 GB |
 
 | metric | mapped | mapq 60 | agreement with C++ (12 core PAF cols) |
 |---|---:|---:|---:|
@@ -111,9 +111,9 @@ Reads `D4-HIFI10X` against `REF-HS1`. Single-threaded is the like-for-like colum
 
 | metric | shmap-rs `-@1` | shmap-rs `-@4` | C++ | speedup `-@1` | speedup `-@4` | rs RSS | C++ RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Containment | 438.25 s | 142.61 s | 841.24 s | **1.92x** | **5.90x** | 1.87 GB | 18.85 GB |
-| Jaccard | 569.07 s | 172.04 s | 1138.87 s | **2.00x** | **6.62x** | 2.01 GB | 18.85 GB |
-| bucket_SH *(no refinement)* | 362.19 s | 120.66 s | 664.37 s | **1.83x** | **5.51x** | 1.97 GB | 18.85 GB |
+| Containment | 450.48 s | 138.53 s | 855.47 s | **1.90x** | **6.18x** | 1.99 GB | 18.85 GB |
+| Jaccard | 599.67 s | 178.03 s | 1196.53 s | **2.00x** | **6.72x** | 2.15 GB | 18.85 GB |
+| bucket_SH *(no refinement)* | 359.75 s | 119.85 s | 660.11 s | **1.83x** | **5.51x** | 2.11 GB | 18.85 GB |
 
 | metric | mapped | mapq 60 | agreement with C++ (12 core PAF cols) |
 |---|---:|---:|---:|
@@ -127,9 +127,9 @@ Reads `D6-ONT24K` against `REF-HS1`. Single-threaded is the like-for-like column
 
 | metric | shmap-rs `-@1` | shmap-rs `-@4` | C++ | speedup `-@1` | speedup `-@4` | rs RSS | C++ RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Containment | 24.36 s | 10.84 s | 54.81 s | **2.25x** | **5.06x** | 2.12 GB | 18.85 GB |
-| Jaccard | 27.34 s | 11.60 s | 60.36 s | **2.21x** | **5.20x** | 1.86 GB | 18.85 GB |
-| bucket_SH *(no refinement)* | 23.99 s | 9.88 s | 53.98 s | **2.25x** | **5.46x** | 2.04 GB | 18.85 GB |
+| Containment | 23.98 s | 11.19 s | 54.92 s | **2.29x** | **4.91x** | 2.00 GB | 18.85 GB |
+| Jaccard | 27.57 s | 11.91 s | 61.31 s | **2.22x** | **5.15x** | 2.19 GB | 18.85 GB |
+| bucket_SH *(no refinement)* | 22.75 s | 10.84 s | 51.80 s | **2.28x** | **4.78x** | 2.14 GB | 18.85 GB |
 
 | metric | mapped | mapq 60 | agreement with C++ (12 core PAF cols) |
 |---|---:|---:|---:|
@@ -167,61 +167,61 @@ Output is **byte-identical across every thread count**, on every benchmark and m
 
 | `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
-| 1 | 45.96 s | 58.18 s | 38.77 s | 1.00x |
-| 2 | 29.59 s | 34.82 s | 26.74 s | 1.67x |
-| 4 | 17.26 s | 21.02 s | 15.58 s | 2.77x |
-| 8 | 11.05 s | 12.49 s | 9.81 s | 4.66x |
-| 16 | 7.98 s | 8.61 s | 7.42 s | 6.76x |
-| 32 | 7.81 s | 7.87 s | 8.37 s | 7.39x |
-| 64 | 9.07 s | 7.94 s | 8.71 s | 7.33x |
+| 1 | 46.97 s | 60.18 s | 38.77 s | 1.00x |
+| 2 | 28.41 s | 35.63 s | 23.70 s | 1.69x |
+| 4 | 18.30 s | 21.09 s | 16.12 s | 2.85x |
+| 8 | 11.16 s | 12.16 s | 10.05 s | 4.95x |
+| 16 | 7.57 s | 8.98 s | 7.82 s | 6.70x |
+| 32 | 8.13 s | 7.81 s | 7.83 s | 7.71x |
+| 64 | 8.74 s | 8.44 s | 8.33 s | 7.13x |
 
 ### B02 — Simulated 24 kb, 0.96x — long reads with ground truth (`D2-SIM24K`)
 
 | `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
-| 1 | 38.76 s | 51.59 s | 36.35 s | 1.00x |
-| 2 | 24.83 s | 30.38 s | 23.79 s | 1.70x |
-| 4 | 15.82 s | 19.17 s | 14.55 s | 2.69x |
-| 8 | 10.17 s | 11.69 s | 8.92 s | 4.41x |
-| 16 | 7.33 s | 8.43 s | 7.29 s | 6.12x |
-| 32 | 7.21 s | 7.88 s | 7.15 s | 6.55x |
-| 64 | 7.88 s | 7.09 s | 7.93 s | 7.28x |
+| 1 | 40.19 s | 55.00 s | 35.79 s | 1.00x |
+| 2 | 25.40 s | 30.59 s | 22.80 s | 1.80x |
+| 4 | 15.65 s | 19.74 s | 15.05 s | 2.79x |
+| 8 | 9.74 s | 11.99 s | 9.02 s | 4.59x |
+| 16 | 7.55 s | 8.07 s | 7.59 s | 6.82x |
+| 32 | 7.40 s | 6.97 s | 7.00 s | 7.89x |
+| 64 | 7.87 s | 7.26 s | 7.89 s | 7.58x |
 
 ### B03 — Real HiFi 12.8 kb, 1x — the long-standing reference workload (`D3-HIFI1X`)
 
 | `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
-| 1 | 53.59 s | 66.61 s | 46.62 s | 1.00x |
-| 2 | 32.93 s | 39.43 s | 28.64 s | 1.69x |
-| 4 | 20.95 s | 23.75 s | 18.95 s | 2.80x |
-| 8 | 12.25 s | 13.77 s | 11.01 s | 4.84x |
-| 16 | 8.58 s | 10.13 s | 9.42 s | 6.58x |
-| 32 | 9.75 s | 9.20 s | 9.41 s | 7.24x |
-| 64 | 10.24 s | 9.91 s | 11.18 s | 6.72x |
+| 1 | 56.21 s | 69.39 s | 46.42 s | 1.00x |
+| 2 | 33.66 s | 40.06 s | 28.83 s | 1.73x |
+| 4 | 20.70 s | 23.64 s | 18.79 s | 2.94x |
+| 8 | 12.46 s | 14.29 s | 11.32 s | 4.86x |
+| 16 | 9.36 s | 9.96 s | 8.66 s | 6.97x |
+| 32 | 9.44 s | 9.81 s | 9.26 s | 7.07x |
+| 64 | 10.56 s | 10.50 s | 10.38 s | 6.61x |
 
 ### B04 — Real HiFi 12.8 kb, 10x — depth, where mapping dominates indexing (`D4-HIFI10X`)
 
 | `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
-| 1 | 438.25 s | 569.07 s | 362.19 s | 1.00x |
-| 2 | 255.41 s | 297.16 s | 213.12 s | 1.92x |
-| 4 | 142.61 s | 172.04 s | 120.66 s | 3.31x |
-| 8 | 73.28 s | 91.52 s | 62.46 s | 6.22x |
-| 16 | 43.88 s | 50.03 s | 38.65 s | 11.37x |
-| 32 | 40.14 s | 42.13 s | 41.76 s | 13.51x |
-| 64 | 44.46 s | 42.25 s | 41.25 s | 13.47x |
+| 1 | 450.48 s | 599.67 s | 359.75 s | 1.00x |
+| 2 | 255.93 s | 331.70 s | 206.72 s | 1.81x |
+| 4 | 138.53 s | 178.03 s | 119.85 s | 3.37x |
+| 8 | 75.76 s | 94.66 s | 64.38 s | 6.33x |
+| 16 | 42.95 s | 52.02 s | 42.23 s | 11.53x |
+| 32 | 40.88 s | 37.94 s | 39.28 s | 15.81x |
+| 64 | 43.17 s | 43.28 s | 40.78 s | 13.86x |
 
 ### B05 — Real ONT 23.8 kb, 0.70x — a different error profile (`D6-ONT24K`)
 
 | `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
-| 1 | 24.36 s | 27.34 s | 23.99 s | 1.00x |
-| 2 | 17.17 s | 18.56 s | 16.48 s | 1.47x |
-| 4 | 10.84 s | 11.60 s | 9.88 s | 2.43x |
-| 8 | 7.01 s | 7.81 s | 7.38 s | 3.50x |
-| 16 | 6.87 s | 6.36 s | 6.54 s | 4.30x |
-| 32 | 6.61 s | 7.03 s | 6.83 s | 3.89x |
-| 64 | 6.84 s | 6.76 s | 6.53 s | 4.04x |
+| 1 | 23.98 s | 27.57 s | 22.75 s | 1.00x |
+| 2 | 17.27 s | 19.17 s | 16.64 s | 1.44x |
+| 4 | 11.19 s | 11.91 s | 10.84 s | 2.31x |
+| 8 | 6.86 s | 7.73 s | 6.60 s | 3.57x |
+| 16 | 6.16 s | 6.78 s | 6.58 s | 4.07x |
+| 32 | 6.77 s | 6.67 s | 6.38 s | 4.13x |
+| 64 | 6.94 s | 7.14 s | 6.73 s | 3.86x |
 <!-- END GENERATED: thread-scaling -->
 
 Whole-run scaling is best at depth simply because there is enough mapping work to bury the fixed
@@ -352,6 +352,33 @@ blocking one stops a merge.
 <!-- BEGIN GENERATED: checks -->
 | check | benchmark | metric | result | detail |
 |---|---|---|---|---|
+| concordance_mapquik | B01 | Containment | pass | good=0.0000 recall=0.9985 agreement=0.0000 ref=48913 |
+| concordance_mapquik | B01 | Jaccard | pass | good=0.0000 recall=0.9789 agreement=0.0000 ref=48913 |
+| concordance_mapquik | B01 | bucket_SH | pass | good=0.0001 recall=0.9988 agreement=0.0001 ref=48913 |
+| concordance_mapquik | B02 | Containment | pass | good=0.0000 recall=1.0000 agreement=0.0000 ref=39965 |
+| concordance_mapquik | B02 | Jaccard | pass | good=0.0000 recall=1.0000 agreement=0.0000 ref=39965 |
+| concordance_mapquik | B02 | bucket_SH | pass | good=0.0001 recall=1.0000 agreement=0.0001 ref=39965 |
+| concordance_mapquik | B03 | Containment | pass | good=0.0000 recall=0.9980 agreement=0.0000 ref=89559 |
+| concordance_mapquik | B03 | Jaccard | pass | good=0.0000 recall=0.9952 agreement=0.0000 ref=89559 |
+| concordance_mapquik | B03 | bucket_SH | pass | good=0.0000 recall=0.9983 agreement=0.0000 ref=89559 |
+| concordance_mapquik | B04 | Containment | pass | good=0.0000 recall=0.9977 agreement=0.0000 ref=897326 |
+| concordance_mapquik | B04 | Jaccard | pass | good=0.0000 recall=0.9944 agreement=0.0000 ref=897326 |
+| concordance_mapquik | B04 | bucket_SH | pass | good=0.0000 recall=0.9979 agreement=0.0000 ref=897326 |
+| concordance_winnowmap2 | B01 | Containment | pass | good=0.9633 recall=0.9988 agreement=0.9644 ref=149376 |
+| concordance_winnowmap2 | B01 | Jaccard | pass | good=0.9455 recall=0.9782 agreement=0.9666 ref=149376 |
+| concordance_winnowmap2 | B01 | bucket_SH | pass | good=0.9621 recall=0.9991 agreement=0.9630 ref=149376 |
+| concordance_winnowmap2 | B02 | Containment | pass | good=0.9916 recall=1.0000 agreement=0.9916 ref=125000 |
+| concordance_winnowmap2 | B02 | Jaccard | pass | good=0.9896 recall=1.0000 agreement=0.9896 ref=125000 |
+| concordance_winnowmap2 | B02 | bucket_SH | pass | good=0.9871 recall=1.0000 agreement=0.9871 ref=125000 |
+| concordance_winnowmap2 | B03 | Containment | pass | good=0.9667 recall=0.9990 agreement=0.9677 ref=242232 |
+| concordance_winnowmap2 | B03 | Jaccard | pass | good=0.9641 recall=0.9960 agreement=0.9680 ref=242232 |
+| concordance_winnowmap2 | B03 | bucket_SH | pass | good=0.9655 recall=0.9992 agreement=0.9662 ref=242232 |
+| concordance_winnowmap2 | B04 | Containment | pass | good=0.9662 recall=0.9990 agreement=0.9671 ref=2422135 |
+| concordance_winnowmap2 | B04 | Jaccard | pass | good=0.9632 recall=0.9956 agreement=0.9675 ref=2422135 |
+| concordance_winnowmap2 | B04 | bucket_SH | pass | good=0.9645 recall=0.9993 agreement=0.9653 ref=2422135 |
+| concordance_winnowmap2 | B05 | Containment | pass | good=0.4621 recall=0.4724 agreement=0.9783 ref=83853 |
+| concordance_winnowmap2 | B05 | Jaccard | pass | good=0.0666 recall=0.0710 agreement=0.9372 ref=83853 |
+| concordance_winnowmap2 | B05 | bucket_SH | pass | good=0.4794 recall=0.4903 agreement=0.9776 ref=83853 |
 | ground_truth | B02 | Containment | pass | 124008/125000 = 0.992064 (need 0.98) |
 | ground_truth | B02 | Jaccard | pass | 123744/125000 = 0.989952 (need 0.98) |
 | ground_truth | B02 | bucket_SH | pass | 123451/125000 = 0.987608 (need 0.98) |
@@ -465,7 +492,42 @@ The corpus is built once per (mapper, dataset) by `benchmarks/reference_mappers.
 the host; `run.py` never invokes these mappers, it joins against the cached PAFs.
 
 <!-- BEGIN GENERATED: concordance -->
-_No concordance data in this result set — the external-mapper corpus had not been built when it was measured. Build it with `benchmarks/reference_mappers.py --run`, then a subsequent run will populate this._
+### vs mapquik
+
+| benchmark | metric | reference mapped | recall | agreement | **good** |
+|---|---|---:|---:|---:|---:|
+| B01 | Containment | 48 913 | 0.9985 | 0.0000 | **0.0000** |
+| B01 | Jaccard | 48 913 | 0.9789 | 0.0000 | **0.0000** |
+| B01 | bucket_SH | 48 913 | 0.9988 | 0.0001 | **0.0001** |
+| B02 | Containment | 39 965 | 1.0000 | 0.0000 | **0.0000** |
+| B02 | Jaccard | 39 965 | 1.0000 | 0.0000 | **0.0000** |
+| B02 | bucket_SH | 39 965 | 1.0000 | 0.0001 | **0.0001** |
+| B03 | Containment | 89 559 | 0.9980 | 0.0000 | **0.0000** |
+| B03 | Jaccard | 89 559 | 0.9952 | 0.0000 | **0.0000** |
+| B03 | bucket_SH | 89 559 | 0.9983 | 0.0000 | **0.0000** |
+| B04 | Containment | 897 326 | 0.9977 | 0.0000 | **0.0000** |
+| B04 | Jaccard | 897 326 | 0.9944 | 0.0000 | **0.0000** |
+| B04 | bucket_SH | 897 326 | 0.9979 | 0.0000 | **0.0000** |
+
+### vs winnowmap2
+
+| benchmark | metric | reference mapped | recall | agreement | **good** |
+|---|---|---:|---:|---:|---:|
+| B01 | Containment | 149 376 | 0.9988 | 0.9644 | **0.9633** |
+| B01 | Jaccard | 149 376 | 0.9782 | 0.9666 | **0.9455** |
+| B01 | bucket_SH | 149 376 | 0.9991 | 0.9630 | **0.9621** |
+| B02 | Containment | 125 000 | 1.0000 | 0.9916 | **0.9916** |
+| B02 | Jaccard | 125 000 | 1.0000 | 0.9896 | **0.9896** |
+| B02 | bucket_SH | 125 000 | 1.0000 | 0.9871 | **0.9871** |
+| B03 | Containment | 242 232 | 0.9990 | 0.9677 | **0.9667** |
+| B03 | Jaccard | 242 232 | 0.9960 | 0.9680 | **0.9641** |
+| B03 | bucket_SH | 242 232 | 0.9992 | 0.9662 | **0.9655** |
+| B04 | Containment | 2 422 135 | 0.9990 | 0.9671 | **0.9662** |
+| B04 | Jaccard | 2 422 135 | 0.9956 | 0.9675 | **0.9632** |
+| B04 | bucket_SH | 2 422 135 | 0.9993 | 0.9653 | **0.9645** |
+| B05 | Containment | 83 853 | 0.4724 | 0.9783 | **0.4621** |
+| B05 | Jaccard | 83 853 | 0.0710 | 0.9372 | **0.0666** |
+| B05 | bucket_SH | 83 853 | 0.4903 | 0.9776 | **0.4794** |
 <!-- END GENERATED: concordance -->
 
 ### Where the gap to Winnowmap2 actually is
@@ -657,8 +719,13 @@ a coordinate-space mismatch:
 - On B02, where the true position is known, it places **3 of 39 965** reads within a read length of
   truth (0.01%).
 
-So its PAF positions are not in reference coordinate space in this configuration — most plausibly
-because homopolymer compression is on by default (`--nohpc` disables it), which was not passed.
-Until that is resolved, quote mapquik's mapped counts and timings, never its concordance. The
-number is left in the result set rather than hidden, because deleting an inconvenient measurement
-is worse than labelling it.
+Homopolymer compression was the obvious explanation and is **not** the cause: with `--nohpc` the
+reported `chr1` length is still 253 355 074, still exactly 1.02x, and ground truth rises only from
+0.01% to 0.55% while mapping fewer reads (29 207 against 39 965). Whatever the coordinate space is,
+HPC is not what puts it there.
+
+The cause is unresolved. The most likely remaining candidate is parameters: mapquik's own
+`experiments/chm13/` scripts pass explicit `-k`, `-l` and `-d`, and this corpus used its defaults.
+Until it is resolved, quote mapquik's mapped counts and timings, never its concordance. The number
+is left in the result set rather than hidden, because deleting an inconvenient measurement is worse
+than labelling it.
