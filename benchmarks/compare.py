@@ -94,6 +94,27 @@ def agreement_of(checks: list[dict]) -> dict[tuple, float]:
     return out
 
 
+def concordance_of(checks: list[dict]) -> dict[tuple, float]:
+    """`good` per (mapper, benchmark, metric) from `concordance_<mapper>` rows,
+    whose detail looks like `good=0.9633 recall=0.9988 agreement=0.9644 ref=149376`.
+
+    `good` is the headline — the fraction of the external mapper's placements we
+    reproduce. `agreement` alone is gameable by mapping less.
+    """
+    out = {}
+    for c in checks:
+        if not c["check"].startswith("concordance_"):
+            continue
+        mo = re.search(r"good=([0-9.]+)", c["detail"])
+        if mo:
+            try:
+                out[(c["check"].removeprefix("concordance_"),
+                     c["benchmark"], c["metric"])] = float(mo.group(1))
+            except ValueError:
+                pass
+    return out
+
+
 def ground_truth_of(checks: list[dict]) -> dict[tuple, float]:
     """ground_truth details look like `124008/125000 = 0.992064 (need 0.99)`.
 
@@ -228,6 +249,20 @@ def compare(base: dict, cand: dict, thr: dict, allow_output_change: bool) -> dic
             add(acc_level, "accuracy", f"{field} regressed",
                 f"worst {k[0]}/{k[2]} -@{k[3]}: {bv} -> {cv} ({drop} fewer)"
                 + ("; downgraded to REVIEW by --allow-output-change" if allow_output_change else ""))
+
+    # Concordance with the external mappers. REVIEW rather than BLOCK, and the
+    # distinction is deliberate: ground truth and C++ agreement block because
+    # one is truth and the other is the implementation we are a port of.
+    # Winnowmap2 is neither — it is a very good estimate, so falling behind it
+    # is a fact a human should see, not a fact that should stop a merge on its
+    # own. Keeping up with it is the stated development goal, so a silent drop
+    # would be worse than a noisy one.
+    bc, cc = concordance_of(base["checks"]), concordance_of(cand["checks"])
+    for k, cv in sorted(cc.items()):
+        bv = bc.get(k)
+        if bv is not None and cv < bv - 1e-9:
+            add(REVIEW, "concordance", f"{k[0]} {k[1]}/{k[2]}",
+                f"good {bv:.4f} -> {cv:.4f} — reproducing fewer of its placements")
 
     # -- wall time and memory, aggregated per (benchmark, metric) ----------
     perf: list[dict] = []

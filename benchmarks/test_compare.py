@@ -31,7 +31,8 @@ COLS = ["benchmark", "impl", "metric", "threads", "repeat", "reference_id", "rea
 
 def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_version=1,
              host="a2", commit="a" * 40, fail_check=None, agreement=0.9792,
-             rc=0, drop_config=None, rss_scale=1.0, ground_truth=0.992064):
+             rc=0, drop_config=None, rss_scale=1.0, ground_truth=0.992064,
+             concordance=0.9633):
     d.mkdir(parents=True, exist_ok=True)
     rows, checks = [], []
     for b in BENCHES:
@@ -57,6 +58,9 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
                                    passed=(fail_check != name), detail="synthetic"))
             checks.append(dict(check="impl_agreement", benchmark=b, metric=m,
                                passed=True, detail=f"127000/130000 = {agreement:.4f}"))
+            checks.append(dict(
+                check="concordance_winnowmap2", benchmark=b, metric=m, passed=True,
+                detail=f"good={concordance:.4f} recall=0.9988 agreement=0.9644 ref=149376"))
             # Only B02 carries ground truth, as in the real suite.
             if b == "B02":
                 ok = round(ground_truth * 125000)
@@ -140,6 +144,12 @@ def main() -> int:
     # --- the override for an argued correctness fix -----------------------
     case("fewer mapped, override", REVIEW, dict(mapped_delta=-100),
          extra=("--allow-output-change",))
+
+    # Falling behind Winnowmap2 is the thing the project is trying not to do,
+    # but the reference is not truth, so it is REVIEW rather than BLOCK.
+    case("concordance dropped", REVIEW, dict(concordance=0.9500),
+         expect_in="concordance")
+    case("concordance improved", ACCEPT, dict(concordance=0.9700))
 
     # --- checks -----------------------------------------------------------
     case("thread determinism failed", BLOCK, dict(fail_check="thread_determinism"),
