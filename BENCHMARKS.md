@@ -28,7 +28,7 @@ The dataset that was missing. Every other whole-genome set here is 12.8 kbp, and
 `allchr_real_24kbp` (below) is neither 24 kbp nor large: its reads are real HiFi at **~13 kb** —
 the "24kbp" is the nominal library size — and there are only 2 000 of them, about 0.015x coverage,
 ~93% of which is indexing. It could never say anything about mapping parallelism. Simulated from `hs1.fa` with
-0.5% substitution noise by `profiling/wgs24k/gen24k.py`; valid for throughput and scaling, **not**
+0.5% substitution noise by `profiling/datasets/gen_sim24k.py`; valid for throughput and scaling, **not**
 for accuracy claims. All 125 000 reads map, 94.0% at Q60.
 
 | Threads | wall | speedup | index | map | map speedup | GB |
@@ -154,7 +154,7 @@ Output is byte-identical across thread counts; only wall-time/memory vary. Time 
   It is also why that row says nothing about whether long reads parallelize: at ~0.015x coverage
   there is almost no mapping to parallelize, and the reads are not long either. The 125 000-read
   24 kbp set above was built to answer that question properly, and there the mapper scales ~7.9x.
-  For *real* long reads see `profiling/real24kbp/` (23.2 kb, 149 438 reads).
+  For *real* long reads see RESULTS.md §2, benchmark B01 (23.2 kb, 149 438 reads).
 - **Memory is flat in thread count except on whole-genome 10 kbp**, where it climbs from 2.05 GB at
   `-@ 4` to 3.12 GB at `-@ 32`. Part of that is the dense bucket accumulator, which is per worker:
   those 10 kbp reads give a half-length of ~127, so the bucket space is ~246 k slots and each

@@ -1,9 +1,0 @@
-t=1 wall=0:38.55 rssKB=2151000 mapped=125000
-t=2 wall=0:23.38 rssKB=1805384 mapped=125000
-t=4 wall=0:18.98 rssKB=1817152 mapped=125000
-t=8 wall=0:12.22 rssKB=1857780 mapped=125000
-t=16 wall=0:09.98 rssKB=1907880 mapped=125000
-t=32 wall=0:10.07 rssKB=2032496 mapped=125000
-t=64 wall=0:09.88 rssKB=2210468 mapped=125000
-OUTPUT IDENTICAL across all thread counts
-SWEEP24K DONE

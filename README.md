@@ -108,7 +108,8 @@ are window boundaries.
 | [PROFILING.md](PROFILING.md) | optimization log: what changed, why, and what it measured |
 | [BENCHMARKS.md](BENCHMARKS.md) | thread-scaling history |
 | [COMPARISON.md](COMPARISON.md) | against other mappers (minimap2, winnowmap2, blend, mapquik) |
-| `profiling/*/` | raw `-x` reports, `time -v` records, driver scripts, dataset provenance |
+| `profiling/` | dataset provenance, other-mapper measurements too costly to re-run, and the PAF validators |
+| `simulate/` | read simulators and the error-rate sweep |
 
 ## Correctness
 
@@ -116,7 +117,8 @@ are window boundaries.
 that guard the parallel index build and reader. Beyond that, changes are checked by byte-identical
 PAF against the previous build on the whole human genome, by thread-count invariance, and by
 `profiling/validate_paf.py`, which verifies structural, score and ground-truth invariants —
-99.70% of simulated reads land within one read length of their true position.
+99.21% of simulated reads land within one read length of their true position (Containment; see
+[RESULTS.md §7](RESULTS.md#7-correctness) for the other metrics).
 
 That last check earns its keep: it found a bug byte-identical diffing structurally could not,
 because both implementations shared it. See [RESULTS.md §7](RESULTS.md#7-correctness).

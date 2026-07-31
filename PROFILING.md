@@ -6,13 +6,14 @@
 Instrumentation: `-x`/`--profile` (`src/profiling.rs`), writing a per-run JSON report. Reproduce:
 
 ```
-python3 profiling/benchmark.py --datasets all --threads 16 --profile --only shmap-rs
+python3 benchmarks/run.py --commit <sha>      # the maintained runner
 # or directly:
 shmap -s ref.fa -p reads.fa -k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment \
     -@ 16 -x --profile-log run.profile.json
 ```
 
-`profiling/tables.md` (via `profiling/extract_tables.py`) is a full raw dump of every report;
+Every run's `-x` reports are archived per result set in
+`benchmarks/results/<suite>/<commit>/raw-profiles.tar.gz`, and RESULTS.md §5 is generated from them;
 this file is just the summary.
 
 ## Current numbers
@@ -74,8 +75,9 @@ from.
 
 Regenerated with the same discipline: `benchmark.py --datasets all --threads N --profile --only
 shmap-rs`, both columns measured back-to-back on the same idle host. The raw reports are
-`profiling/*.profile.json` (dumped into `profiling/tables.md`); the previous generation is kept
-under `profiling/old/`.
+each result set's `raw-profiles.tar.gz`. The loose profiling directories this file used to point at
+were removed once `benchmarks/run.py` began regenerating the same data on every run — see
+`profiling/README.md`.
 
 `-@ 1`:
 
@@ -118,7 +120,7 @@ the mapping win everywhere else.
 The first run against **real** whole-genome long-read data at meaningful depth (everything else
 here uses 6 000-read subsets or simulated reads). 0.24-2.4 M real HG002 PacBio CCS reads vs
 T2T-CHM13, paper parameters (`-k 25 -r 0.01 -t 0.4`), single-threaded. Full write-up and raw
-reports in `profiling/realworld_hifi/`.
+reports in the archived result sets under `benchmarks/results/`.
 
 Inputs — reference `hs1.fa`, 3.18 GB, 3 117 292 070 bp, 25 segments:
 
@@ -143,8 +145,8 @@ plus `-@ 1 -x --profile-log rs_${N}x.profile.json` for shmap-rs (the C++ has no 
 > 430.56 s). The C++ side reproduced to within 0.5%, so the change is entirely ours. That run
 > also adds a 13.160x point over all 18 SMRT cells — the complete distinct real read set for this
 > sample — at 559.46 s against the C++'s 1059.39 s, still 1.89x, plus the small and tiny tiers
-> and `-@ 64` numbers. See `profiling/full_suite_a2/`, which is the current reference;
-> `profiling/realworld_hifi/` remains the record of what `b0121aa` measured.
+> and `-@ 64` numbers. RESULTS.md is the current reference; the raw artifacts for both runs were
+> removed when the benchmark suite took over their regeneration.
 
 Per-read cost is constant across depths (0.232 / 0.230 / 0.229 ms) and memory is nearly flat
 (2.11 -> 2.54 GB for 10x the reads), so throughput scales linearly and nothing degrades at depth.
@@ -161,7 +163,7 @@ measured next targets are `refine`, `collect_kmer_info` and `match_seeds`, in th
 Real HG002 HiFi from the GIAB 20 kb-insert library, filtered to >= 22 kb: 149 438 reads,
 3.47 Gbp, mean 23 189 bp, 1.1117x of T2T-CHM13. Single-threaded, paper parameters. Full write-up,
 the C++ head-to-head and the length/yield tradeoff behind the >= 22 kb cut are in
-`profiling/real24kbp/`.
+RESULTS.md §2 (benchmark B01).
 
 This is the only real read set here materially longer than 13 kb — note that `allchr_real_24kbp`,
 despite the name, is real HiFi at **~13 kb** (the "24kbp" is the nominal library size).
