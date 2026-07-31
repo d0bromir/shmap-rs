@@ -139,14 +139,12 @@ input makes it stale rather than silently reused.
 available and is still an estimate: where it and shmap-rs disagree, nothing here says which is
 right. Accuracy comes from B02, whose reads carry true positions. See `../RESULTS.md` section 8.
 
-**mapquik's coordinates are not currently comparable.** It reports reference lengths exactly 1.02x
-the true ones and places only 3 of 39 965 simulated reads within a read length of their true
-position — its PAF positions are not in reference coordinate space in this configuration.
-Homopolymer compression was the obvious explanation and was tested: `--nohpc` leaves the 1.02x
-scaling unchanged and lifts ground truth only to 0.55%, so that is not the cause. Most likely
-remaining candidate is parameters — mapquik's own `experiments/chm13/` scripts pass explicit `-k`,
-`-l` and `-d`, and this corpus used defaults. Its concordance figure is meaningless and must not be
-read as disagreement with shmap-rs; its mapped counts and timings are still valid.
+**mapquik needs a one-line reference.** It counts newline characters as bases, so a line-wrapped
+FASTA gives coordinates in file-offset space — silently. Against `hs1.fa` (wrapped at 50 columns) it
+reported every chromosome at exactly 1.02x its true length and placed 3 of 39 965 simulated reads
+correctly; with a one-line reference it places 98.09%. `suite.toml` gives it a `reference_override`
+and the `awk` recipe to build one, and a missing override file fails the run rather than silently
+using the wrapped reference.
 
 Smoke-tested end to end on B05 (30 invocations, 12.5 min): all nine checks passed and the numbers
 reproduced the hand-run measurements — Containment `-@1` 24.53 s against 24.13 s measured manually,

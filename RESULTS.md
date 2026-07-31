@@ -760,6 +760,40 @@ markedly below 97% read-reference identity, and on real HG002 HiFi it maps far f
 either shmap-rs or Winnowmap2. It is included because it is the right comparison for a
 low-divergence sketch mapper, not because it is a target to match.
 
+**Its earlier concordance figure was an artefact, now fixed.** The first automated run reported
+`good = 0.0000` against mapquik at `recall = 0.9985` — shmap-rs mapped essentially every read
+mapquik did and agreed on the position of none. That was not disagreement, and it was not mapquik
+being wrong either.
+
+**mapquik counts newline characters as bases.** Given a line-wrapped FASTA it reports coordinates in
+file-offset space rather than sequence space, and does so silently. The arithmetic is exact:
+`hs1.fa` is wrapped at 50 columns, and mapquik reported `chr1` as 253 355 074 against its true
+248 387 328 — which is `248387328 + 248387328/50`, the 1.02x factor seen on every chromosome.
+
+Measured on B02, where the true position is known:
+
+| | wrapped reference | one-line reference |
+|---|---:|---:|
+| records | 39 965 | **124 221** |
+| `chr1` length reported | 253 355 074 | **248 387 328** |
+| ground truth | 0.01% | **98.09%** |
+
+So mapquik is a capable mapper that was being handed a format it mis-parses. Its own
+`experiments/chm13/` scripts use `chm13v2.0.oneline.fa` for exactly this reason. `suite.toml` now
+carries a `reference_override` for it, with the one-line recipe beside it, and the corpus refuses to
+run if that file is missing rather than falling back to the wrapped reference and reproducing the
+bug.
+
+Two wrong guesses preceded the right answer, both recorded because they cost time: homopolymer
+compression (`--nohpc` changes nothing — the 1.02x factor survives it) and mapquik's `-k`/`-l`/`-d`
+defaults (the clue was in the *filename* of the reference their scripts use, not in the flags).
+
+**mapquik is a peer, not a standard.** It is the closest published analogue to shmap-rs —
+minimizer-space, PAF out, no base-level alignment — but its paper states performance degrades
+markedly below 97% read-reference identity, and on real HG002 HiFi it maps far fewer reads than
+either shmap-rs or Winnowmap2. It is included because it is the right comparison for a
+low-divergence sketch mapper, not because it is a target to match.
+
 **Its concordance figure is not usable, and reads as the opposite of what it means.** The automated
 check reports `good = 0.0000` against mapquik at `recall = 0.9985` — shmap-rs mapped essentially
 every read mapquik did, and agreed on the position of none of them. That is not disagreement; it is
