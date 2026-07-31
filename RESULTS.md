@@ -29,7 +29,8 @@ Contents, in fixed order:
 [5 Stage breakdown](#5-stage-breakdown) ·
 [6 Datasets](#6-datasets) ·
 [7 Correctness](#7-correctness) ·
-[8 Concordance with other mappers](#8-concordance-with-other-mappers)
+[8 Concordance with other mappers](#8-concordance-with-other-mappers) ·
+[9 Error tolerance](#9-error-tolerance)
 
 ---
 
@@ -780,3 +781,89 @@ The cause is unresolved. The most likely remaining candidate is parameters: mapq
 Until it is resolved, quote mapquik's mapped counts and timings, never its concordance. The number
 is left in the result set rather than hidden, because deleting an inconvenient measurement is worse
 than labelling it.
+
+---
+
+## 9 Error tolerance
+
+What the published accuracy numbers do and do not cover, measured with
+`simulate/sweep_error_rates.py`: 20 000 reads of 24 kb sampled from `hs1.fa` at
+each error profile, `-k 25 -r 0.01 -t 0.4`, scored against known true positions.
+
+**First, what D2 actually is.** Measured, not taken from its description
+(`simulate/measure_error_rate.py`): **0.498% error, length delta +0.004%**. So it
+is substitutions with essentially no indels, and every accuracy figure in §7 is a
+substitution-only figure. That is the gap this section closes.
+
+| profile | sub | indel | mapped | correct of 20 000 | span error |
+|---|---:|---:|---:|---:|---:|
+| clean | 0% | 0% | 20 000 | 99.51% | 0.93% |
+| sub 0.5% *(= D2)* | 0.5% | 0% | 20 000 | 99.08% | 2.78% |
+| sub 1% | 1% | 0% | 20 000 | 98.85% | 3.79% |
+| sub 2% | 2% | 0% | 19 996 | 98.32% | 5.07% |
+| **sub 5%** | 5% | 0% | **43** | **0.08%** | 23.24% |
+| indel 0.5% | 0% | 0.5% | 20 000 | 99.17% | 2.77% |
+| indel 1% | 0% | 1% | 20 000 | 99.05% | 3.69% |
+| indel 2% | 0% | 2% | 19 991 | 98.62% | 4.97% |
+| deletions only, 1% | 0% | 1% | 20 000 | 99.06% | 3.88% |
+| insertions only, 1% | 0% | 1% | 20 000 | 99.02% | 3.72% |
+| HiFi-like | 0.4% | 0.1% | 20 000 | 99.17% | 2.79% |
+| **ONT-like** | 3% | 2% | **53** | **0.12%** | 25.05% |
+
+### Indels are not worse than substitutions
+
+The expectation going in was that they would be: shmap scores a bucket over a
+window bounded by the read's own k-mer count, which assumes the read and its
+reference interval are about the same length, and indels break that assumption
+while substitutions do not.
+
+They are consistently **slightly better** — 99.05% against 98.85% at 1%, 98.62%
+against 98.32% at 2% — and insertion-only, deletion-only and mixed are all within
+0.04% of each other. The span assumption is not what governs this.
+
+The reason is that shmap compares k-mer *sets*, where position carries no
+information. An indel and a substitution each destroy about `k` k-mers, so they
+cost the same; a deletion destroys `k-1` rather than `k`, which is the small
+edge. **Anything that degrades k-mer survival at a given rate costs the same,
+whatever its biological form.** That is a useful robustness property, and it is
+the opposite of what chain-based mappers experience.
+
+### The cliff is a threshold crossing, and it is predictable
+
+Between 2% and 5% substitutions the mapper does not degrade — it stops. 19 996
+reads mapped becomes 43.
+
+That is not a bug. A read's containment is approximately the fraction of its
+k-mers that survive, `(1-e)^k`, and a bucket has to clear `-t` to be reported:
+
+| error | k=25 | k=15 | k=11 |
+|---:|---:|---:|---:|
+| 0.5% | 88.2% | 92.8% | 94.6% |
+| 1% | 77.8% | 86.0% | 89.5% |
+| 2% | 60.3% | 73.9% | 80.1% |
+| 3% | 46.7% | 63.3% | 71.5% |
+| **5%** | **27.7%** | 46.3% | 56.9% |
+
+At `-k 25`, 5% error leaves 27.7% of k-mers — below `-t 0.4`, so nothing clears
+threshold and the mapper correctly reports almost nothing rather than reporting
+noise. The model is confirmed independently: D2's *measured* 25-mer survival is
+88.28% against 88.2% predicted at its measured 0.498% error.
+
+So the operating envelope is `(1-e)^k > t`, and the two ways to widen it are
+lowering `k` or lowering `t`. This is what `[params.ont-k15]` in `suite.toml`
+is for, and it is now a derived setting rather than a guess: at 5% error, k=15
+leaves 46.3%, back above the threshold.
+
+### This also explains the ONT numbers, and corrects them
+
+B05 maps ~43% of real ONT reads at k=25, but uniform 5% simulated error maps
+**0.08%**. Both are right, and the difference is the point: real error rates are
+a *distribution*, and what maps is the low-error tail. A uniform model at the
+same mean is far harsher than real data, because it denies every read the chance
+of being better than average.
+
+Two consequences. Quoting "shmap-rs handles 5% error" from a uniform simulation
+would be wrong in both directions — too pessimistic about real reads, too
+optimistic about the worst of them. And the ~43% ONT mapping rate is not a
+tuning failure at all: at k=25 it is the fraction of reads whose *own* error
+rate leaves them above threshold.

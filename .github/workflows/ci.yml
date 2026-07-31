@@ -98,3 +98,32 @@ jobs:
       # came to carry contradictory numbers.
       - name: RESULTS.md matches the current result set
         run: python3 benchmarks/report.py --check
+
+      # The simulators produce the only datasets that can support an accuracy
+      # claim, so a syntax error in them is a silent hole in the evidence.
+      - name: simulation tooling runs
+        run: |
+          set -euo pipefail
+          python3 -m py_compile simulate/*.py
+          # End-to-end on a tiny synthetic reference: generate with known rates,
+          # then confirm measure_error_rate.py recovers them. Catches a broken
+          # generator, which would otherwise show up as a mysterious accuracy
+          # regression much later.
+          python3 - <<'PY'
+          import random, pathlib
+          rng = random.Random(0)
+          seq = "".join(rng.choice("ACGT") for _ in range(400_000))
+          pathlib.Path("/tmp/ref.fa").write_text(">chrT\n" + seq + "\n")
+          PY
+          python3 simulate/simulate_reads.py --ref /tmp/ref.fa --n 60 --len 20000 \
+              --sub 0.01 -o /tmp/sim.fa
+          python3 simulate/measure_error_rate.py --ref /tmp/ref.fa --reads /tmp/sim.fa \
+              --sample 60 | tee /tmp/err.txt
+          python3 - <<'PY'
+          import re, sys
+          t = open("/tmp/err.txt").read()
+          got = float(re.search(r"implied total error rate\s+([0-9.]+)%", t).group(1))
+          # Asked for 1%; the k-mer estimator is approximate, so allow a band.
+          assert 0.7 <= got <= 1.3, f"generator/estimator disagree: {got}% for a 1% request"
+          print(f"round-trip ok: requested 1.000%, recovered {got}%")
+          PY
