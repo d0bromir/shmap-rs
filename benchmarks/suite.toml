@@ -200,10 +200,75 @@ mapped_regression_block = 0        # any drop in mapped reads blocks
 mapq60_regression_block = 0        # any drop in mapq-60 reads blocks
 
 # ---------------------------------------------------------------------------
-# Other mappers — measured once per suite version, not per PR, since they do
-# not change between our commits. Not yet wired; see benchmarks/README.md.
+# External mappers — the concordance corpus
 # ---------------------------------------------------------------------------
-
+#
+# These are run ONCE per (mapper, benchmark) by reference_mappers.py, and their
+# PAFs are cached on the host. `run.py` never invokes them: a PR run scores
+# shmap-rs against the cached output, which costs a join over two PAFs rather
+# than another mapping pass.
+#
+# What they are and are not
+# -------------------------
+# Winnowmap2 is the most accurate long-read mapper available, and it is still
+# NOT ground truth. Its output is an estimate; where it and shmap-rs disagree,
+# nothing here says which is right. These numbers are CONCORDANCE, never
+# accuracy, and must be reported as such. Accuracy comes from B02, whose reads
+# carry true positions in their headers — that is the only gold standard in
+# this suite.
+#
+# Winnowmap2's own accuracy claims were established on simulated reads with
+# known variants (Nature Methods 2022, doi:10.1038/s41592-022-01457-8), not by
+# scoring against another mapper. The field's most accurate mapper needed
+# simulation to prove it, which is the whole argument for keeping B02 primary.
+#
+# Where the comparison is informative: repetitive regions, which is what
+# Winnowmap2 was built for and where sketch-based mapping is most likely to be
+# weak. Genome-wide, most mappers agree on the easy majority of HiFi reads, so
+# a high overall number says less than the disagreements do.
 [external]
-enabled = false
-mappers = ["minimap2", "winnowmap2", "blend", "mapquik", "minshmap"]
+enabled = true
+cache_dir = "~/bench-refs"
+# Overlap criterion from paftools.js mapeval, matching mapquik's own
+# experiments/intersect_pafs.py: same target sequence, and
+# intersection / (span of the two intervals' extremes) above this.
+concordance_min_overlap = 0.1
+
+[external.winnowmap2]
+binary = "~/tools/Winnowmap/bin/winnowmap"
+version_cmd = "{binary} --version"
+cmd = "{binary} -W {repetitive} -t {threads} -x {preset} {reference} {reads}"
+output = "stdout"
+threads = 32
+role = "gold"
+# Per-reference repetitive k-mer set, built once by meryl. Winnowmap2's weighted
+# minimizer sampling needs it; without -W it degrades towards plain minimap2.
+#   meryl count k=15 memory=64 threads=32 output <ref>.meryl <ref>.fa
+#   meryl print greater-than distinct=0.9998 <ref>.meryl > <ref>.repetitive.k15.txt
+repetitive = "~/bench-refs/{reference_id}.repetitive.k15.txt"
+note = "Emits PAF (no -a): we compare coordinates, and base-level alignment would cost far more for output we do not use."
+
+[external.mapquik]
+binary = "~/tools/mapquik/mapquik"
+version_cmd = "{binary} --version"
+cmd = "{binary} {reads} --reference {reference} --threads {threads} -p {out_prefix}"
+output = "prefix"   # writes {out_prefix}.paf itself rather than to stdout
+threads = 32
+role = "peer"
+# The closest published analogue to shmap-rs: sketch-based, minimizer-space,
+# PAF out, no base-level alignment. Its paper states performance degrades
+# markedly below 97% read-reference identity — the same wall shmap-rs hits on
+# ONT — so it is the right peer for a low-divergence mapper, and the wrong tool
+# to judge ONT results by.
+skip_benchmarks = ["B05"]
+note = "HiFi/low-divergence only; skipped on ONT, where it is out of its stated design range."
+
+# Which preset each benchmark's reads need. ONT has a different error profile
+# and must not be mapped with the PacBio preset. validate_suite.py checks that
+# every benchmark appears here.
+[external.presets]
+B01 = "map-pb"
+B02 = "map-pb"
+B03 = "map-pb"
+B04 = "map-pb"
+B05 = "map-ont"
