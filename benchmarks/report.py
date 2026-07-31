@@ -270,6 +270,111 @@ def block_checks(rs: dict) -> str:
     return "\n".join(out) + "\n"
 
 
+def _profiles(rs: dict) -> dict[tuple, dict]:
+    """(benchmark, metric, threads) -> timers_secs, from the run's own `-x` reports.
+
+    Read from `raw-profiles.tar.gz` if present, else the loose `raw/` directory.
+    This is what keeps the profiling tables in step with the benchmark tables:
+    both come out of the same result set, so they cannot drift apart the way
+    they did when §5 was maintained by hand from a separate profiling run.
+    """
+    import tarfile
+
+    out: dict[tuple, dict] = {}
+
+    # Anchored rather than split("_"): metric names contain underscores
+    # (`bucket_SH`, `bucket_LCS`), so a positional split silently drops exactly
+    # the no-refinement metric the refine tables exist to contrast against.
+    fn = re.compile(r"^(?P<bench>[^_]+)_(?P<impl>[^_]+)_(?P<metric>.+)_t(?P<t>\d+)_r\d+\.json$")
+
+    def take(name: str, data: bytes):
+        mo = fn.match(Path(name).name)
+        if not mo or mo.group("impl") != "shmap-rs":
+            return
+        parts = (mo.group("bench"), mo.group("metric"))
+        try:
+            threads = int(mo.group("t"))
+            j = json.loads(data)
+        except (ValueError, json.JSONDecodeError):
+            return
+        t = j.get("global", {}).get("timers_secs")
+        if t:
+            out[(parts[0], parts[1], threads)] = t
+
+    tgz = rs["dir"] / "raw-profiles.tar.gz"
+    if tgz.exists():
+        with tarfile.open(tgz) as tf:
+            for m in tf.getmembers():
+                if m.isfile() and m.name.endswith(".json"):
+                    f = tf.extractfile(m)
+                    if f:
+                        take(m.name, f.read())
+    else:
+        for p in (rs["dir"] / "raw").glob("*.json"):
+            take(p.name, p.read_bytes())
+    return out
+
+
+# Stage shares are of `query_mapping`, and the indented entries are components
+# of the line above them.
+STAGES = [("match_rest", 0), ("refine", 1), ("prepare", 0), ("collect_kmer_info", 1),
+          ("match_seeds", 0), ("sketching", 0), ("bucket_merge", 0)]
+INDEX_STAGES = ["indexing", "index_reading", "index_sketching", "index_collecting"]
+
+
+def block_stage_breakdown(rs: dict) -> str:
+    prof = _profiles(rs)
+    if not prof:
+        return ("_No `-x` profile reports in this result set._\n")
+    rows = rs["rows"]
+    out = []
+
+    # --- what refinement costs, per benchmark, single-threaded --------------
+    out.append("Shares of `query_mapping`, single-threaded. Indented rows are part of the row "
+               "above.\n")
+    for bid in benchmarks_in(rows):
+        ms = [m for m in metrics_in(rows, bid) if (bid, m, 1) in prof]
+        if not ms:
+            continue
+        out.append(f"**{bid}** — {title_of(bid)}\n")
+        out.append("| stage | " + " | ".join(ms) + " |")
+        out.append("|---|" + "---:|" * len(ms))
+        for stage, depth in STAGES:
+            cells = []
+            for m in ms:
+                t = prof[(bid, m, 1)]
+                qm = t.get("query_mapping", 0.0)
+                cells.append(f"{t[stage]/qm*100:.1f}%" if stage in t and qm else "—")
+            if all(c == "—" for c in cells):
+                continue
+            label = ("⌐ " if depth else "") + f"`{stage}`"
+            out.append(f"| {label} | " + " | ".join(cells) + " |")
+        # absolute seconds give the shares meaning; a share can fall while the
+        # cost rises if something else grew faster.
+        out.append("| *`query_mapping` total* | "
+                   + " | ".join(f"*{prof[(bid, m, 1)].get('query_mapping', 0):.1f} s*" for m in ms)
+                   + " |")
+        out.append("")
+
+    # --- indexing against thread count -------------------------------------
+    deep = max(benchmarks_in(rows), key=lambda b: sum(
+        1 for r in rows if r["benchmark"] == b and r["impl"] == SUBJECT))
+    threads = sorted({t for (b, m, t) in prof if b == deep and m == "Containment"})
+    if len(threads) > 1:
+        out.append(f"### Indexing against thread count ({deep}, Containment)\n")
+        out.append("| stage | " + " | ".join(f"`-@{t}`" for t in threads) + " |")
+        out.append("|---|" + "---:|" * len(threads))
+        for stage in INDEX_STAGES:
+            cells = [(f"{prof[(deep, 'Containment', t)][stage]:.1f}"
+                      if stage in prof.get((deep, "Containment", t), {}) else "—")
+                     for t in threads]
+            if all(c == "—" for c in cells):
+                continue
+            out.append(f"| `{stage}` (s) | " + " | ".join(cells) + " |")
+        out.append("")
+    return "\n".join(out)
+
+
 def block_concordance(rs: dict) -> str:
     """From the concordance_<mapper> check rows, which run.py records by joining
     against the cached external PAFs."""
@@ -316,6 +421,7 @@ BUILDERS = {
     "datasets": lambda rs, reg: block_datasets(rs, reg),
     "checks": lambda rs, reg: block_checks(rs),
     "concordance": lambda rs, reg: block_concordance(rs),
+    "stage-breakdown": lambda rs, reg: block_stage_breakdown(rs),
 }
 
 

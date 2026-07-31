@@ -256,53 +256,104 @@ counter reached 1.74e12 against an `i64` budget.
 
 ## 5 Stage breakdown
 
-> **Archived measurement**, same run as §4. Stage shares come from `-x` profile reports rather than
-> from `results.tsv`, so `report.py` does not regenerate them. The suite still writes the `-x` JSON
-> for every invocation (`raw-profiles.tar.gz` in each result set), so this can be rebuilt when a
-> change makes it worth re-reading.
+Generated from the `-x` profile reports of the **same run** as every other table here, so the
+profiling and benchmark numbers cannot drift apart. They used to: this section was maintained by
+hand from a separate profiling run and slowly stopped describing the code being measured.
 
-Shares of `query_mapping`, single-threaded, Containment.
+<!-- BEGIN GENERATED: stage-breakdown -->
+Shares of `query_mapping`, single-threaded. Indented rows are part of the row above.
 
-### By read length — longer reads are cheaper per base
-
-| stage | 23.2 kb | 12.8 kb |
-|---|---:|---:|
-| `match_rest` | 32.2% | 26.6% |
-| ⌐ `refine` | 19.0% | 14.7% |
-| `prepare` | 24.1% | 20.4% |
-| ⌐ `collect_kmer_info` | 15.9% | 13.3% |
-| `match_seeds` | **20.6%** | **32.3%** |
-| `sketching` | 20.4% | 15.7% |
-| `bucket_merge` | 2.6% | 4.7% |
-
-Per-read cost is 220 µs at 23.2 kb against 165 µs at 12.8 kb: **1.81x the length for 1.33x the
-cost, ~26% cheaper per base**. Bucket width is the read's own half-length, so a longer read
-partitions the reference into fewer, wider buckets — 194 seeded buckets/read against 252, despite
-carrying 231 k-mers against 128.
-
-### By metric — what refinement costs
+**B01** — Real HiFi 23.2 kb, 1.11x — the headline C++ comparison
 
 | stage | Containment | Jaccard | bucket_SH |
 |---|---:|---:|---:|
-| `refine` | 5.7 s | **15.1 s** | 0.1 s |
-| `match_rest` | 10.1 s | 21.4 s | 3.6 s |
-| `query_mapping` | 32.3 s | 43.9 s | 25.8 s |
-| buckets refined | 620 342 | **1 676 532** | 384 863 |
+| `match_rest` | 32.5% | 51.2% | 13.5% |
+| ⌐ `refine` | 19.8% | 37.7% | 0.3% |
+| `prepare` | 24.2% | 17.1% | 29.8% |
+| ⌐ `collect_kmer_info` | 16.2% | 11.4% | 19.4% |
+| `match_seeds` | 20.9% | 15.4% | 27.0% |
+| `sketching` | 19.7% | 14.2% | 26.2% |
+| `bucket_merge` | 2.5% | 1.8% | 3.3% |
+| *`query_mapping` total* | *33.9 s* | *47.3 s* | *25.8 s* |
 
-### Indexing — three serial floors removed in turn
+**B02** — Simulated 24 kb, 0.96x — long reads with ground truth
 
-| threads (10x run) | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+| stage | Containment | Jaccard | bucket_SH |
+|---|---:|---:|---:|
+| `match_rest` | 25.6% | 49.7% | 12.8% |
+| ⌐ `refine` | 13.0% | 35.7% | 0.3% |
+| `prepare` | 25.0% | 17.8% | 29.6% |
+| ⌐ `collect_kmer_info` | 16.2% | 12.0% | 19.4% |
+| `match_seeds` | 25.0% | 16.6% | 28.8% |
+| `sketching` | 21.4% | 14.0% | 25.3% |
+| `bucket_merge` | 2.8% | 1.8% | 3.2% |
+| *`query_mapping` total* | *27.0 s* | *41.7 s* | *22.9 s* |
+
+**B03** — Real HiFi 12.8 kb, 1x — the long-standing reference workload
+
+| stage | Containment | Jaccard | bucket_SH |
+|---|---:|---:|---:|
+| `match_rest` | 29.5% | 46.8% | 11.6% |
+| ⌐ `refine` | 18.2% | 33.9% | 0.4% |
+| `prepare` | 20.5% | 15.2% | 24.6% |
+| ⌐ `collect_kmer_info` | 13.5% | 10.1% | 15.9% |
+| `match_seeds` | 30.0% | 23.0% | 38.3% |
+| `sketching` | 15.2% | 11.3% | 19.4% |
+| `bucket_merge` | 4.6% | 3.4% | 5.8% |
+| *`query_mapping` total* | *41.1 s* | *54.9 s* | *31.9 s* |
+
+**B04** — Real HiFi 12.8 kb, 10x — depth, where mapping dominates indexing
+
+| stage | Containment | Jaccard | bucket_SH |
+|---|---:|---:|---:|
+| `match_rest` | 30.0% | 48.2% | 11.4% |
+| ⌐ `refine` | 18.4% | 35.1% | 0.4% |
+| `prepare` | 19.3% | 14.3% | 23.9% |
+| ⌐ `collect_kmer_info` | 12.6% | 9.5% | 15.4% |
+| `match_seeds` | 30.5% | 22.8% | 38.8% |
+| `sketching` | 15.3% | 11.2% | 19.7% |
+| `bucket_merge` | 4.6% | 3.4% | 5.9% |
+| *`query_mapping` total* | *404.2 s* | *552.0 s* | *314.6 s* |
+
+**B05** — Real ONT 23.8 kb, 0.70x — a different error profile
+
+| stage | Containment | Jaccard | bucket_SH |
+|---|---:|---:|---:|
+| `match_rest` | 15.8% | 33.5% | 8.7% |
+| ⌐ `refine` | 7.1% | 22.6% | 0.2% |
+| `prepare` | 37.1% | 29.5% | 40.1% |
+| ⌐ `collect_kmer_info` | 22.5% | 17.8% | 24.3% |
+| `match_seeds` | 8.8% | 7.0% | 9.6% |
+| `sketching` | 36.1% | 28.2% | 39.2% |
+| `bucket_merge` | 1.9% | 1.5% | 2.1% |
+| *`query_mapping` total* | *11.8 s* | *15.8 s* | *11.2 s* |
+
+### Indexing against thread count (B01, Containment)
+
+| stage | `-@1` | `-@2` | `-@4` | `-@8` | `-@16` | `-@32` | `-@64` |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `indexing` (wall) | 9.6 | 7.3 | 4.6 | 3.6 | **2.9** | 3.7 | 3.4 |
-| `index_reading` | 4.4 | 2.9 | 4.1 | 4.3 | 2.9 | 3.2 | 3.4 |
-| `index_initializing` | 0.0 | 4.5 | 2.3 | 1.5 | 1.5 | 1.9 | 1.8 |
-| `index_finalizing` | 0.7 | 0.7 | 0.2 | 0.2 | 0.2 | 0.2 | 0.1 |
+| `indexing` (s) | 9.1 | 7.7 | 4.9 | 3.4 | 3.0 | 3.3 | 3.7 |
+| `index_reading` (s) | 4.4 | 3.3 | 2.2 | 1.7 | 1.6 | 1.6 | 1.6 |
+| `index_sketching` (s) | 5.9 | 5.9 | 5.8 | 6.5 | 9.8 | 15.8 | 19.9 |
+| `index_collecting` (s) | 7.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+<!-- END GENERATED: stage-breakdown -->
 
-`index_initializing` was flat at ~8.4 s from 1 thread to 64; sharding the index by k-mer hash put
-it at 1.5-1.9 s. `index_reading` then became the floor at 4.3-5.6 s; parsing byte ranges in two
-passes put it at 1.5-1.7 s. Indexing bottoms out near **2.9-3.4 s, down from ~9.4 s**, with no
-single dominant phase — both remaining pieces are within ~2x of the 0.87 s needed merely to stream
-the 3.18 GB reference off page cache. Further gains need *reading less*, not more parallelism.
+**What refinement costs.** `refine` is ~0.3% of `query_mapping` under `bucket_SH` and 20-38% under
+the refining metrics — that is the whole difference between the metrics, and it is why Jaccard is
+the slowest: its lower scores make `thr` rise more slowly through the bucket sweep, pruning is
+weaker, and far more buckets reach `refine`. Dropping refinement entirely buys the wall time back
+and costs reads at mapq 60.
+
+**Longer reads are cheaper per base.** Bucket width is the read's own half-length, so a longer read
+partitions the reference into fewer, wider buckets — fewer seeded buckets per read despite carrying
+more k-mers.
+
+**Indexing.** `index_collecting` is a single-threaded phase and shows as its whole cost at `-@1`;
+`index_sketching` is CPU time summed across workers, so it rises with thread count while the
+`indexing` wall falls. Indexing bottoms out near 3 s, down from ~9.4 s before the index was sharded
+by k-mer hash and the FASTA reader was made two-pass. Both remaining pieces are within ~2x of the
+0.87 s needed merely to stream the 3.18 GB reference off page cache, so further gains need *reading
+less*, not more parallelism.
 
 ---
 
