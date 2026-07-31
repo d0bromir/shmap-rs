@@ -404,18 +404,18 @@ blocking one stops a merge.
 <!-- BEGIN GENERATED: checks -->
 | check | benchmark | metric | result | detail |
 |---|---|---|---|---|
-| concordance_mapquik | B01 | Containment | pass | good=0.0000 recall=0.9985 agreement=0.0000 ref=48913 |
-| concordance_mapquik | B01 | Jaccard | pass | good=0.0000 recall=0.9789 agreement=0.0000 ref=48913 |
-| concordance_mapquik | B01 | bucket_SH | pass | good=0.0001 recall=0.9988 agreement=0.0001 ref=48913 |
-| concordance_mapquik | B02 | Containment | pass | good=0.0000 recall=1.0000 agreement=0.0000 ref=39965 |
-| concordance_mapquik | B02 | Jaccard | pass | good=0.0000 recall=1.0000 agreement=0.0000 ref=39965 |
-| concordance_mapquik | B02 | bucket_SH | pass | good=0.0001 recall=1.0000 agreement=0.0001 ref=39965 |
-| concordance_mapquik | B03 | Containment | pass | good=0.0000 recall=0.9980 agreement=0.0000 ref=89559 |
-| concordance_mapquik | B03 | Jaccard | pass | good=0.0000 recall=0.9952 agreement=0.0000 ref=89559 |
-| concordance_mapquik | B03 | bucket_SH | pass | good=0.0000 recall=0.9983 agreement=0.0000 ref=89559 |
-| concordance_mapquik | B04 | Containment | pass | good=0.0000 recall=0.9977 agreement=0.0000 ref=897326 |
-| concordance_mapquik | B04 | Jaccard | pass | good=0.0000 recall=0.9944 agreement=0.0000 ref=897326 |
-| concordance_mapquik | B04 | bucket_SH | pass | good=0.0000 recall=0.9979 agreement=0.0000 ref=897326 |
+| concordance_mapquik | B01 | Containment | pass | good=0.9612 recall=0.9989 agreement=0.9622 ref=148225 |
+| concordance_mapquik | B01 | Jaccard | pass | good=0.9463 recall=0.9788 agreement=0.9668 ref=148225 |
+| concordance_mapquik | B01 | bucket_SH | pass | good=0.9614 recall=0.9991 agreement=0.9622 ref=148225 |
+| concordance_mapquik | B02 | Containment | pass | good=0.9793 recall=1.0000 agreement=0.9793 ref=124221 |
+| concordance_mapquik | B02 | Jaccard | pass | good=0.9782 recall=1.0000 agreement=0.9782 ref=124221 |
+| concordance_mapquik | B02 | bucket_SH | pass | good=0.9778 recall=1.0000 agreement=0.9778 ref=124221 |
+| concordance_mapquik | B03 | Containment | pass | good=0.9703 recall=0.9989 agreement=0.9713 ref=239539 |
+| concordance_mapquik | B03 | Jaccard | pass | good=0.9680 recall=0.9962 agreement=0.9717 ref=239539 |
+| concordance_mapquik | B03 | bucket_SH | pass | good=0.9702 recall=0.9991 agreement=0.9711 ref=239539 |
+| concordance_mapquik | B04 | Containment | pass | good=0.9699 recall=0.9989 agreement=0.9710 ref=2394360 |
+| concordance_mapquik | B04 | Jaccard | pass | good=0.9674 recall=0.9958 agreement=0.9714 ref=2394360 |
+| concordance_mapquik | B04 | bucket_SH | pass | good=0.9699 recall=0.9991 agreement=0.9708 ref=2394360 |
 | concordance_winnowmap2 | B01 | Containment | pass | good=0.9633 recall=0.9988 agreement=0.9644 ref=149376 |
 | concordance_winnowmap2 | B01 | Jaccard | pass | good=0.9455 recall=0.9782 agreement=0.9666 ref=149376 |
 | concordance_winnowmap2 | B01 | bucket_SH | pass | good=0.9621 recall=0.9991 agreement=0.9630 ref=149376 |
@@ -548,18 +548,18 @@ the host; `run.py` never invokes these mappers, it joins against the cached PAFs
 
 | benchmark | metric | reference mapped | recall | agreement | **good** |
 |---|---|---:|---:|---:|---:|
-| B01 | Containment | 48 913 | 0.9985 | 0.0000 | **0.0000** |
-| B01 | Jaccard | 48 913 | 0.9789 | 0.0000 | **0.0000** |
-| B01 | bucket_SH | 48 913 | 0.9988 | 0.0001 | **0.0001** |
-| B02 | Containment | 39 965 | 1.0000 | 0.0000 | **0.0000** |
-| B02 | Jaccard | 39 965 | 1.0000 | 0.0000 | **0.0000** |
-| B02 | bucket_SH | 39 965 | 1.0000 | 0.0001 | **0.0001** |
-| B03 | Containment | 89 559 | 0.9980 | 0.0000 | **0.0000** |
-| B03 | Jaccard | 89 559 | 0.9952 | 0.0000 | **0.0000** |
-| B03 | bucket_SH | 89 559 | 0.9983 | 0.0000 | **0.0000** |
-| B04 | Containment | 897 326 | 0.9977 | 0.0000 | **0.0000** |
-| B04 | Jaccard | 897 326 | 0.9944 | 0.0000 | **0.0000** |
-| B04 | bucket_SH | 897 326 | 0.9979 | 0.0000 | **0.0000** |
+| B01 | Containment | 148 225 | 0.9989 | 0.9622 | **0.9612** |
+| B01 | Jaccard | 148 225 | 0.9788 | 0.9668 | **0.9463** |
+| B01 | bucket_SH | 148 225 | 0.9991 | 0.9622 | **0.9614** |
+| B02 | Containment | 124 221 | 1.0000 | 0.9793 | **0.9793** |
+| B02 | Jaccard | 124 221 | 1.0000 | 0.9782 | **0.9782** |
+| B02 | bucket_SH | 124 221 | 1.0000 | 0.9778 | **0.9778** |
+| B03 | Containment | 239 539 | 0.9989 | 0.9713 | **0.9703** |
+| B03 | Jaccard | 239 539 | 0.9962 | 0.9717 | **0.9680** |
+| B03 | bucket_SH | 239 539 | 0.9991 | 0.9711 | **0.9702** |
+| B04 | Containment | 2 394 360 | 0.9989 | 0.9710 | **0.9699** |
+| B04 | Jaccard | 2 394 360 | 0.9958 | 0.9714 | **0.9674** |
+| B04 | bucket_SH | 2 394 360 | 0.9991 | 0.9708 | **0.9699** |
 
 ### vs winnowmap2
 
@@ -754,162 +754,8 @@ caller wants it, at a cost that still beats the C++.
 
 ---
 
-**mapquik is a peer, not a standard.** It is the closest published analogue to shmap-rs —
-minimizer-space, PAF out, no base-level alignment — but its paper states performance degrades
-markedly below 97% read-reference identity, and on real HG002 HiFi it maps far fewer reads than
-either shmap-rs or Winnowmap2. It is included because it is the right comparison for a
-low-divergence sketch mapper, not because it is a target to match.
-
-**Its earlier concordance figure was an artefact, now fixed.** The first automated run reported
-`good = 0.0000` against mapquik at `recall = 0.9985` — shmap-rs mapped essentially every read
-mapquik did and agreed on the position of none. That was not disagreement, and it was not mapquik
-being wrong either.
-
-**mapquik counts newline characters as bases.** Given a line-wrapped FASTA it reports coordinates in
-file-offset space rather than sequence space, and does so silently. The arithmetic is exact:
-`hs1.fa` is wrapped at 50 columns, and mapquik reported `chr1` as 253 355 074 against its true
-248 387 328 — which is `248387328 + 248387328/50`, the 1.02x factor seen on every chromosome.
-
-Measured on B02, where the true position is known:
-
-| | wrapped reference | one-line reference |
-|---|---:|---:|
-| records | 39 965 | **124 221** |
-| `chr1` length reported | 253 355 074 | **248 387 328** |
-| ground truth | 0.01% | **98.09%** |
-
-So mapquik is a capable mapper that was being handed a format it mis-parses. Its own
-`experiments/chm13/` scripts use `chm13v2.0.oneline.fa` for exactly this reason. `suite.toml` now
-carries a `reference_override` for it, with the one-line recipe beside it, and the corpus refuses to
-run if that file is missing rather than falling back to the wrapped reference and reproducing the
-bug.
-
-Two wrong guesses preceded the right answer, both recorded because they cost time: homopolymer
-compression (`--nohpc` changes nothing — the 1.02x factor survives it) and mapquik's `-k`/`-l`/`-d`
-defaults (the clue was in the *filename* of the reference their scripts use, not in the flags).
-
-**mapquik is a peer, not a standard.** It is the closest published analogue to shmap-rs —
-minimizer-space, PAF out, no base-level alignment — but its paper states performance degrades
-markedly below 97% read-reference identity, and on real HG002 HiFi it maps far fewer reads than
-either shmap-rs or Winnowmap2. It is included because it is the right comparison for a
-low-divergence sketch mapper, not because it is a target to match.
-
-**Its concordance figure is not usable, and reads as the opposite of what it means.** The automated
-check reports `good = 0.0000` against mapquik at `recall = 0.9985` — shmap-rs mapped essentially
-every read mapquik did, and agreed on the position of none of them. That is not disagreement; it is
-a coordinate-space mismatch:
-
-- mapquik reports reference lengths exactly **1.02x** the true ones (`chr1` 253 355 074 against
-  248 387 328, and the same factor on every chromosome — no sequence in `hs1.fa` has the length it
-  claims).
-- On B02, where the true position is known, it places **3 of 39 965** reads within a read length of
-  truth (0.01%).
-
-Homopolymer compression was the obvious explanation and is **not** the cause: with `--nohpc` the
-reported `chr1` length is still 253 355 074, still exactly 1.02x, and ground truth rises only from
-0.01% to 0.55% while mapping fewer reads (29 207 against 39 965). Whatever the coordinate space is,
-HPC is not what puts it there.
-
-The cause is unresolved. The most likely remaining candidate is parameters: mapquik's own
-`experiments/chm13/` scripts pass explicit `-k`, `-l` and `-d`, and this corpus used its defaults.
-Until it is resolved, quote mapquik's mapped counts and timings, never its concordance. The number
-is left in the result set rather than hidden, because deleting an inconvenient measurement is worse
-than labelling it.
-
----
-
-## 9 Error tolerance
-
-Measured with `simulate/sweep_error_rates.py`: 20 000 reads of 24 kb sampled from `hs1.fa` at each
-error profile, `-k 25 -r 0.01 -t 0.4`, scored against known true positions.
-
-**First, what D2 actually is.** Measured, not taken from its description
-(`simulate/measure_error_rate.py`): **0.498% error, length delta +0.004%**. Substitutions, with
-essentially no indels — so every accuracy figure in §7 is a substitution-only figure.
-
-The first block holds the error rate identical across reads, which is what makes the
-substitution-versus-indel comparison controlled. The second block adds the per-read spread and
-homopolymer clustering that real data has; the two blocks are not comparable with each other and
-are not meant to be.
-
-| profile | sub | indel | spread | hp | mapped | correct of 20 000 | span error |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| clean | 0% | 0% | — | — | 20 000 | 99.51% | 0.93% |
-| sub 0.5% *(= D2)* | 0.5% | 0% | — | — | 20 000 | 99.08% | 2.78% |
-| sub 1% | 1% | 0% | — | — | 20 000 | 98.85% | 3.79% |
-| sub 2% | 2% | 0% | — | — | 19 996 | 98.32% | 5.07% |
-| **sub 5%** | 5% | 0% | — | — | **43** | **0.08%** | 23.24% |
-| indel 0.5% | 0% | 0.5% | — | — | 20 000 | 99.24% | 2.76% |
-| indel 1% | 0% | 1% | — | — | 20 000 | 98.97% | 3.73% |
-| indel 2% | 0% | 2% | — | — | 19 993 | 98.66% | 4.99% |
-| deletions only | 0% | 1% | — | — | 20 000 | 99.06% | 3.88% |
-| insertions only | 0% | 1% | — | — | 20 000 | 98.98% | 3.76% |
-| HiFi realistic | 0.4% | 0.1% | 0.4 | 5x | 20 000 | 99.12% | 2.97% |
-| ONT 5%, uniform | 3% | 2% | — | — | **43** | **0.11%** | 23.11% |
-| ONT 5%, spread | 3% | 2% | 0.5 | 5x | 3 240 | **15.84%** | 5.21% |
-| ONT 5%, wide spread | 3% | 2% | 0.8 | 5x | 6 501 | **32.02%** | 4.60% |
-
-### Indels are not worse than substitutions
-
-The expectation going in was that they would be: shmap scores a bucket over a window bounded by the
-read's own k-mer count, which assumes read and reference interval are about the same length, and
-indels break that while substitutions do not.
-
-They are consistently **slightly better** — 98.97% against 98.85% at 1%, 98.66% against 98.32% at
-2% — and insertion-only, deletion-only and mixed all land within 0.1% of each other. The span
-assumption is not what governs this.
-
-The reason is that shmap compares k-mer *sets*, where position carries no information. An indel and
-a substitution each destroy about `k` k-mers, so they cost the same; a deletion destroys `k-1`
-rather than `k`, which is the small edge. **Anything that degrades k-mer survival at a given rate
-costs the same, whatever its biological form.** That is a useful robustness property and the
-opposite of what chain-based mappers experience.
-
-### The cliff is a threshold crossing, and it is predictable
-
-Between 2% and 5% substitutions the mapper does not degrade — it stops. 19 996 reads mapped becomes
-43. A read's containment is approximately the fraction of its k-mers that survive, `(1-e)^k`, and a
-bucket has to clear `-t`:
-
-| error | k=25 | k=15 | k=11 |
-|---:|---:|---:|---:|
-| 0.5% | 88.2% | 92.8% | 94.6% |
-| 1% | 77.8% | 86.0% | 89.5% |
-| 2% | 60.3% | 73.9% | 80.1% |
-| 3% | 46.7% | 63.3% | 71.5% |
-| **5%** | **27.7%** | 46.3% | 56.9% |
-
-At `-k 25`, 5% error leaves 27.7% — below `-t 0.4`, so nothing clears threshold and the mapper
-reports almost nothing rather than reporting noise. Confirmed independently: D2's *measured* 25-mer
-survival is 88.28% against 88.2% predicted at its measured 0.498% error.
-
-So the operating envelope is `(1-e)^k > t`, and the two ways to widen it are lowering `k` or
-lowering `t`. That is what `[params.ont-k15]` in `suite.toml` is for, and it is now a derived
-setting rather than a guess: at 5% error, k=15 leaves 46.3%, back above the threshold.
-
-### Why a uniform error model is not just imprecise but wrong
-
-The three ONT rows are the same mean error rate and differ only in how it is *distributed* across
-reads:
-
-| | mapped of 20 000 |
-|---|---:|
-| every read at exactly 5% | 0.11% |
-| spread 0.5 | 15.84% |
-| spread 0.8 | 32.02% |
-| **real ONT (B05), for reference** | **42.95%** |
-
-A factor of ~300 between the first and third rows, from a change that leaves the mean untouched.
-Because mapping is a threshold on each read's *own* rate, the mean is close to uninformative near
-the cliff, and the population that maps is the low-error tail. Realistic spread accounts for
-essentially the whole distance to the real ONT figure.
-
-This is why the earlier uniform-model conclusion — "5% error maps 0.08%" — was wrong to quote as a
-property of shmap-rs. It is a property of the simulator. `simulate_reads.py` now defaults
-`--error-sd` to 0 only so the controlled comparison above stays controlled; any figure meant to
-describe real data has to use a spread.
-
-**Precision holds while recall falls.** Of the ONT-like reads that do map, 97.8% and 98.5% are
-placed correctly. shmap-rs degrades by *declining to map* the reads it cannot resolve, not by
-mis-placing them — which is the failure mode you want, and is consistent with §8's finding that
-every satellite misplacement already carries mapq 0.
+**mapquik is a peer, not a standard** — but a much closer one than the broken numbers suggested.
+With the reference it can parse, it reproduces 96-98% of shmap-rs's placements and maps essentially
+everything shmap-rs maps (recall 0.998-1.000). It is the closest published analogue here:
+minimizer-space, PAF out, no base-level alignment. Its paper states performance degrades markedly
+below 97% read-reference identity, which is why it is skipped on ONT rather than scored badly there.

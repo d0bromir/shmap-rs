@@ -63,5 +63,34 @@
   "binaries": {
     "shmap-rs": "shmap 1.2.0",
     "cpp-shmap": "/home/mpiuser/Pesho/shmap/release/shmap"
-  }
+  },
+  "rechecks": [
+    {
+      "at": "2026-07-31T14:50:09.215460+00:00",
+      "suite_version": "1.0",
+      "re_evaluated": [
+        "ground_truth",
+        "validate_paf",
+        "concordance_*"
+      ],
+      "preserved": [
+        "thread_determinism",
+        "impl_agreement"
+      ],
+      "changed": [
+        "concordance_mapquik B01/Containment",
+        "concordance_mapquik B01/Jaccard",
+        "concordance_mapquik B01/bucket_SH",
+        "concordance_mapquik B02/Containment",
+        "concordance_mapquik B02/Jaccard",
+        "concordance_mapquik B02/bucket_SH",
+        "concordance_mapquik B03/Containment",
+        "concordance_mapquik B03/Jaccard",
+        "concordance_mapquik B03/bucket_SH",
+        "concordance_mapquik B04/Containment",
+        "concordance_mapquik B04/Jaccard",
+        "concordance_mapquik B04/bucket_SH"
+      ]
+    }
+  ]
 }
