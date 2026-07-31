@@ -468,6 +468,85 @@ the host; `run.py` never invokes these mappers, it joins against the cached PAFs
 _No concordance data in this result set — the external-mapper corpus had not been built when it was measured. Build it with `benchmarks/reference_mappers.py --run`, then a subsequent run will populate this._
 <!-- END GENERATED: concordance -->
 
+### Where the gap to Winnowmap2 actually is
+
+Measured on B02, the one dataset with true positions, so every disagreement can
+be adjudicated rather than guessed at. `profiling/adjudicate_disagreements.py`
+reproduces all of this.
+
+**Ground truth, primary alignments, one record per read:**
+
+| | correct of 125 000 | |
+|---|---:|---|
+| Winnowmap2 | **99.65%** | |
+| shmap-rs Containment | 99.21% | gap: 0.44 pp, 551 reads |
+
+Counting *every* Winnowmap2 record instead of one per read scores it at 96.57%
+and makes shmap-rs look better. It emits 129 488 records for 125 000 reads, and
+the extra `tp:A:S` secondaries are alternate placements that are deliberately
+elsewhere. Do not quote that number.
+
+**The errors are one phenomenon, not a spread:**
+
+| | |
+|---|---:|
+| reads truly originating in satellite/rDNA regions | 6.3% |
+| share of shmap-rs's placement errors located there | **81.0%** |
+| error rate inside satellite regions | **10.41%** |
+| error rate outside them | 0.165% |
+
+A 63x difference. Outside repeats shmap-rs places 99.84% of reads correctly.
+
+**shmap-rs already knows.** Every one of its wrong placements carries mapq 0 —
+100% of both the satellite and non-satellite errors — while correct placements
+in unique sequence are 97.8% mapq 60. The `sh` scores of right and wrong
+placements are indistinguishable (0.879 vs 0.883), which is what near-identical
+repeat copies look like to a sketch. shmap-rs is not confidently wrong; it is
+reporting an arbitrary choice among equals and labelling it arbitrary.
+
+**Headroom is bounded and smaller than the raw gap suggests.** Of the 1 016
+reads shmap-rs places wrongly:
+
+| | count | |
+|---|---:|---|
+| Winnowmap2 right **and** confident (mapq >= 10) | **411** | genuinely recoverable |
+| Winnowmap2 also wrong | 360 | ambiguous for both; nothing to win |
+| Winnowmap2 right but mapq < 10 | 245 | it guessed and was lucky |
+
+So the realistic ceiling is ~411 reads, 0.33 pp — and 234 of those Winnowmap2
+places at mapq 60, which is evidence that a discriminating signal genuinely
+exists for at least that many.
+
+#### Rejected: blacklisting frequent k-mers (`-M`)
+
+The obvious analogue of Winnowmap2's weighted minimizers is to drop repetitive
+k-mers, which `-M` already does. Swept on B02, it makes accuracy monotonically
+**worse**:
+
+| `-M` | mapped | correct | of 125 000 | mapq 60 |
+|---|---:|---:|---:|---:|
+| none | 125 000 | 123 984 | **99.187%** | 117 532 |
+| 10 000 | 124 896 | 123 369 | 98.695% | 120 847 |
+| 2 000 | 121 017 | 120 003 | 96.002% | 119 224 |
+| 500 | 118 553 | 117 997 | 94.398% | 117 462 |
+| 100 | 117 401 | 117 206 | 93.765% | 116 830 |
+| 20 | 116 586 | 116 419 | 93.135% | 116 390 |
+
+Two things to take from this. Deleting is not downweighting: inside a satellite
+array nearly every k-mer is frequent, so removing them leaves too little
+evidence to place a read at all, and the mapped count falls from 125 000 to
+116 586. And **mapq 60 rises to 120 847 at `-M 10000` while correctness falls** —
+removing the repetitive k-mers removes the *evidence of ambiguity* without
+resolving it, so the mapper gets more confident and less right. Tuning this knob
+on confidence instead of truth would have looked like a win.
+
+The remaining direction is weighting rather than filtering: keep every k-mer but
+let rare, paralog-specific ones carry more of the score, so the bulk signal
+still finds the array while the rare signal picks the copy. That changes output
+for every read and so has to sit behind a flag.
+
+---
+
 **mapquik is a peer, not a standard.** It is the closest published analogue to shmap-rs —
 minimizer-space, PAF out, no base-level alignment — but its paper states performance degrades
 markedly below 97% read-reference identity, and on real HG002 HiFi it maps far fewer reads than
