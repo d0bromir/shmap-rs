@@ -540,10 +540,46 @@ removing the repetitive k-mers removes the *evidence of ambiguity* without
 resolving it, so the mapper gets more confident and less right. Tuning this knob
 on confidence instead of truth would have looked like a win.
 
-The remaining direction is weighting rather than filtering: keep every k-mer but
-let rare, paralog-specific ones carry more of the score, so the bulk signal
-still finds the array while the rare signal picks the copy. That changes output
-for every read and so has to sit behind a flag.
+#### Also rejected: rarity-weighted scoring (`--rarity-weight`)
+
+The next hypothesis was weighting rather than filtering: keep every k-mer, but
+score a bucket by `sum(1/hits^alpha)` over matches instead of counting them
+equally, so rare paralog-specific k-mers pick the copy while the bulk signal
+still finds the array. Implemented behind `--rarity-weight` (alpha, default 0)
+and swept on B02:
+
+| alpha | mapped | correct | of 125 000 | satellite placed correctly |
+|---:|---:|---:|---:|---:|
+| **0** | 125 000 | 123 984 | **99.187%** | 7 083 |
+| 0.10 | 125 000 | 123 996 | 99.197% | 7 078 |
+| 0.25 | 124 995 | 123 936 | 99.149% | 7 042 |
+| 0.50 | 121 024 | 120 595 | 96.476% | 4 958 |
+| 0.75 | 118 483 | 118 298 | 94.638% | 3 670 |
+| 1.00 | 117 691 | 117 553 | 94.042% | 3 228 |
+
+`alpha = 0.10` gains 12 reads out of 125 000, and not in the satellite regions
+this was meant to fix. Everything above that loses badly: satellite reads placed
+correctly falls from 7 083 to 3 228.
+
+The mechanism, and why it also invalidates the obvious way of reading this
+table: weighting normalises by the read's *total* weight, so when alpha is large
+the denominator is dominated by the handful of rare k-mers. If those happen not
+to match — a sequencing error, or a copy that genuinely lacks that variant — the
+score collapses below `-t` and the read goes unmapped rather than mis-placed.
+The accuracy *rate among reads still mapped* rises to 96.9%, which looks like
+success and is the same illusion as `-M`'s rising mapq 60. Only the absolute
+count of correctly placed reads is honest, and it falls.
+
+**What this rules in.** Both failures share a cause: they change the score used
+for *thresholding*, when the problem is only ever *choosing between* candidates.
+Finding the array works fine at alpha = 0 — the bulk signal is not what is
+broken. So rarity belongs in tie-breaking among buckets whose scores are already
+within noise of each other, leaving candidate generation and the `-t` cutoff
+exactly as they are. That is the next thing to try, and it cannot lose mapping
+rate by construction.
+
+`--rarity-weight 0` is byte-identical to the C++ path; the flag is retained as a
+research knob, not a recommendation.
 
 ---
 
