@@ -269,6 +269,11 @@ pub struct SHMapper<'idx, const NBP: bool, const OS: bool, const AP: bool> {
     /// integer counting the C++ does, with no float arithmetic on the hot path.
     rarity: Vec<f64>,
     m_weight: f64,
+    /// Whether the rarity weights drive the score itself (`--rarity-weight`)
+    /// or only break near-ties between buckets (`--rarity-tiebreak`). The
+    /// weights are the same; where they are applied is the whole difference.
+    rarity_scores: bool,
+    rarity_tiebreak: f64,
 }
 
 impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, OS, AP> {
@@ -279,6 +284,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             timers: Timers::new(),
             rarity: Vec::new(),
             m_weight: 0.0,
+            rarity_scores: false,
+            rarity_tiebreak: 0.0,
         }
     }
 
@@ -573,14 +580,25 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         // weighted analogue of `m` and keeps the score in [0, 1].
         self.rarity.clear();
         self.m_weight = 0.0;
-        if params.rarity_weight > 0.0 {
+        self.rarity_scores = params.rarity_weight > 0.0;
+        self.rarity_tiebreak = params.rarity_tiebreak;
+        // Tie-breaking needs the weights too, but does not need them to have
+        // been asked for as a scoring change; alpha 1 is the default shape.
+        let alpha = if params.rarity_weight > 0.0 {
+            params.rarity_weight
+        } else if params.rarity_tiebreak > 0.0 {
+            1.0
+        } else {
+            0.0
+        };
+        if alpha > 0.0 {
             self.rarity.resize(p_unique.len(), 0.0);
             for seed in &p_unique {
                 // hits_in_t is 0 for a k-mer absent from the reference; such a
                 // seed can never match, so its weight is irrelevant, but max(1)
                 // keeps the exponent well defined.
                 let h = seed.hits_in_t.max(1) as f64;
-                let w = h.powf(-params.rarity_weight);
+                let w = h.powf(-alpha);
                 self.rarity[seed.seed_num as usize] = w;
                 self.m_weight += w * seed.occs_in_p as f64;
             }

@@ -212,6 +212,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         // `diff_hist`'s invariant is checked against, so the default path is
         // untouched and the debug_assert at the end still means what it did.
         let weighted = !self.rarity.is_empty();
+        // Support is accumulated whenever weights exist, because tie-breaking
+        // needs it. Only --rarity-weight lets it drive the score itself.
+        let score_weighted = weighted && self.rarity_scores;
         let mut w_intersection: f64 = 0.0;
 
         while l < end {
@@ -243,13 +246,17 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             }
 
             let s_kmers = r - l;
-            let score = if weighted {
+            let score = if score_weighted {
                 (w_intersection / self.m_weight).clamp(0.0, 1.0)
             } else {
                 self.mapping_score(intersection, m, s_kmers, metric)
             };
             debug_assert!((-0.0..=1.0).contains(&score));
             if l < r && score > best.score() {
+                // Support of the window that actually wins, not of the sweep's
+                // final state — the two differ, and the loser's value would be
+                // meaningless as a tie-break.
+                best.local_stats.rarity_support = w_intersection;
                 best.update(
                     0,
                     p_sz - 1,
@@ -399,6 +406,14 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             if self.seed_heuristic_pass(buckets, p_unique, m, &b, content, &mut sh, thr) {
                 self.timers.start("refine");
 
+                // With a tie-break band a bucket scoring slightly BELOW the
+                // incumbent must still be scored — it can win on rare-k-mer
+                // support. Without one this is exactly `thr`.
+                let admit = if self.rarity_tiebreak > 0.0 {
+                    thr - self.rarity_tiebreak * thr.abs()
+                } else {
+                    thr
+                };
                 let memo = if memoizable { cache.lookup(idx as u32) } else { None };
                 let best_in_bucket = match memo {
                     Some(i) => {
@@ -407,7 +422,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         // name), and the large majority of scored buckets
                         // lose to `thr` — so check the memoized score first
                         // and only materialize a winner.
-                        if cache.get(i).score() > thr {
+                        if cache.get(i).score() > admit {
                             let mut winner = cache.get(i).clone();
                             winner.set_sh(sh);
                             Some(winner)
@@ -422,7 +437,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         if memoizable {
                             cache.record(idx as u32, &scored);
                         }
-                        if scored.score() > thr { Some(scored) } else { None }
+                        if scored.score() > admit { Some(scored) } else { None }
                     }
                 };
 
@@ -432,8 +447,38 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     }
                     self.counters.inc1("final_buckets");
                     if forbidden.is_none_or(|f| Mapping::overlap(&best_in_bucket, f) < max_overlap) {
-                        thr = best_in_bucket.score();
-                        best = Some(best_in_bucket);
+                        // Default: strictly-better wins, so among equal-scoring
+                        // buckets the first one swept takes it. In a satellite
+                        // array that is a coin flip between near-identical
+                        // copies, and it is where the placement errors are.
+                        //
+                        // With a tie-break band, scores within `band` of each
+                        // other are treated as tied and decided by rarity-
+                        // weighted support: the copy sharing more of the read's
+                        // RARE k-mers is the one it came from. Scores and the
+                        // `-t` cutoff are untouched, so this can only change
+                        // which bucket wins, never whether the read maps.
+                        let take = match &best {
+                            None => true,
+                            Some(cur) => {
+                                let tied = self.rarity_tiebreak > 0.0
+                                    && (best_in_bucket.score() - cur.score()).abs()
+                                        <= self.rarity_tiebreak * cur.score().abs();
+                                if tied {
+                                    best_in_bucket.local_stats.rarity_support > cur.local_stats.rarity_support
+                                } else {
+                                    best_in_bucket.score() > cur.score()
+                                }
+                            }
+                        };
+                        if take {
+                            // Never lower the bar: a tie-break winner can score
+                            // marginally below the incumbent, and letting `thr`
+                            // follow it down would re-admit buckets already
+                            // rejected.
+                            thr = thr.max(best_in_bucket.score());
+                            best = Some(best_in_bucket);
+                        }
                     }
                 }
                 self.timers.stop("refine");

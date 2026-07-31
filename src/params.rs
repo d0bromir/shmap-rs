@@ -76,6 +76,25 @@ pub struct Params {
     #[arg(long = "rarity-weight", default_value_t = 0.0)]
     pub rarity_weight: f64,
 
+    /// Break near-ties between candidate buckets by rarity-weighted support,
+    /// as a relative band: `0.01` treats scores within 1% of each other as tied.
+    ///
+    /// This is the targeted form of `--rarity-weight`, and the difference
+    /// matters. That flag changes the score used for *thresholding*, so
+    /// down-weighting a read's k-mers can push it under `-t` and lose the
+    /// mapping entirely — measured, and it costs far more than it gains. This
+    /// one leaves scoring and the cutoff exactly as they are and only decides
+    /// *which* of several near-equal buckets wins, so it cannot reduce the
+    /// mapping rate.
+    ///
+    /// The band is needed because the competing buckets are not exactly tied:
+    /// on B02 the right and wrong copies score 0.883 and 0.879, and the wrong
+    /// one is sometimes higher. Exact-tie-breaking would almost never fire.
+    ///
+    /// Weights come from `--rarity-weight`; if that is 0, alpha defaults to 1.
+    #[arg(long = "rarity-tiebreak", default_value_t = 0.0)]
+    pub rarity_tiebreak: f64,
+
     /// Optimization metric: bucket_SH, bucket_LCS, Containment, Jaccard
     #[arg(short = 'm', long = "metric", value_enum, default_value_t = Metric::Containment)]
     pub metric: Metric,

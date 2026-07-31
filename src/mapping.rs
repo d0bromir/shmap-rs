@@ -121,6 +121,11 @@ pub struct LocalMappingStats {
     /// Similarity of the second-best mapping.
     pub j2: f64,
     pub sh: f64,
+    /// Rarity-weighted support for this mapping — the sum of `1/hits^alpha`
+    /// over its matched k-mers. Only populated under `--rarity-tiebreak`, and
+    /// used solely to choose between buckets whose ordinary scores tie; it
+    /// never enters the score or the `-t` cutoff. Left at 0 otherwise.
+    pub rarity_support: f64,
     /// Sketch size (number of seeds considered for this read).
     pub p_sz: QPos,
     pub bucket: BucketLoc,
@@ -140,6 +145,10 @@ impl Default for LocalMappingStats {
             j: -1.0,
             j2: -1.0,
             sh: -1.0,
+            // 0, not -1: this one is summed and compared, never printed, and a
+            // sentinel would make an unpopulated mapping look better than a
+            // real one with no rare k-mer support.
+            rarity_support: 0.0,
             p_sz: -1,
             bucket: BucketLoc::default(),
             bucket2: BucketLoc::default(),
