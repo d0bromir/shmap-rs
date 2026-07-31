@@ -52,20 +52,29 @@ import sys
 
 
 def parse_paf(path: str, min_mapq: int = 0) -> dict[str, tuple[str, int, int]]:
-    """read -> (target, start, end), keeping the first record per read.
+    """read -> (target, start, end), one record per read, primary preferred.
 
-    PAF may carry several records for one read (secondary/supplementary). The
-    first is the primary for both mappers here, and taking one per read is what
-    intersect_pafs.py does, so the comparison stays like-for-like.
+    Minimap2-family mappers (including Winnowmap2) emit several records for one
+    read: `tp:A:P` primary, `tp:A:S` secondary, and supplementary rows also
+    tagged P. A secondary alignment is deliberately somewhere else, so counting
+    it as a placement makes a correct mapper look wrong — Winnowmap2 on B02
+    scores 96.57% when every record is counted and 99.65% counted per read,
+    which is the difference between "worse than shmap-rs" and "better".
+
+    Secondaries are therefore dropped outright rather than merely deduplicated,
+    so the result does not depend on the mapper emitting primary first. shmap-rs
+    writes one record per read and no tp: tag, and is unaffected.
     """
     out: dict[str, tuple[str, int, int]] = {}
     with open(path) as f:
         for line in f:
-            c = line.split("\t")
+            c = line.rstrip("\n").split("\t")
             if len(c) < 12:
                 continue
             read = c[0]
             if read in out:
+                continue
+            if "tp:A:S" in c[12:]:
                 continue
             try:
                 if min_mapq and int(c[11]) < min_mapq:

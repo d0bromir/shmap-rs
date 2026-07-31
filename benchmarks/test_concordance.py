@@ -93,6 +93,19 @@ def main() -> int:
     approx("lazy mapper agreement (misleading)", rl["agreement"], 1.0)
     approx("lazy mapper good (honest)", rl["good"], 0.25)
 
+    print("\nsecondary alignments are dropped, not deduplicated:")
+    # Winnowmap2 emits tp:A:S rows that are deliberately elsewhere. If order
+    # were relied on instead of the tag, a secondary listed first would be
+    # taken as the placement and a correct mapper would score as wrong.
+    sec = tmp / "sec.paf"
+    with open(sec, "w") as f:
+        # secondary listed FIRST, primary second
+        f.write("rA\t1000\t0\t1000\t+\tchr9\t1000000\t900000\t901000\t900\t1000\t0\ttp:A:S\n")
+        f.write("rA\t1000\t0\t1000\t+\tchr1\t1000000\t1000\t2000\t900\t1000\t60\ttp:A:P\n")
+    got = parse_paf(str(sec))
+    check("primary chosen despite being listed second", got["rA"], ("chr1", 1000, 2000))
+    check("only one record kept", len(got), 1)
+
     print("\nmapq filter on the reference:")
     refq = parse_paf(paf(tmp / "refq.paf", [
         ("r1", "chr1", 1000, 2000, 60), ("r2", "chr1", 5000, 6000, 3)]), min_mapq=10)
