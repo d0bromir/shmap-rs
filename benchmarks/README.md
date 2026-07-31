@@ -14,8 +14,13 @@ version means and for the rule a pull request has to satisfy.
 | `run.py` | the runner: lock, authorization, verification, measurement | **in place** |
 | `results/<suite>/current/` | the baseline a PR is compared against | **written by run.py** |
 | `results/<suite>/<commit>-<date>/` | archived, immutable result sets | **written by run.py** |
-| `compare.py` | diffs two result sets and applies the PR rule | planned (step 4) |
-| `report.py` | regenerates `../RESULTS.md` from a result set | planned (step 5) |
+| `compare.py` | diffs two result sets and returns the PR verdict as its exit code | **in place** |
+| `test_compare.py` | 25 synthetic cases pinning those verdicts; runs in CI | **in place** |
+| `report.py` | regenerates the marked regions of `../RESULTS.md` | **in place** |
+| `reference_mappers.py` | builds the cached external-mapper corpus (once, not per PR) | **in place** |
+| `concordance.py` | scores a shmap-rs PAF against a cached external PAF | **in place** |
+| `test_concordance.py` | interval-arithmetic and scoring cases; runs in CI | **in place** |
+| `results/reference-mappers/manifest.json` | corpus provenance: versions, commands, counts | **in place** |
 
 ## datasets.tsv
 
@@ -38,7 +43,24 @@ of published numbers. The point of this directory is to replace them with a sing
 a single runner, so that a PR can be measured by one command rather than by remembering which of
 nineteen scripts applies.
 
-Migration order and rationale are in `../VERSIONING.md`; the steps are listed in the table above.
+**The migration is complete.** One command measures a PR, judges it, and can post the verdict:
+
+```sh
+./run.py --pr 123 --post
+```
+
+Its exit code is the verdict — 0 ACCEPT, 1 REVIEW, 2 BLOCK, 3 not comparable — so it can gate a
+merge directly. The full chain a reader can walk in either direction:
+
+```
+datasets.tsv  ->  suite.toml  ->  results/<suite>/<commit>/results.tsv
+                                     -> raw/ (-x reports behind each row)
+                                     -> compare.py (verdict vs current/)
+                                     -> report.py  -> ../RESULTS.md
+```
+
+What is still hand-run rather than wired in: `../profiling/adjudicate_disagreements.py`, which
+scores disagreements against ground truth and is an investigation tool, not a gate.
 
 ## suite.toml
 
@@ -98,6 +120,31 @@ invocation against an exact input. Reference-impl repeats are reduced by median 
 
 Large PAFs are deleted once the checks that need them have run — B04 writes ~600 MB per
 invocation, and keeping 21 of those per metric would be ~12 GB for one benchmark.
+
+### External mappers
+
+Winnowmap2 and mapquik are run **once per (mapper, benchmark)** by `reference_mappers.py` and
+cached on the host; `run.py` never invokes them, it joins against the cached PAFs. The whole corpus
+is ~3.6 h of one-time cost that no PR run pays again — Winnowmap2 alone is 150 min on B04.
+
+```sh
+./reference_mappers.py --list     # what is cached, what is stale
+./reference_mappers.py --run      # build whatever is missing
+```
+
+A cache entry is keyed on mapper version, full command line and both inputs' identity, so a changed
+input makes it stale rather than silently reused.
+
+**These are concordance numbers, not accuracy.** Winnowmap2 is the most accurate long-read mapper
+available and is still an estimate: where it and shmap-rs disagree, nothing here says which is
+right. Accuracy comes from B02, whose reads carry true positions. See `../RESULTS.md` section 8.
+
+**mapquik's coordinates are not currently comparable.** It reports reference lengths exactly 1.02x
+the true ones and places only 3 of 39 965 simulated reads within a read length of their true
+position — its PAF positions are not in reference coordinate space in this configuration, most
+likely because homopolymer compression is on by default (`--nohpc`). Its concordance figure is
+therefore meaningless and must not be read as disagreement with shmap-rs. Its mapped counts and
+timings are still valid.
 
 Smoke-tested end to end on B05 (30 invocations, 12.5 min): all nine checks passed and the numbers
 reproduced the hand-run measurements — Containment `-@1` 24.53 s against 24.13 s measured manually,

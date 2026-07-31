@@ -588,3 +588,20 @@ minimizer-space, PAF out, no base-level alignment — but its paper states perfo
 markedly below 97% read-reference identity, and on real HG002 HiFi it maps far fewer reads than
 either shmap-rs or Winnowmap2. It is included because it is the right comparison for a
 low-divergence sketch mapper, not because it is a target to match.
+
+**Its concordance figure is not usable, and reads as the opposite of what it means.** The automated
+check reports `good = 0.0000` against mapquik at `recall = 0.9985` — shmap-rs mapped essentially
+every read mapquik did, and agreed on the position of none of them. That is not disagreement; it is
+a coordinate-space mismatch:
+
+- mapquik reports reference lengths exactly **1.02x** the true ones (`chr1` 253 355 074 against
+  248 387 328, and the same factor on every chromosome — no sequence in `hs1.fa` has the length it
+  claims).
+- On B02, where the true position is known, it places **3 of 39 965** reads within a read length of
+  truth (0.01%).
+
+So its PAF positions are not in reference coordinate space in this configuration — most plausibly
+because homopolymer compression is on by default (`--nohpc` disables it), which was not passed.
+Until that is resolved, quote mapquik's mapped counts and timings, never its concordance. The
+number is left in the result set rather than hidden, because deleting an inconvenient measurement
+is worse than labelling it.
