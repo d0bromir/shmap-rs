@@ -161,20 +161,28 @@ tool = "{repo}/profiling/validate_paf.py"
 [checks.ground_truth]
 description = "Simulated reads land within one read length of their encoded true position."
 blocking = true
-min_fraction = 0.99
-# bucket_SH does no refinement, so a mapping keeps the coarse bucket extent
-# instead of being narrowed to the best window. Measured mean target span on
-# B02, for a 24 000 bp read: bucket_SH 30 941 bp, Containment 23 866,
-# Jaccard 23 777. This check asks whether a mapping lands within one read
-# length of the true position, so a systematically ~30% wider span misses that
-# window slightly more often — 0.9876 against ~0.992. That is the metric
-# working as designed, and holding it to the refining metrics' floor would fail
-# every run for a reason that has nothing to do with the commit under test.
+# A backstop against gross breakage, NOT the regression gate. Drift is caught
+# by compare.py, which blocks any drop against the baseline — output is
+# deterministic, so a real change moves this number at all.
 #
-# This floor is a backstop against gross breakage, not the regression gate. The
-# regression gate is compare.py, which blocks ANY drop against the baseline;
-# output is deterministic, so a real change moves this number visibly.
-min_fraction_by_metric = { bucket_SH = 0.98 }
+# Deliberately loose, because a tight absolute floor cannot do both jobs. The
+# three metrics legitimately sit at different levels, measured on B02:
+#
+#   Containment  0.992064     mean target span 23 866 bp
+#   Jaccard      0.989952     mean target span 23 777 bp
+#   bucket_SH    0.987608     mean target span 30 941 bp
+#
+# bucket_SH does no refinement, so a mapping keeps the coarse bucket extent
+# rather than being narrowed to the best window — ~30% wider than the 24 000 bp
+# read. This check asks whether a mapping lands within one read length of its
+# true position, so a wider span misses that window slightly more often. That
+# is the metric working as designed.
+#
+# A 0.99 floor failed bucket_SH outright and put Jaccard 0.000048 under the
+# line, where rounding decided the verdict. Both were the gate misfiring, not
+# the mapper. 0.98 catches a mapper that is actually broken and leaves the
+# drift detection to the comparison, which is better at it.
+min_fraction = 0.98
 
 [checks.impl_agreement]
 description = "Fraction of the 12 core PAF columns matching the C++. Recorded always; only blocking if it drops versus the baseline."

@@ -25,6 +25,7 @@ import argparse
 import csv
 import json
 import math
+import re
 import statistics
 import sys
 from pathlib import Path
@@ -90,6 +91,25 @@ def agreement_of(checks: list[dict]) -> dict[tuple, float]:
             out[(c["benchmark"], c["metric"])] = float(c["detail"].rsplit("=", 1)[1])
         except ValueError:
             pass
+    return out
+
+
+def ground_truth_of(checks: list[dict]) -> dict[tuple, float]:
+    """ground_truth details look like `124008/125000 = 0.992064 (need 0.99)`.
+
+    Older sets recorded only `0.9921 (need 0.99)`, so a bare leading float is
+    accepted too — at lower precision, which is exactly why the format changed.
+    """
+    out = {}
+    for c in checks:
+        if c["check"] != "ground_truth":
+            continue
+        mo = re.search(r"=\s*([0-9.]+)", c["detail"]) or re.match(r"\s*([0-9.]+)", c["detail"])
+        if mo:
+            try:
+                out[(c["benchmark"], c["metric"])] = float(mo.group(1))
+            except ValueError:
+                pass
     return out
 
 
@@ -178,6 +198,19 @@ def compare(base: dict, cand: dict, thr: dict, allow_output_change: bool) -> dic
 
     # -- accuracy, per row: any drop blocks --------------------------------
     acc_level = REVIEW if allow_output_change else BLOCK
+
+    # Ground truth is compared against the baseline, not just against its
+    # absolute floor. The floor alone cannot do this job: set tight enough to
+    # catch drift it fails metrics that are working correctly, and set loose
+    # enough not to, it misses the drift. Output is deterministic, so any
+    # movement here is a real change in where reads are placed.
+    bg, cg = ground_truth_of(base["checks"]), ground_truth_of(cand["checks"])
+    for k, cv in sorted(cg.items()):
+        bv = bg.get(k)
+        if bv is not None and cv < bv - 1e-9:
+            add(acc_level, "accuracy", f"ground_truth {k[0]}/{k[1]}",
+                f"{bv:.6f} -> {cv:.6f} — reads moved away from their true positions"
+                + ("; downgraded by --allow-output-change" if allow_output_change else ""))
     for field, key_name in (("mapped", "mapped_regression_block"),
                             ("mapq60", "mapq60_regression_block")):
         tol = thr.get(key_name, 0)

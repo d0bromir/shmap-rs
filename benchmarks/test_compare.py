@@ -31,7 +31,7 @@ COLS = ["benchmark", "impl", "metric", "threads", "repeat", "reference_id", "rea
 
 def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_version=1,
              host="a2", commit="a" * 40, fail_check=None, agreement=0.9792,
-             rc=0, drop_config=None, rss_scale=1.0):
+             rc=0, drop_config=None, rss_scale=1.0, ground_truth=0.992064):
     d.mkdir(parents=True, exist_ok=True)
     rows, checks = [], []
     for b in BENCHES:
@@ -57,6 +57,13 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
                                    passed=(fail_check != name), detail="synthetic"))
             checks.append(dict(check="impl_agreement", benchmark=b, metric=m,
                                passed=True, detail=f"127000/130000 = {agreement:.4f}"))
+            # Only B02 carries ground truth, as in the real suite.
+            if b == "B02":
+                ok = round(ground_truth * 125000)
+                checks.append(dict(
+                    check="ground_truth", benchmark=b, metric=m,
+                    passed=(fail_check != "ground_truth" and ground_truth >= 0.98),
+                    detail=f"{ok}/125000 = {ground_truth:.6f} (need 0.98)"))
 
     with open(d / "results.tsv", "w") as f:
         f.write("\t".join(COLS) + "\n")
@@ -120,6 +127,15 @@ def main() -> int:
     case("maps more", ACCEPT, dict(mapped_delta=+50))
     case("agreement dropped", BLOCK, dict(agreement=0.9700), expect_in="impl_agreement")
     case("agreement improved", ACCEPT, dict(agreement=0.9900))
+
+    # Ground truth is compared against the baseline, not only against its floor:
+    # a drift well clear of the floor still means reads moved off true position.
+    case("ground truth drifted down", BLOCK, dict(ground_truth=0.991000),
+         expect_in="ground_truth")
+    case("ground truth improved", ACCEPT, dict(ground_truth=0.995000))
+    case("ground truth below floor", BLOCK, dict(ground_truth=0.970000))
+    case("ground truth drift, override", REVIEW, dict(ground_truth=0.991000),
+         extra=("--allow-output-change",))
 
     # --- the override for an argued correctness fix -----------------------
     case("fewer mapped, override", REVIEW, dict(mapped_delta=-100),
