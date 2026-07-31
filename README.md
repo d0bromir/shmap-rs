@@ -104,12 +104,14 @@ are window boundaries.
 
 | file | contents |
 |---|---|
-| [RESULTS.md](RESULTS.md) | **all benchmark numbers** — the single source |
-| [PROFILING.md](PROFILING.md) | optimization log: what changed, why, and what it measured |
-| [BENCHMARKS.md](BENCHMARKS.md) | thread-scaling history |
-| [COMPARISON.md](COMPARISON.md) | against other mappers (minimap2, winnowmap2, blend, mapquik) |
-| `profiling/` | dataset provenance, other-mapper measurements too costly to re-run, and the PAF validators |
-| `simulate/` | read simulators and the error-rate sweep |
+| [RESULTS.md](RESULTS.md) | **all benchmark numbers** — the single source, generated from `benchmarks/` |
+| [PROFILING.md](PROFILING.md) | optimization log: what changed, why, and what it measured at the time |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | how a PR is checked, and what decides a merge |
+| [VERSIONING.md](VERSIONING.md) | the four versions, and the PR rule |
+| [SECURITY.md](SECURITY.md) | why benchmarks run on a private host, and what gates them |
+| [benchmarks/](benchmarks/) | the suite definition, runner, merge gate and result sets |
+| [profiling/](profiling/) | dataset provenance, other-mapper measurements too costly to re-run, PAF validators |
+| [simulate/](simulate/) | read simulators, error-rate sweep, and the PBSIM3 provenance scripts |
 
 ## Correctness
 

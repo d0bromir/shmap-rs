@@ -1,198 +1,18 @@
-# shmap-rs profiling
+# shmap-rs optimization log
 
-> **Benchmark numbers live in [`RESULTS.md`](RESULTS.md).** This file is the optimization log — what was changed, why, and what it measured at the time. Treat its figures as the record of each change, not as current results.
+**What was changed, why, and what it measured at the time.** Benchmark numbers are not here — they
+are in [`RESULTS.md`](RESULTS.md), generated from [`benchmarks/`](benchmarks/) on every run. Figures
+below are the record of each individual change against the build it landed on, and are deliberately
+*not* updated: their value is that they say what a specific change bought.
 
+Instrumentation is `-x`/`--profile-log` (`src/profiling.rs`), which writes a per-run JSON report.
+Every benchmark run archives those per result set in
+`benchmarks/results/<suite>/<commit>/raw-profiles.tar.gz`, and RESULTS.md §5 is generated from them.
 
-Instrumentation: `-x`/`--profile` (`src/profiling.rs`), writing a per-run JSON report. Reproduce:
-
+```sh
+python3 benchmarks/run.py --commit <sha>          # the maintained runner
+target/release/shmap -s ref.fa -p reads.fa -x --profile-log run.json   # one-off
 ```
-python3 benchmarks/run.py --commit <sha>      # the maintained runner
-# or directly:
-shmap -s ref.fa -p reads.fa -k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment \
-    -@ 16 -x --profile-log run.profile.json
-```
-
-Every run's `-x` reports are archived per result set in
-`benchmarks/results/<suite>/<commit>/raw-profiles.tar.gz`, and RESULTS.md §5 is generated from them;
-this file is just the summary.
-
-## Current numbers
-
-### WGS long reads (the regime the mapper is slowest in)
-
-6 000 real HG002 reads per platform vs the whole T2T-CHM13 genome, `-k 15 -r 0.0625 -m Containment
--@ 1` with the benchmark's per-platform `theta` (HiFi 0.20, ONT 0.15, CLR 0.18), on the 64-core
-benchmark host. Runs were sequential on an idle machine, timed end to end with `/usr/bin/time -v`.
-"before" is commit `1de2a54`.
-
-| dataset | wall before | wall after | | RSS before | RSS after | |
-|---|---:|---:|---:|---:|---:|---:|
-| HiFi (12.8 kbp reads) | 1995.6 s | **725.6 s** | **2.75x** | 7.67 GB | **7.07 GB** | -8% |
-| ONT (35.4 kbp reads) | 4782.5 s | **1932.7 s** | **2.47x** | 10.96 GB | **7.25 GB** | **-34%** |
-| CLR (3.1 kbp reads) | 707.2 s | **491.8 s** | **1.44x** | 7.87 GB | **7.20 GB** | -8% |
-
-PAF output is byte-identical on all three (0 differing lines; HiFi 5991 mapped / 5689 Q60, ONT 5750
-/ 5227, CLR 294 / 216 in both builds), so this is pure throughput — the "never degrade mapping"
-gate holds.
-
-Stage timers, which are the whole story:
-
-| dataset | `bucket_merge` | `match_seeds` | `indexing` |
-|---|---:|---:|---:|
-| HiFi before → after | 1342.1 → **39.1 s** | 618.2 → 648.2 s | 21.0 → 23.1 s |
-| ONT before → after | 2784.4 → **62.2 s** | 1278.1 → 1155.3 s | 21.0 → 22.6 s |
-| CLR before → after | 305.0 → **64.0 s** | 319.6 → 339.9 s | 20.8 → 21.7 s |
-
-Two things worth reading off this:
-
-- **`bucket_merge` lands at 39-64 s on every platform**, from 305-2784 s. The dense accumulator's
-  cost depends on the size of the bucket space — a property of the reference and the read's
-  half-length — not on how many contributions are poured into it, so it stops scaling with
-  repetitiveness. The three speedups differ only because they track how `bucket_merge`-dominated
-  each baseline was (67% / 58% / 43% of wall), not anything about the datasets.
-- **`match_seeds` is essentially untouched and is now the whole of mapping** (92% / 61% / 73%).
-  The win came from deleting work, not from making the remaining work faster. That is the next
-  target, and it is bounded by raw hit volume — `max_seed_matches` peaked at 11.2 M for a single
-  seed on HiFi.
-
-ONT's -34% RSS is the largest memory win and has the same cause: its long reads produced the
-biggest per-read contribution buffers, and those `Vec`s (grown and never shrunk across reads, plus
-the radix ping-pong copy) are gone entirely, replaced by a ~1.4 MB dense array.
-
-That memory win compounds with thread count, which is the part that matters most. Those buffers
-were **per worker**, so the old design's footprint grew with `-@`: ONT went 10.96 GB at `-@ 1` to
-**22.46 GB at `-@ 4`**. The dense array is ~1.4 MB per worker, so the new build is essentially flat
-(7.25 GB -> 9.06 GB over the same range, and that delta is index build-up, not per-worker state).
-At `-@ 4` the three platforms are 3.06x / 3.00x / 1.57x faster than the baseline, with ONT's peak
-RSS down 60%. This removes a scaling hazard rather than a constant factor — the old design would
-have kept growing at 8, 16 and 32 threads.
-
-`indexing` is the one line that got slightly slower, by ~1-2 s: `h2multi`'s big hit lists are shrunk
-to fit once built, which at k=15 copies GBs of hits, and that is where much of the RSS drop comes
-from.
-
-### Table-1 datasets
-
-Regenerated with the same discipline: `benchmark.py --datasets all --threads N --profile --only
-shmap-rs`, both columns measured back-to-back on the same idle host. The raw reports are
-each result set's `raw-profiles.tar.gz`. The loose profiling directories this file used to point at
-were removed once `benchmarks/run.py` began regenerating the same data on every run — see
-`profiling/README.md`.
-
-`-@ 1`:
-
-| dataset | before | after | | RSS before | RSS after |
-|---|---:|---:|---:|---:|---:|
-| chrY_sim_10kbp_10x | 57.7 s | **35.9 s** | **1.61x** | 0.19 GB | **0.13 GB** |
-| allchr_sim_10kbp_1x | 89.9 s | **61.7 s** | **1.46x** | 2.73 GB | **2.41 GB** |
-| chrY_sim_24kbp_10x | 16.7 s | **11.1 s** | **1.50x** | 0.19 GB | **0.13 GB** |
-| allchr_real_24kbp | 11.8 s | 11.7 s | 1.01x | 2.73 GB | **2.36 GB** |
-
-`-@ 16`:
-
-| dataset | before | after | | RSS before | RSS after |
-|---|---:|---:|---:|---:|---:|
-| chrY_sim_10kbp_10x | 4.7 s | **2.9 s** | **1.62x** | 0.19 GB | **0.13 GB** |
-| allchr_sim_10kbp_1x | 17.4 s | **15.9 s** | **1.09x** | 2.02 GB | 2.39 GB |
-| chrY_sim_24kbp_10x | 1.9 s | **1.2 s** | **1.58x** | 0.19 GB | **0.13 GB** |
-| allchr_real_24kbp | 10.8 s | 10.7 s | 1.01x | 2.02 GB | 2.03 GB |
-
-Accuracy is unchanged everywhere (Mapped Q60 22918 / 228165 / 6902 / 1876, Wrong Q60 = 0).
-`allchr_real_24kbp` is ~90% indexing, so it barely moves on time and gains only memory. The one
-memory *increase* is `allchr_sim_10kbp_1x` at `-@ 16` (2.02 -> 2.39 GB). Its 10 kbp reads give a
-half-length of ~127, so the bucket space is ~246 k slots and each worker's dense accumulator is
-~3.9 MB — ~63 MB across 16 workers. That is a contributor rather than the whole 370 MB, which has
-not been attributed further; it is bounded by `MAX_DENSE_SLOTS` either way, and it is the price of
-the mapping win everywhere else.
-
-> Regenerating this table is what caught a real regression, and it is worth recording why the WGS
-> numbers alone would not have. The dense accumulator originally re-zeroed the whole array and
-> re-scanned it per read — both O(bucket space), which is invisible across 6 000 whole-genome reads
-> and crippling across 242 845 short ones: `allchr_sim_10kbp_1x` had gone **82 s -> 168 s**, a 2x
-> regression, with 50 s of it pure `memset`. The fix is in `Buckets`: the array is never re-zeroed
-> (extraction already empties every slot it takes), and extraction picks per read between an
-> in-order scan and a sorted walk of just the touched slots, depending on what fraction of the
-> bucket space the read actually touched. Both paths are pinned against the sparse path by
-> `dense_and_sparse_paths_agree`.
-
-### Real HiFi WGS at 1x / 3x / 10x
-
-The first run against **real** whole-genome long-read data at meaningful depth (everything else
-here uses 6 000-read subsets or simulated reads). 0.24-2.4 M real HG002 PacBio CCS reads vs
-T2T-CHM13, paper parameters (`-k 25 -r 0.01 -t 0.4`), single-threaded. Full write-up and raw
-reports in the archived result sets under `benchmarks/results/`.
-
-Inputs — reference `hs1.fa`, 3.18 GB, 3 117 292 070 bp, 25 segments:
-
-| reads file | size | reads | read bases | read len mean/min/max | coverage of hs1 |
-|---|---:|---:|---:|---:|---:|
-| `hifi_1x.fa` | 3.12 GB | 242 534 | 3 113 721 004 | 12 838 / 114 / 17 603 bp | 0.9989x |
-| `hifi_3x.fa` | 9.36 GB | 727 602 | 9 336 852 851 | 12 832 / 114 / 18 106 bp | 2.9952x |
-| `hifi_10x.fa` | 31.22 GB | 2 425 341 | 31 132 446 551 | 12 836 / 62 / 18 314 bp | 9.9870x |
-
-Invoked as `shmap -s hs1.fa -p hifi_${N}x.fa -k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 -m Containment`,
-plus `-@ 1 -x --profile-log rs_${N}x.profile.json` for shmap-rs (the C++ has no threading flag).
-
-| depth | shmap-rs | C++ shmap | speedup | shmap-rs RSS | C++ RSS |
-|---|---:|---:|---:|---:|---:|
-| 1x | **66.9 s** | 108.6 s | **1.62x** | **2.11 GB** | 19.30 GB |
-| 3x | **177.8 s** | 264.2 s | **1.49x** | **2.35 GB** | 19.30 GB |
-| 10x | **566.1 s** | 810.7 s | **1.43x** | **2.54 GB** | 19.31 GB |
-
-> **Superseded — these are `b0121aa` numbers.** Re-measured on the same host at
-> `f85d9a2`, with the `refine` memo and the allocation work below in place, shmap-rs is
-> **21-24% faster** and the speedups become **2.04x / 1.93x / 1.89x** (53.05 / 136.57 /
-> 430.56 s). The C++ side reproduced to within 0.5%, so the change is entirely ours. That run
-> also adds a 13.160x point over all 18 SMRT cells — the complete distinct real read set for this
-> sample — at 559.46 s against the C++'s 1059.39 s, still 1.89x, plus the small and tiny tiers
-> and `-@ 64` numbers. RESULTS.md is the current reference; the raw artifacts for both runs were
-> removed when the benchmark suite took over their regeneration.
-
-Per-read cost is constant across depths (0.232 / 0.230 / 0.229 ms) and memory is nearly flat
-(2.11 -> 2.54 GB for 10x the reads), so throughput scales linearly and nothing degrades at depth.
-
-**This workload's profile is nothing like the k=15 stress regime**, and that matters for what to
-do next. Splitting per-read work at 10x: `match_rest` 31.9% (of which `refine` alone is 114.5 s),
-`prepare` 26.0% (of which `collect_kmer_info` is 88.9 s), `match_seeds` 25.9%, `sketching` 12.3%
-— and **`bucket_merge` just 3.6%**. The dense accumulator cut `bucket_merge` 36x and that is where
-almost all of the k=15 win came from, but it is nearly irrelevant to real-world k=25 use. The
-measured next targets are `refine`, `collect_kmer_info` and `match_seeds`, in that order.
-
-### Real long HiFi reads at 23.2 kb
-
-Real HG002 HiFi from the GIAB 20 kb-insert library, filtered to >= 22 kb: 149 438 reads,
-3.47 Gbp, mean 23 189 bp, 1.1117x of T2T-CHM13. Single-threaded, paper parameters. Full write-up,
-the C++ head-to-head and the length/yield tradeoff behind the >= 22 kb cut are in
-RESULTS.md §2 (benchmark B01).
-
-This is the only real read set here materially longer than 13 kb — note that `allchr_real_24kbp`,
-despite the name, is real HiFi at **~13 kb** (the "24kbp" is the nominal library size).
-
-Per-read cost is **220 µs at 23.2 kb against 165 µs at 12.8 kb**: 1.81x the read length for 1.33x
-the cost, i.e. **~26% cheaper per base** on the longer reads (9.5 vs 12.9 µs/kb). The stage mix is
-what explains it — shares of `query_mapping`, same binary, same host, single-threaded:
-
-| stage | 23.2 kb | 12.8 kb |
-|---|---:|---:|
-| `match_rest` | 32.2% | 26.6% |
-| ⌐ `refine` | 19.0% | 14.7% |
-| `prepare` | 24.1% | 20.4% |
-| ⌐ `collect_kmer_info` | 15.9% | 13.3% |
-| `match_seeds` | **20.6%** | **32.3%** |
-| `sketching` | 20.4% | 15.7% |
-| `bucket_merge` | 2.6% | 4.7% |
-
-`match_seeds` nearly halves as a share while everything else grows. The cause is visible in the
-counters: a read seeds **194 buckets at 23.2 kb against 252 at 12.8 kb**, despite carrying 231
-k-mers against 128. Bucket width is the read's own half-length, so a longer read partitions the
-reference into fewer, wider buckets — it has more k-mers but fewer places to put them, and the
-per-bucket pruning and scoring work drops accordingly. `match_seeds` is bounded by hit volume
-(2 376 vs 1 886 hits/read, which grows only ~26% while k-mer count grows 81%), so it grows more
-slowly than the read.
-
-The practical consequence: **the mapper gets more efficient per base as reads get longer**, and
-work that looks dominant at 12.8 kb (`match_seeds`) is not what dominates at 23 kb, where
-`match_rest`/`refine` and `sketching` matter more.
 
 ## What's optimized
 
@@ -346,7 +166,18 @@ work that looks dominant at 12.8 kb (`match_seeds`) is not what dominates at 23 
   persistent on-disk index, or 2-bit packed sequence — rather than from parallelising harder. The
   software-prefetch idea (prefetch the bucket for k-mer `i + D` while inserting `i`, which would
   need `hashbrown` as a direct dependency for a hash-supplied raw entry API) is still open, but it
-  now targets ~1.5 s rather than ~8 s. See `BENCHMARKS.md` for the per-thread breakdown.
+  now targets ~1.5 s rather than ~8 s. See RESULTS.md §3 for the per-thread breakdown.
 - **Sketching** is ~2.0 ns/base on the benchmark host (6.3 s for the 3.12 Gbp reference at `-@1`,
   `allchr_real_24kbp-t1.profile.json`) and still latency-bound on the base-by-base rolling hash;
   the remaining big win would need SIMD or 2-bit-packed sequence encoding (large effort).
+
+## How the bucket accumulator got here
+
+Three rounds of fixing `Buckets`. An early sparse-`FxHashMap` rewrite — itself fixing a ~15 GB
+dense-array blowup — regressed single-thread speed ~20% below the C++ in the `k=15` regime. An
+append-only buffer merged once per read recovered most of that, and an O(n) radix sort recovered the
+rest. The last round removed the merge entirely: a read produces ~4 M raw bucket contributions, but
+the reference only *has* ~242 k buckets at that read's half-length, so shmap-rs now accumulates
+straight into a dense, L3-resident array and reads the sorted result back in one linear scan. The
+array that replaced the hash map is ~1.4 MB — this is not a return to the multi-GB dense array,
+because it is sized by the read's own half-length rather than by the genome.
