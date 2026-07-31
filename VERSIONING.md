@@ -84,10 +84,34 @@ The comparison against `current/` decides the merge:
 | **Blocked** | any logical-invariant violation (`profiling/validate_paf.py`) | do not merge |
 | **Blocked** | output differs across thread counts | do not merge |
 | **Review** | wall time regresses >3% on any benchmark | justify or fix; 3% is this host's run-to-run noise |
+| | *(measured per benchmark, aggregated across thread counts — see below)* | |
 | **Accept** | output byte-identical, wall time within noise or better | merge; refresh `current/` if it improves |
 | **Accept, output changed** | output differs *and* the change is an argued correctness fix | merge with the reasoning in the commit, and archive the old set |
 
 Speed never outranks accuracy. "Never degrade mapping" is the gate; throughput is the goal behind it.
+
+### Why wall time is judged per benchmark, not per measurement
+
+`compare.py` takes the geometric mean of the per-thread-count ratios within a benchmark rather than
+testing each of the ~105 measurements against the threshold. That is not a softening of the rule —
+it is what makes the rule mean anything.
+
+Two full runs of **behaviourally identical code** (`93ced64` and `6d6f6a4`, whose only differences
+default to off, with identical mapped counts) were compared:
+
+| | range across benchmarks |
+|---|---|
+| aggregated per benchmark | **-2.2% to +2.8%** — all inside the review band |
+| worst single thread count | **+11.6%** (B04/Jaccard at `-@2`), also +9.7%, +9.3%, +9.1% |
+
+Judged per measurement, that pair would have **BLOCKED** on the >10% rule and raised several
+REVIEWs, on a change that does nothing. shmap-rs is measured once per configuration, so a single
+row carries this host's full run-to-run noise; testing a hundred of them against a 3% line
+guarantees false positives. The aggregate is the honest signal, and the worst row is reported
+alongside it for context without deciding anything.
+
+This is also the argument against "just re-run it until it's green": a gate that fails at random
+teaches people to ignore it.
 
 ### Comparing against other mappers
 

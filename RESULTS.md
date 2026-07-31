@@ -581,6 +581,63 @@ rate by construction.
 `--rarity-weight 0` is byte-identical to the C++ path; the flag is retained as a
 research knob, not a recommendation.
 
+#### Also rejected: rarity tie-breaking (`--rarity-tiebreak`)
+
+The refinement suggested above — leave scoring alone, use rarity only to choose
+between buckets already within noise of each other. It cannot lose mapping rate
+by construction, and does not: `mapped` stays at exactly 125 000 across the
+whole sweep, and band 0 is byte-identical to the baseline. The implementation is
+correct. The idea is wrong.
+
+| band | correct of 125 000 | satellite placed correctly |
+|---:|---:|---:|
+| **0** | **123 984** | **7 083** |
+| 0.002 | 123 969 | 7 062 |
+| 0.005 | 123 948 | 7 050 |
+| 0.01 | 123 917 | 7 034 |
+| 0.05 | 123 801 | 6 983 |
+
+Monotonically worse. Not merely uninformative — rare-k-mer support is *anti*-
+correlated with the right repeat copy. Sweeping the exponent separately
+(`--rarity-alpha`, band held at 0.01) rules out a mis-calibration: every alpha
+from 0.05 to 2.0 places fewer satellite reads correctly than no tie-breaking at
+all, and the best overall (0.05, +6 reads) still loses in the satellite regions
+it exists for.
+
+### What actually works: sketch density
+
+Three scoring changes failed for the same underlying reason, which none of them
+could fix. At `-r 0.01` FracMinHash keeps 1% of k-mers *uniformly at random*.
+Paralog-specific variants are a small minority of positions inside a repeat
+array, so a 1% sample leaves most reads with none — there is no discriminating
+signal in the sketch for any scoring rule to exploit. The limit is information,
+not arithmetic.
+
+That predicts denser sampling should help where nothing else did. It does:
+
+| `-r` | wall (`-@16`) | correct of 125 000 | satellite correct | satellite rate |
+|---:|---:|---:|---:|---:|
+| 0.01 | 7.6 s | 123 984 (99.187%) | 7 083 | 89.59% |
+| 0.02 | 13.3 s | 124 290 (99.432%) | 7 284 | 92.13% |
+| 0.05 | 34.4 s | 124 478 (99.582%) | 7 415 | 93.79% |
+| **0.10** | **68.6 s** | **124 532 (99.626%)** | **7 458** | **94.33%** |
+
+**This closes the Winnowmap2 gap.** Winnowmap2 scores 99.65% on this data in
+1 008 s; shmap-rs at `-r 0.10` reaches 99.626% in 68.6 s — within 30 reads of
+it, roughly 15x faster. The satellite error rate falls from 10.41% to 5.67%.
+
+And 68.6 s is still faster than the **C++ shmap at `-r 0.01`** (88.4 s on B02),
+which reaches only 99.19%. So the accuracy gap to the reference implementation
+is not a trade-off against speed at all — it is a parameter choice that was
+inherited rather than tuned.
+
+The cost is real and should be stated: `-r 0.10` is ~9x the wall of `-r 0.01`,
+and the paper parameters remain `-r 0.01` because that is what the published
+numbers use. What this shows is that the accuracy ceiling people attribute to
+sketch-based mapping in repeats is a ceiling of the *sampling rate*, not of the
+method — and that shmap-rs can buy Winnowmap2-level placement whenever the
+caller wants it, at a cost that still beats the C++.
+
 ---
 
 **mapquik is a peer, not a standard.** It is the closest published analogue to shmap-rs —
