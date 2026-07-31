@@ -124,6 +124,10 @@ def score(paf: str) -> tuple[int, int, float]:
 
 
 def main() -> int:
+    # Rows take a minute each and the run is watched through a redirected log;
+    # without this the whole table appears only at the end, which reads as a
+    # hang. run.py had exactly this bug.
+    sys.stdout.reconfigure(line_buffering=True)
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ref", required=True)
