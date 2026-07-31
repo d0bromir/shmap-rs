@@ -584,7 +584,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.rarity_tiebreak = params.rarity_tiebreak;
         // Tie-breaking needs the weights too, but does not need them to have
         // been asked for as a scoring change; alpha 1 is the default shape.
-        let alpha = if params.rarity_weight > 0.0 {
+        let alpha = if params.rarity_alpha > 0.0 {
+            params.rarity_alpha
+        } else if params.rarity_weight > 0.0 {
             params.rarity_weight
         } else if params.rarity_tiebreak > 0.0 {
             1.0

@@ -91,9 +91,25 @@ pub struct Params {
     /// on B02 the right and wrong copies score 0.883 and 0.879, and the wrong
     /// one is sometimes higher. Exact-tie-breaking would almost never fire.
     ///
-    /// Weights come from `--rarity-weight`; if that is 0, alpha defaults to 1.
+    /// Weights come from `--rarity-alpha`.
     #[arg(long = "rarity-tiebreak", default_value_t = 0.0)]
     pub rarity_tiebreak: f64,
+
+    /// Exponent for the rarity weights, `1 / hits^alpha`, independent of which
+    /// mode consumes them. 0 means "follow `--rarity-weight`, or 1.0 if only
+    /// tie-breaking is on".
+    ///
+    /// Exists because alpha and mode are separate questions and tying them
+    /// together made one untestable: sweeping alpha via `--rarity-weight`
+    /// also switches on weighted scoring, so a tie-break sweep could not vary
+    /// alpha without changing two things at once.
+    ///
+    /// Alpha matters more than it looks. At 1.0 a k-mer occurring once
+    /// outweighs a hundred occurring a thousand times, so a single spurious
+    /// rare match decides the bucket — high variance in exactly the regime
+    /// where the decision is hardest.
+    #[arg(long = "rarity-alpha", default_value_t = 0.0)]
+    pub rarity_alpha: f64,
 
     /// Optimization metric: bucket_SH, bucket_LCS, Containment, Jaccard
     #[arg(short = 'm', long = "metric", value_enum, default_value_t = Metric::Containment)]
