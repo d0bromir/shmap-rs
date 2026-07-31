@@ -450,11 +450,22 @@ def recheck(outdir: Path, suite: dict) -> int:
     with open(outdir / "checks.tsv") as f:
         old = list(csv.DictReader(f, delimiter="\t"))
 
+    # Concordance belongs here too: it is a join between our retained PAF and a
+    # cached external one, so rebuilding the corpus (a new mapper version, or a
+    # corrected reference) can be reflected without re-measuring anything.
+    # Matched by prefix because the checks are named concordance_<mapper>.
     REDOABLE = {"validate_paf", "ground_truth"}
+    REDOABLE_PREFIXES = ("concordance_",)
+
+    def redoable(name: str) -> bool:
+        return name in REDOABLE or name.startswith(REDOABLE_PREFIXES)
     redone: dict[tuple, dict] = {}
     for bench in suite["benchmark"]:
         bid = bench["id"]
-        if not (REDOABLE & set(bench["checks"])):
+        # `checks` lists validate_paf/ground_truth by name; concordance is
+        # driven by [external] rather than per-benchmark, so it is always
+        # attempted and simply finds no cache entry when there is none.
+        if not (REDOABLE & set(bench["checks"])) and not suite.get("external", {}).get("enabled"):
             continue
         for metric in bench["metrics"]:
             pafs = sorted(raw.glob(f"{bid}_shmap-rs_{metric}_t*_r0.paf"))
@@ -467,7 +478,7 @@ def recheck(outdir: Path, suite: dict) -> int:
             stub = dict(impl="shmap-rs", paf=str(pafs[0]),
                         mapped=int(src["mapped"]) if src else 0, threads=0)
             for c in run_checks(bench, metric, [stub], raw, suite):
-                if c["check"] in REDOABLE:
+                if redoable(c["check"]):
                     redone[(c["check"], bid, metric)] = c
 
     merged, changed = [], []
@@ -501,12 +512,13 @@ def recheck(outdir: Path, suite: dict) -> int:
     man = json.loads(man_p.read_text())
     bad_rc = sum(1 for r in rows if int(r["rc"]) != 0)
     failed_blocking = sum(1 for c in merged
-                          if not c["passed"] and suite["checks"][c["check"]].get("blocking"))
+                          if not c["passed"]
+                          and suite["checks"].get(c["check"], {}).get("blocking"))
     man["failures"] = bad_rc + failed_blocking
     man.setdefault("rechecks", []).append(dict(
         at=datetime.now(timezone.utc).isoformat(),
         suite_version=suite["suite_version"],
-        re_evaluated=sorted(REDOABLE),
+        re_evaluated=sorted(REDOABLE) + ["concordance_*"],
         preserved=["thread_determinism", "impl_agreement"],
         changed=[f"{k[0]} {k[1]}/{k[2]}" for k, *_ in changed]))
     man_p.write_text(json.dumps(man, indent=2) + "\n")
