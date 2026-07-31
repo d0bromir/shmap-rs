@@ -60,13 +60,27 @@ substitutions and no indels" against "0.5% substitutions and 0.5% indels". Separ
 whole question, so this generates reads with exact, independent rates.
 
 ```sh
-./simulate_reads.py --ref hs1.fa --n 20000 --len 24000 --sub 0.01 -o subs.fa
-./simulate_reads.py --ref hs1.fa --n 20000 --len 24000 --ins 0.005 --del 0.005 -o indels.fa
+# controlled: every read identical, for comparing error TYPES at equal rate
+./simulate_reads.py --ref hs1.fa --n 20000 --sub 0.01 -o subs.fa
+./simulate_reads.py --ref hs1.fa --n 20000 --ins 0.005 --del 0.005 -o indels.fa
+
+# realistic: rate spread across reads, indels clustered in homopolymers
+./simulate_reads.py --ref hs1.fa --n 20000 --sub 0.03 --ins 0.01 --del 0.01 \
+    --error-sd 0.5 --hp-bias 5 -o ont_like.fa
 ```
 
-It is **not** a realistic error model and must not be used for claims about real data — uniform
-random errors are not what a sequencer produces. It is an instrument for a controlled sweep, and
-the headers it writes are `pbsim2fq`-compatible so every existing tool reads them unchanged.
+| flag | why it matters |
+|---|---|
+| `--error-sd` | spread of the per-read error rate. **Defaulting this to 0 is the most misleading thing this tool can do.** shmap maps a read when `(1-e)^k > t` — a threshold on that read's *own* rate — so near the threshold the mean predicts almost nothing. Real ONT maps ~43% at k=25 where a uniform simulation at the same mean mapped 0.08%. |
+| `--hp-bias` | concentrates indels in homopolymer runs, where real long-read indels overwhelmingly fall. Clustered damage leaves more intact k-mers than the same count spread evenly. |
+
+Use `--error-sd 0` deliberately, for a controlled comparison between error *types*; use a realistic
+spread whenever the number is meant to say something about real data.
+
+It is still **not** a sequencer model — error is not position-independent and context effects beyond
+homopolymers are ignored. Use `pbsim3/` to reproduce the published datasets; use this to ask
+controlled questions. The headers it writes are `pbsim2fq`-compatible, so every existing tool here
+reads them unchanged.
 
 Output is fully determined by `--seed`, so a dataset can be re-derived instead of archived.
 

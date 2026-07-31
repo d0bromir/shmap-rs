@@ -31,32 +31,42 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from simulate_reads import COMP, mutate, read_fasta  # noqa: E402
+from simulate_reads import COMP, mutate, read_error_scale, read_fasta  # noqa: E402
 
 import random  # noqa: E402
 
 HDR = re.compile(r"^S\d+_\d+!([^!]+)!(\d+)!(\d+)!([+-])")
 
-# (label, sub, ins, del). Chosen so substitution-only and indel-only rows can be
-# read against each other at equal TOTAL error, which is the comparison that
-# answers the question.
+# (label, sub, ins, del, error_sd, hp_bias).
+#
+# The first block holds error_sd at 0 so substitution-only and indel-only rows
+# are comparable at equal TOTAL error — that is the controlled comparison.
+#
+# The second block turns on the per-read spread and homopolymer clustering that
+# real data has. Those rows are not comparable with the first block and are not
+# meant to be: they exist to show how far a uniform model misleads, which is a
+# factor of hundreds near the threshold.
 GRID = [
-    ("clean",            0.000,  0.0,    0.0),
-    ("sub 0.5% (=D2)",   0.005,  0.0,    0.0),
-    ("sub 1%",           0.010,  0.0,    0.0),
-    ("sub 2%",           0.020,  0.0,    0.0),
-    ("sub 5%",           0.050,  0.0,    0.0),
-    ("indel 0.5%",       0.000,  0.0025, 0.0025),
-    ("indel 1%",         0.000,  0.005,  0.005),
-    ("indel 2%",         0.000,  0.010,  0.010),
-    ("del-only 1%",      0.000,  0.0,    0.010),
-    ("ins-only 1%",      0.000,  0.010,  0.0),
-    ("HiFi-like",        0.004,  0.0005, 0.0005),
-    ("ONT-like 5%",      0.030,  0.010,  0.010),
+    ("clean",            0.000,  0.0,    0.0,    0.0, 1.0),
+    ("sub 0.5% (=D2)",   0.005,  0.0,    0.0,    0.0, 1.0),
+    ("sub 1%",           0.010,  0.0,    0.0,    0.0, 1.0),
+    ("sub 2%",           0.020,  0.0,    0.0,    0.0, 1.0),
+    ("sub 5%",           0.050,  0.0,    0.0,    0.0, 1.0),
+    ("indel 0.5%",       0.000,  0.0025, 0.0025, 0.0, 1.0),
+    ("indel 1%",         0.000,  0.005,  0.005,  0.0, 1.0),
+    ("indel 2%",         0.000,  0.010,  0.010,  0.0, 1.0),
+    ("del-only 1%",      0.000,  0.0,    0.010,  0.0, 1.0),
+    ("ins-only 1%",      0.000,  0.010,  0.0,    0.0, 1.0),
+    # --- realistic: spread across reads, indels clustered in homopolymers ---
+    ("HiFi realistic",   0.004,  0.0005, 0.0005, 0.4, 5.0),
+    ("ONT 5% uniform",   0.030,  0.010,  0.010,  0.0, 1.0),
+    ("ONT 5% spread",    0.030,  0.010,  0.010,  0.5, 5.0),
+    ("ONT 5% wide",      0.030,  0.010,  0.010,  0.8, 5.0),
 ]
 
 
-def gen(seqs, total, cum, n, length, sub, ins, dele, seed, out):
+def gen(seqs, total, cum, n, length, sub, ins, dele, seed, out,
+        error_sd=0.0, hp_bias=1.0):
     rng = random.Random(seed)
     written = 0
     with open(out, "w") as fo:
@@ -83,8 +93,9 @@ def gen(seqs, total, cum, n, length, sub, ins, dele, seed, out):
             strand = rng.choice("+-")
             if strand == "-":
                 frag = frag.translate(COMP)[::-1]
+            sc = read_error_scale(rng, error_sd)
             fo.write(f">S{i}_1!{name}!{start}!{start+length}!{strand}\n")
-            fo.write(mutate(frag, sub, ins, dele, rng) + "\n")
+            fo.write(mutate(frag, sub * sc, ins * sc, dele * sc, rng, hp_bias) + "\n")
             written += 1
     return written
 
@@ -140,13 +151,14 @@ def main() -> int:
     work = Path(a.keep) if a.keep else Path(tempfile.mkdtemp(prefix="errsweep-"))
     work.mkdir(parents=True, exist_ok=True)
 
-    hdr = (f'{"profile":16}{"sub%":>7}{"indel%":>8}{"mapped":>9}{"correct":>9}'
-           f'{"of_n":>9}{"span_err":>10}{"wall_s":>8}')
+    hdr = (f'{"profile":18}{"sub%":>6}{"indel%":>7}{"sd":>5}{"hp":>4}{"mapped":>9}'
+           f'{"correct":>9}{"of_n":>9}{"span_err":>10}')
     print(hdr)
     print("-" * len(hdr))
-    for label, sub, ins, dele in GRID:
+    for label, sub, ins, dele, esd, hp in GRID:
         reads = work / f"{label.replace(' ', '_').replace('%','')}.fa"
-        n = gen(seqs, total, cum, a.n, a.length, sub, ins, dele, a.seed, reads)
+        n = gen(seqs, total, cum, a.n, a.length, sub, ins, dele, a.seed, reads,
+                error_sd=esd, hp_bias=hp)
         paf = str(reads) + ".paf"
         t = time.time()
         with open(paf, "w") as fo:
@@ -157,8 +169,8 @@ def main() -> int:
                            stdout=fo, stderr=subprocess.DEVNULL)
         wall = time.time() - t
         mapped, correct, span = score(paf)
-        print(f"{label:16}{sub*100:>7.2f}{(ins+dele)*100:>8.2f}{mapped:>9}{correct:>9}"
-              f"{correct/n*100:>8.2f}%{span*100:>9.2f}%{wall:>8.1f}")
+        print(f"{label:18}{sub*100:>6.2f}{(ins+dele)*100:>7.2f}{esd:>5.1f}{hp:>4.0f}"
+              f"{mapped:>9}{correct:>9}{correct/n*100:>8.2f}%{span*100:>9.2f}%")
         if not a.keep:
             Path(paf).unlink(missing_ok=True)
             reads.unlink(missing_ok=True)

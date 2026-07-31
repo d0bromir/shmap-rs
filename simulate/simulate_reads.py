@@ -17,9 +17,25 @@ and 0.5% indels". Separating those is the whole question — k-mer based mapping
 should degrade very differently under the two, since one indel shifts every
 downstream k-mer while one substitution destroys only the k covering it.
 
-So this generates reads with exact, independent rates. It is not a replacement
-for a realistic error model and should not be used to make claims about real
-data; it is an instrument for a controlled sweep.
+So this generates reads with exact, independent rates.
+
+Two things make it more than a toy, and both were added after a uniform version
+gave a badly misleading answer:
+
+  --error-sd   spreads the error rate ACROSS reads. Every read carrying exactly
+               the mean is the most misleading simplification available here,
+               because shmap maps a read when (1-e)^k > t — a threshold on that
+               read's own rate. At a mean near the threshold the mean predicts
+               almost nothing: real ONT maps ~43% at k=25 where a uniform
+               simulation at the same mean mapped 0.08%.
+
+  --hp-bias    concentrates indels in homopolymer runs, which is where real
+               long-read indels overwhelmingly fall. Clustered damage leaves
+               more intact k-mers than the same count spread evenly.
+
+It is still not a sequencer model — error is not position-independent, and
+context effects beyond homopolymers are ignored. Use `pbsim3/` to reproduce the
+published datasets; use this to ask controlled questions.
 
 Ground truth
 ------------
@@ -68,25 +84,58 @@ def read_fasta(path: str) -> list[tuple[str, str]]:
     return seqs
 
 
-def mutate(seq: str, sub: float, ins: float, dele: float, rng: random.Random) -> str:
+def mutate(seq: str, sub: float, ins: float, dele: float, rng: random.Random,
+           hp_bias: float = 1.0) -> str:
     """Apply per-base substitution, insertion and deletion rates.
 
     Rates are per reference base and independent, so `--sub 0.01 --ins 0.01`
     gives roughly 1% of each rather than 1% total. Insertions are emitted
     before the base so a run can grow, and a deleted base emits nothing.
+
+    `hp_bias` multiplies the indel rate inside homopolymer runs (a base equal to
+    the one before it). Real long-read indels are overwhelmingly homopolymer
+    length errors rather than uniformly scattered, and the difference matters
+    for a k-mer method: clustering the damage into runs leaves more intact
+    k-mers than the same number of errors spread evenly. 1.0 disables it.
     """
     out = []
+    prev = ""
     for b in seq:
-        if ins and rng.random() < ins:
-            out.append(rng.choice(BASES))
+        in_hp = b.upper() == prev
+        prev = b.upper()
+        i_rate = ins * (hp_bias if in_hp else 1.0)
+        d_rate = dele * (hp_bias if in_hp else 1.0)
+        if i_rate and rng.random() < i_rate:
+            # A homopolymer insertion extends the run; elsewhere it is random.
+            out.append(prev if in_hp else rng.choice(BASES))
         r = rng.random()
-        if dele and r < dele:
+        if d_rate and r < d_rate:
             continue
-        if sub and r < dele + sub:
+        if sub and r < d_rate + sub:
             out.append(rng.choice([x for x in BASES if x != b.upper()]))
         else:
             out.append(b)
     return "".join(out)
+
+
+def read_error_scale(rng: random.Random, sd: float) -> float:
+    """Per-read multiplier on the error rates, mean 1.
+
+    Every read having exactly the mean error rate is the single most misleading
+    thing a simulator can do here. shmap maps a read when `(1-e)^k > t`, which
+    is a threshold on that read's OWN error rate — so at a mean near the
+    threshold, what maps is the low-error tail and the mean predicts almost
+    nothing. Measured: real ONT maps ~43% at k=25, while a uniform simulation at
+    the same mean maps 0.08%.
+
+    Drawn from a gamma with unit mean (shape 1/sd^2), which is positive by
+    construction, right-skewed like real accuracy distributions, and collapses
+    to exactly 1.0 when sd is 0 — so the default reproduces the old behaviour.
+    """
+    if sd <= 0:
+        return 1.0
+    shape = 1.0 / (sd * sd)
+    return rng.gammavariate(shape, 1.0 / shape)
 
 
 def main() -> int:
@@ -101,6 +150,11 @@ def main() -> int:
     ap.add_argument("--sub", type=float, default=0.0, help="substitutions per base")
     ap.add_argument("--ins", type=float, default=0.0, help="insertions per base")
     ap.add_argument("--del", type=float, default=0.0, dest="dele", help="deletions per base")
+    ap.add_argument("--error-sd", type=float, default=0.0,
+                    help="relative spread of the per-read error rate (0 = every read identical, "
+                         "which is unrealistic; ~0.5 is long-read-like)")
+    ap.add_argument("--hp-bias", type=float, default=1.0,
+                    help="multiply indel rates inside homopolymer runs (1 = off, ~5 is HiFi-like)")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--min-contig", type=int, default=0,
                     help="skip contigs shorter than this (default: skip any shorter than a read)")
@@ -146,12 +200,15 @@ def main() -> int:
             strand = rng.choice("+-")
             if strand == "-":
                 frag = frag.translate(COMP)[::-1]
+            scale = read_error_scale(rng, a.error_sd)
             fo.write(f">S{i}_1!{name}!{start}!{start + L}!{strand}\n")
-            fo.write(mutate(frag, a.sub, a.ins, a.dele, rng) + "\n")
+            fo.write(mutate(frag, a.sub * scale, a.ins * scale, a.dele * scale,
+                            rng, a.hp_bias) + "\n")
             written += 1
 
     print(f"wrote {written} reads to {a.out} "
-          f"(sub={a.sub} ins={a.ins} del={a.dele} len={a.length} seed={a.seed})")
+          f"(sub={a.sub} ins={a.ins} del={a.dele} error_sd={a.error_sd} "
+          f"hp_bias={a.hp_bias} len={a.length} seed={a.seed})")
     return 0
 
 
