@@ -83,3 +83,19 @@ it:
   binary links `libssl.so.10`, which Ubuntu 24.04 does not ship.
 - **mapquik needs a one-line reference.** It counts newlines as bases, so a wrapped FASTA yields
   coordinates in file-offset space — silently. `suite.toml` carries the `awk` recipe.
+- **`gh`** — the release tarball extracted to `~/bin/gh` (no sudo, and Ubuntu's `gh` package is not
+  installed). `~/.profile` puts `~/bin` on the PATH, so it resolves in a login shell but *not* in
+  `ssh a2 '<command>'`, which does not read `.profile`. Set `GH_BIN=$HOME/bin/gh` if you drive
+  `run.py` non-interactively.
+
+## The authorization gate needs `gh` logged in
+
+`run.py --pr N` shells out to `gh` **on this host** (see [`../SECURITY.md`](../SECURITY.md)). Until
+`gh auth login` has been run as `mpiuser`, every `--pr` invocation fails at the authorization step,
+and the only usable path is `--commit <sha>` — which skips the label check entirely and records
+`authorized_by = n/a`. That is how every result set up to `1.3.1` was measured.
+
+The token has to be able to read `repos/{repo}/collaborators/{login}/permission`, which is what
+decides whether a PR author or labeller has write access. A token that cannot read it makes
+`has_write` return false for everyone, so an authorized PR is refused rather than wrongly accepted —
+the failure is safe, but it is silent about the cause.
