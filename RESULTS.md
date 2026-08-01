@@ -5,6 +5,7 @@
 
 | | |
 |---|---|
+| version | **1.3.0** |
 | commit | `4c36739d9c85` |
 | host | `a2` (64-core AVX-512, 376 GB RAM, Ubuntu 24.04, idle) |
 | measured | 2026-08-01 |

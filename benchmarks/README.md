@@ -107,12 +107,21 @@ Executes on `a2` only. Three things it does before it will measure anything:
 ### What a run produces
 
 ```
-results/suite-1.0/<commit>-<date>/
-  manifest.json    suite + dataset versions, commit, host, who authorized, binaries, duration
-  results.tsv      one row per invocation: wall, peak RSS, mapped, mapq60, and the exact command
-  checks.tsv       every check, pass/fail, with the detail
-  raw/             -x JSON reports and time -v records
+results/suite-1.0/<version>-<commit12>-<date>/
+  manifest.json          suite + dataset versions, commit, host, who authorized, binaries, duration
+  results.tsv            one row per invocation: wall, index, mapping, peak RSS, mapped, mapq60, cmd
+  profiles.tsv           one row per invocation, one column per stage — the readable -x view
+  checks.tsv             every check, pass/fail, with the detail
+  raw-profiles.tar.gz    the full -x JSON reports and time -v records
 ```
+
+The directory is named by the **binary's own `--version`**, then the commit, then the date — so a
+reader looking for a release's numbers does not have to open a manifest to find the SHA.
+
+`results.tsv` splits the wall into `index_s` and `map_s`. Indexing is a fixed cost set by the
+reference and is largely serial; mapping is what scales. `profiles.tsv` goes further, one column per
+stage — note its `wall_*` columns are wall-clock while `cpu_*` are summed across threads, so the
+latter exceed the former at high thread counts and must never be divided into each other.
 
 `results.tsv` carries the full command line for every row, so any number resolves to an exact
 invocation against an exact input. Reference-impl repeats are reduced by median and marked

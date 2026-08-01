@@ -524,6 +524,11 @@ def recheck(outdir: Path, suite: dict) -> int:
     if not changed:
         print("  no check outcome changed")
 
+    # A flat, greppable, git-diffable view of the -x reports. The tarball keeps
+    # full fidelity, but nobody reads 105 JSON dumps inside a .gz — and data
+    # committed to be read should be readable without unpacking it first.
+    write_profiles_tsv(outdir, reduced)
+
     with open(outdir / "checks.tsv", "w") as fo:
         fo.write("check\tbenchmark\tmetric\tpassed\tdetail\n")
         for c in merged:
@@ -544,6 +549,53 @@ def recheck(outdir: Path, suite: dict) -> int:
     man_p.write_text(json.dumps(man, indent=2) + "\n")
     print(f"{len(changed)} change(s); {man['failures']} failure(s) remain in {outdir}")
     return 1 if man["failures"] else 0
+
+
+# Stage timers worth a column, in the order a run performs them. `total`,
+# `indexing` and `mapping` are WALL; everything below them is CPU summed across
+# threads, which is why the two groups are labelled apart and must not be
+# divided into each other.
+PROFILE_WALL = ["total", "indexing", "mapping"]
+PROFILE_INDEX = ["index_reading", "index_sketching", "index_collecting", "index_finalizing"]
+PROFILE_MAP = ["query_mapping", "sketching", "seeding", "prepare", "collect_kmer_info",
+               "match_seeds", "match_rest", "refine", "bucket_merge"]
+PROFILE_COUNTERS = ["seeds", "matches", "seeded_buckets", "refined_buckets",
+                    "refine_memo_hits", "final_buckets", "mapped_reads", "mapq60"]
+
+
+def write_profiles_tsv(outdir: Path, rows: list[dict]) -> None:
+    """One row per invocation, one column per stage — the readable form of the
+    `-x` JSON reports."""
+    raw = outdir / "raw"
+    cols = (["benchmark", "metric", "threads"]
+            + [f"wall_{c}" for c in PROFILE_WALL]
+            + [f"cpu_{c}" for c in PROFILE_INDEX + PROFILE_MAP]
+            + [f"n_{c}" for c in PROFILE_COUNTERS])
+    out = []
+    for r in rows:
+        if r["impl"] != "shmap-rs":
+            continue
+        f = raw / f"{r['benchmark']}_{r['impl']}_{r['metric']}_t{r['threads']}_r0.json"
+        if not f.exists():
+            continue
+        try:
+            j = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        t = j.get("global", {}).get("timers_secs", {})
+        c = j.get("global", {}).get("counters", {})
+        row = [r["benchmark"], r["metric"], str(r["threads"])]
+        row += [f"{t.get(k, 0.0):.3f}" for k in PROFILE_WALL]
+        row += [f"{t.get(k, 0.0):.3f}" for k in PROFILE_INDEX + PROFILE_MAP]
+        row += [str(c.get(k, "")) for k in PROFILE_COUNTERS]
+        out.append(row)
+    out.sort(key=lambda r: (r[0], r[1], int(r[2])))
+    with open(outdir / "profiles.tsv", "w") as fo:
+        fo.write("# wall_* are wall-clock; cpu_* are summed across threads and will\n")
+        fo.write("# exceed wall_total at high thread counts. Never divide one by the other.\n")
+        fo.write("\t".join(cols) + "\n")
+        for r in out:
+            fo.write("\t".join(r) + "\n")
 
 
 def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
@@ -614,6 +666,11 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
         fo.write("\t".join(cols) + "\n")
         for r in sorted(reduced, key=lambda r: (r["benchmark"], r["metric"], r["impl"], r["threads"])):
             fo.write("\t".join(str(r[c]) for c in cols) + "\n")
+    # A flat, greppable, git-diffable view of the -x reports. The tarball keeps
+    # full fidelity, but nobody reads 105 JSON dumps inside a .gz — and data
+    # committed to be read should be readable without unpacking it first.
+    write_profiles_tsv(outdir, reduced)
+
     with open(outdir / "checks.tsv", "w") as fo:
         fo.write("check\tbenchmark\tmetric\tpassed\tdetail\n")
         for c in checks:
@@ -710,7 +767,14 @@ def main() -> int:
         # upstream — every subsequent `git pull` on the host then aborted.
         # Promotion copies the small files into the repo; the PAFs stay here,
         # where `--recheck` can still find them after a reboot.
-        default_out = (RESULTS_ROOT / f"{commit[:12]}-{datetime.now(timezone.utc):%Y-%m-%d}")
+        # Version first: a reader looking for "the 1.3.0 numbers" should not
+        # have to open a manifest to find which SHA that was. The version is the
+        # binary's own `--version`, so it records what actually ran rather than
+        # what the tag says.
+        ver = sh([str(wt / "target" / "release" / "shmap"), "--version"]).stdout.strip()
+        ver = (ver.split()[-1] if ver else "unknown").replace("/", "_")
+        default_out = (RESULTS_ROOT /
+                       f"{ver}-{commit[:12]}-{datetime.now(timezone.utc):%Y-%m-%d}")
         out = Path(args.out) if args.out else default_out
         try:
             rc = execute(jobs, suite, reg, commit, wt, out, authorized_by, lock)

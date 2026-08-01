@@ -56,14 +56,25 @@ so historical results keep pointing at what they actually measured.
 
 ```
 benchmarks/results/
-  suite-2.0/                       # suite_version MAJOR
-    current/                       # the baseline a PR is compared against
-      manifest.json                # suite + dataset versions, commit, host, date
-      results.tsv                  # one row per (benchmark, metric, threads, impl)
-      raw/                         # -x JSON reports, time -v records
-    0d93605-2026-07-30/            # archived, immutable, one per accepted run
-    c0b4289-2026-07-30/
+  suite-1.0/                              # suite_version MAJOR
+    current/                              # the baseline a PR is compared against
+      manifest.json                       # versions, commit, host, date, binaries
+      results.tsv                         # one row per (benchmark, metric, threads, impl)
+      profiles.tsv                        # one row per invocation, one column per stage
+      checks.tsv                          # every check, pass/fail, with the detail
+      raw-profiles.tar.gz                 # the full -x JSON reports and time -v records
+    1.3.0-4c36739d9c85-2026-08-01/        # archived, immutable, one per accepted run
+    1.2.0-b3d67e2ba86e-2026-07-31/
 ```
+
+**Archived sets are named `<version>-<commit12>-<date>`.** The version is the binary's own
+`--version`, so it records what actually ran rather than what a tag later claimed — a run measured
+before a release bump carries the version it was built with, and the commit disambiguates. Looking
+for "the 1.3.0 numbers" should not require opening a manifest.
+
+`profiles.tsv` is the readable form of the `-x` reports: one row per invocation, one column per
+stage, greppable and diffable in review. The tarball keeps full fidelity, but data committed to be
+read has to be readable without unpacking it first.
 
 `current/` is a copy, not a symlink, so a checkout always has a usable baseline. Every archived set
 is immutable once written. **Historical sets are never edited** — if a number was wrong, add a new

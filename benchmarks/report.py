@@ -123,6 +123,7 @@ def block_provenance(rs: dict, reg: dict) -> str:
         f"\n"
         f"| | |\n"
         f"|---|---|\n"
+        f"| version | **{(m.get('binaries', {}).get('shmap-rs') or 'unknown').split()[-1]}** |\n"
         f"| commit | `{m['commit'][:12]}` |\n"
         f"| host | `{m['host']}` (64-core AVX-512, 376 GB RAM, Ubuntu 24.04, idle) |\n"
         f"| measured | {m['finished'][:10]} |\n"
