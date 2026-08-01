@@ -34,7 +34,8 @@ Contents, in fixed order:
 [7 Correctness](#7-correctness) ·
 [8 Concordance with other mappers](#8-concordance-with-other-mappers) ·
 [9 Error tolerance](#9-error-tolerance) ·
-[10 Limitations](#10-limitations)
+[10 Limitations](#10-limitations) ·
+[11 What to try next](#11-what-to-try-next)
 
 ---
 
@@ -1041,3 +1042,49 @@ magnitude does not transfer: +0.44 pp of ground-truth accuracy on simulated data
 unreproduced. And the configuration costs 7x peak memory (2.51 GB to 17.74 GB), which removes the
 memory advantage reported in §1. Quote the sampling-rate result as a property of the method, not as
 a recommended setting.
+
+---
+
+## 11 What to try next
+
+The open threads, with what is already known about each so they are not re-derived.
+
+### Selective sketch density in repeats
+
+§8 establishes that accuracy in repeats is limited by *sampling rate*, not scoring — three scoring
+changes were measured and all made it worse, while `-r 0.10` recovers most of the gap. But `-r 0.10`
+costs 8.7x wall and 7x memory globally, to fix errors concentrated in the 6.3% of the genome that is
+satellite.
+
+The obvious question is whether density can be raised **only inside repeat arrays**: index those
+regions at a higher rate and the rest at 0.01. The meryl repetitive-k-mer set already built for
+Winnowmap2 (`~/bench-refs/REF-HS1.repetitive.k15.txt`) identifies the regions. Nothing has been tried
+here; the headroom is the 411 reads §8 quantifies.
+
+### An unbiased error estimate for real ONT
+
+§10 records that the operating-point proxies hold for Containment and `bucket_SH` but overstate
+Jaccard on ONT by 2.3x, because the error rate is estimated from confidently-mapped reads only and is
+therefore biased low. Closing it needs a rate estimated without conditioning on mapping success —
+which is the same wall as "no truth for real reads", so it may not be closable without an orthogonal
+source such as aligned long reads from a different mapper.
+
+### Statistical power
+
+`repeats = 1` for the subject against median-of-3 for the control is backwards, and is a cost trade:
+three repeats would take the full matrix from ~4.7 h to ~14 h. Aggregation across thread counts and
+drift normalisation stand in for it, but no confidence intervals are computed. If the host is idle
+overnight anyway, raising `repeats` in `[run]` is a one-line change and the median reduction already
+exists.
+
+### Phase-attributed memory
+
+`peak_rss_kb` is whole-run, so index and mapping memory cannot be separated the way their times now
+are (§3b). The `-x` report samples memory but does not attribute peaks to a phase. This needs
+instrumentation in `src/profiling.rs`, not parsing.
+
+### Cold-cache measurement
+
+Every benchmark warms the page cache first, which isolates CPU behaviour deliberately. Indexing is
+close enough to I/O-bound (§5) that a cold run would look materially different, and nothing here
+measures it.

@@ -7,6 +7,7 @@ version means and for the rule a pull request has to satisfy.
 
 | path | what | status |
 |---|---|---|
+| `RUNBOOK.md` | operating the host: launch sequence, traps, recovery | **in place** |
 | `datasets.tsv` | dataset registry — id, host, path, identity triple, provenance | **in place** |
 | `enumerate_datasets.sh` | regenerates the registry's measured columns | **in place** |
 | `validate_suite.py` | checks `suite.toml` resolves against the registry | **in place** |

@@ -56,6 +56,9 @@ the PR author has push/admin, **or** a user with push/admin applied the `bench-a
 that no push has landed since the label. The label is the human review step: someone reads the diff
 before the code runs.
 
+Operating the host — launch sequence, the traps, and how to re-judge a run without
+re-measuring it — is in [`benchmarks/RUNBOOK.md`](benchmarks/RUNBOOK.md).
+
 At most one benchmark runs at a time, host-wide. Concurrent invocations queue on a kernel file lock
 rather than failing, so two of them cannot contaminate each other's timings.
 
