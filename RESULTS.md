@@ -932,6 +932,68 @@ sketch-based mapping in repeats is a ceiling of the *sampling rate*, not of the
 method — and that shmap-rs can buy Winnowmap2-level placement whenever the
 caller wants it, at a cost that still beats the C++.
 
+#### Selective density: most of the gain, in 6-8% of the genome
+
+Density has to be paid for across the whole genome to fix errors concentrated in
+satellite. It does not: raising `-r` **only inside repeat regions** recovers 78-90%
+of the gain for roughly a seventh of the memory. Driven end to end by
+[`profiling/selective_density.py`](profiling/selective_density.py), which uses the
+stock binary — the question was answered before anything was built into the mapper.
+
+**The regions do not come from the meryl set.** That was the obvious source, and it
+does not survive contact: at k=15, requiring 30% of a kilobase's positions to be
+repetitive marks 17% of chr1, and 50% once padded and merged. That set exists to
+*downweight* minimizers for Winnowmap2, not to delimit regions, and `suite.toml`
+already records k=15 as the pathologically repetitive regime genome-wide. Recorded
+so it is not re-derived.
+
+What works is the mapper's own uncertainty. Every read placed at mapq < 60 in an
+ordinary first pass contributes its reported interval, padded by 30 kb and merged.
+On B02 that is 181-241 Mbp — the satellite fraction, without an annotation. Nothing
+in the procedure reads ground truth, so it runs unchanged on real reads. Those
+regions are then indexed at `-r 0.10`, and only the reads the first pass left
+ambiguous (4.8-6.6% of them) are looked up there.
+
+| metric | | `-r 0.01` | **selective** | `-r 0.10` everywhere |
+|---|---|---:|---:|---:|
+| **Containment** | correct of 125 000 | 123 984 | **124 414** | 124 532 |
+| | wall | 7.6 s | **26.7 s** | 58.5 s |
+| | peak RSS | 2.21 GB | **2.21 GB** | 17.14 GB |
+| **Jaccard** | correct of 125 000 | 123 724 | **124 226** | 124 282 |
+| | wall | 7.5 s | **27.5 s** | 61.8 s |
+| | peak RSS | 2.19 GB | **2.19 GB** | 17.30 GB |
+| **bucket_SH** | correct of 125 000 | 123 419 | **124 225** | 124 314 |
+| | wall | 7.9 s | **22.3 s** | 58.7 s |
+| | peak RSS | 2.28 GB | **2.28 GB** | 17.30 GB |
+
+B02, `-@32`, a2, binary `1.3.1` at `9304ecb`. Selective wall is the two mapping
+passes plus region derivation; peak RSS is the larger of the two passes, which run
+sequentially — an in-mapper implementation holding both indexes at once would peak
+near their sum (~3.2 GB), still 5.4x below global density. The dense index covers
+209/181/241 Mbp for the three metrics. All structural and score invariants hold on
+every output.
+
+So: **78% of the gain for Containment, 90% for Jaccard and bucket_SH**, at 2.2-2.6x
+the wall instead of 7.4-8.2x, and no measured memory cost at all in this form.
+Note also that all three metrics converge to ~99.4-99.5% — the dense pass does the
+discriminating that the metric choice otherwise decides.
+
+**The acceptance rule is the whole design, and the obvious one is wrong.**
+Substituting the dense answer only when it reaches mapq 60 rescues *nothing*: on
+Containment it swaps 903 records, moves 890 of them, changes the correct count by
+exactly zero, and promotes 59 still-wrong placements to mapq 60. That is the third
+time this section has recorded the same trap — `-M`, `--rarity-weight`, and now
+this — where confidence rises while accuracy does not. Inside an array the dense
+pass is *right* far more often than it is *certain*, because the competing copies
+are still there to be uncertain about; demanding certainty discards exactly the
+reads the pass exists to fix. Substituting whenever the dense pass produced a
+mapping at all is what yields the +430 (459 reads rescued against 51 broken).
+
+The ceiling is the region set, not the method: of the 582 reads global density
+rescues, the mapq gate selects all 582, but only 528 have their true position
+inside the regions. A read whose truth lies outside cannot be recovered by a pass
+that never indexes it.
+
 ---
 
 **mapquik is a peer, not a standard** — but a much closer one than the broken numbers suggested.
@@ -1049,17 +1111,25 @@ a recommended setting.
 
 The open threads, with what is already known about each so they are not re-derived.
 
-### Selective sketch density in repeats
+### Selective sketch density in repeats — answered, and worth building in
 
-§8 establishes that accuracy in repeats is limited by *sampling rate*, not scoring — three scoring
-changes were measured and all made it worse, while `-r 0.10` recovers most of the gap. But `-r 0.10`
-costs 8.7x wall and 7x memory globally, to fix errors concentrated in the 6.3% of the genome that is
-satellite.
+§8 now carries the measurement: raising `-r` only inside repeat regions recovers 78-90% of what
+global density buys, at 2.2-2.6x the wall instead of 7.4-8.2x and no measured memory cost. The
+meryl set turned out to be useless as a region mask (it marks half of chr1); the regions come from
+the first pass's own mapq instead.
 
-The obvious question is whether density can be raised **only inside repeat arrays**: index those
-regions at a higher rate and the rest at 0.01. The meryl repetitive-k-mer set already built for
-Winnowmap2 (`~/bench-refs/REF-HS1.repetitive.k15.txt`) identifies the regions. Nothing has been tried
-here; the headroom is the 411 reads §8 quantifies.
+What is left is to move it out of [`profiling/selective_density.py`](profiling/selective_density.py)
+and into the mapper, which is a different design from the one the script emulates. The script cuts
+the regions into a mini-reference and re-maps against it; in-process this wants a **second
+`SketchIndex` covering only those regions**, built alongside the base index. It cannot be merged
+into the base index: with `abs_pos` off a bucket is `tpos / halflen`, an offset into the segment's
+sketch array, so inserting dense k-mers would renumber every existing bucket and change first-pass
+output. Two indexes also mean the peak is their sum (~3.3 GB) rather than the larger of the two.
+
+The open question the script cannot answer is the region set. Its ceiling is 528 of the 582
+recoverable reads because a read whose true position falls outside the dense regions can never be
+rescued; regions derived from k-mer frequency at index time, rather than from one read set's
+first pass, would be read-set-independent and might cover more.
 
 ### An unbiased error estimate for real ONT
 

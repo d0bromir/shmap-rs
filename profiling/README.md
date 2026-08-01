@@ -1,6 +1,6 @@
 # profiling/
 
-Two live tools, plus the measurements and provenance that **cannot be regenerated**.
+Three live tools, plus the measurements and provenance that **cannot be regenerated**.
 
 Current benchmark numbers are not here — they are in [`../RESULTS.md`](../RESULTS.md), generated
 from [`../benchmarks/`](../benchmarks/). This directory used to hold ~400 files of shmap-rs
@@ -17,11 +17,18 @@ What survived is what a re-run cannot give back.
 |---|---|
 | `validate_paf.py` | every benchmark run (`suite.toml` → `checks.validate_paf`), and blocking per [`../VERSIONING.md`](../VERSIONING.md) |
 | `adjudicate_disagreements.py` | scores shmap-rs against another mapper *where ground truth exists*, so a disagreement can be attributed instead of guessed at |
+| `selective_density.py` | drives the selective-density two-pass of [`../RESULTS.md`](../RESULTS.md) §8 using the stock binary — regions from the first pass's mapq, a dense second pass over those regions only |
 
 ```sh
 python3 profiling/validate_paf.py out.paf              # structural + score invariants
 python3 profiling/validate_paf.py out.paf --truth      # + ground-truth positions
 python3 profiling/adjudicate_disagreements.py ours.paf theirs.paf --truth
+
+# selective density, end to end (see the module docstring for the full recipe)
+python3 profiling/selective_density.py regions pass1.paf dense.bed
+python3 profiling/selective_density.py mini-ref ref.fa dense.bed mini.fa
+python3 profiling/selective_density.py select pass1.paf reads.fa ambiguous.fa
+python3 profiling/selective_density.py merge pass1.paf pass2.paf merged.paf
 ```
 
 ## other-mappers/ — kept because re-running is prohibitive
