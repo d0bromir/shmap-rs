@@ -5,7 +5,7 @@
 
 | | |
 |---|---|
-| commit | `6d6f6a4f0844` |
+| commit | `b3d67e2ba86e` |
 | host | `a2` (64-core AVX-512, 376 GB RAM, Ubuntu 24.04, idle) |
 | measured | 2026-07-31 |
 | suite / datasets | 1.0 / v1 |
@@ -39,10 +39,10 @@ Contents, in fixed order:
 <!-- BEGIN GENERATED: summary -->
 | | |
 |---|---|
-| Speed vs C++ `shmap`, single-threaded | **1.83–2.29x** |
-| Speed vs C++ at `-@ 4` | **4.78–6.72x** (the C++ cannot use more than one core) |
-| Peak memory | **1.82 GB – 2.19 GB vs 18.85 GB — 8.6x less** |
-| Best whole-run thread speedup | **15.81x** (`-@ 32`, Jaccard, B04) |
+| Speed vs C++ `shmap`, single-threaded | **1.86–2.27x** |
+| Speed vs C++ at `-@ 4` | **5.01–6.54x** (the C++ cannot use more than one core) |
+| Peak memory | **1.82 GB – 2.21 GB vs 18.85 GB — 8.5x less** |
+| Best whole-run thread speedup | **16.23x** (`-@ 32`, Jaccard, B04) |
 | Determinism | output byte-identical across all thread counts (15/15 benchmark×metric combinations) |
 <!-- END GENERATED: summary -->
 
@@ -64,9 +64,9 @@ Reads `D1-HIFI23K` against `REF-HS1`. Single-threaded is the like-for-like colum
 
 | metric | shmap-rs `-@1` | shmap-rs `-@4` | C++ | speedup `-@1` | speedup `-@4` | rs RSS | C++ RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Containment | 46.97 s | 18.30 s | 104.66 s | **2.23x** | **5.72x** | 1.99 GB | 18.85 GB |
-| Jaccard | 60.18 s | 21.09 s | 131.62 s | **2.19x** | **6.24x** | 2.16 GB | 18.85 GB |
-| bucket_SH *(no refinement)* | 38.77 s | 16.12 s | 86.12 s | **2.22x** | **5.34x** | 2.14 GB | 18.85 GB |
+| Containment | 47.59 s | 18.18 s | 104.14 s | **2.19x** | **5.73x** | 1.97 GB | 18.85 GB |
+| Jaccard | 62.20 s | 21.56 s | 132.11 s | **2.12x** | **6.13x** | 2.12 GB | 18.85 GB |
+| bucket_SH *(no refinement)* | 38.97 s | 16.08 s | 86.65 s | **2.22x** | **5.39x** | 2.15 GB | 18.85 GB |
 
 | metric | mapped | mapq 60 | agreement with C++ (12 core PAF cols) |
 |---|---:|---:|---:|
@@ -80,9 +80,9 @@ Reads `D2-SIM24K` against `REF-HS1`. Single-threaded is the like-for-like column
 
 | metric | shmap-rs `-@1` | shmap-rs `-@4` | C++ | speedup `-@1` | speedup `-@4` | rs RSS | C++ RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Containment | 40.19 s | 15.65 s | 87.54 s | **2.18x** | **5.59x** | 1.89 GB | 18.85 GB |
-| Jaccard | 55.00 s | 19.74 s | 117.89 s | **2.14x** | **5.97x** | 1.94 GB | 18.85 GB |
-| bucket_SH *(no refinement)* | 35.79 s | 15.05 s | 80.86 s | **2.26x** | **5.37x** | 1.94 GB | 18.85 GB |
+| Containment | 40.78 s | 16.28 s | 87.96 s | **2.16x** | **5.40x** | 1.89 GB | 18.85 GB |
+| Jaccard | 55.38 s | 19.86 s | 118.79 s | **2.14x** | **5.98x** | 2.02 GB | 18.85 GB |
+| bucket_SH *(no refinement)* | 36.39 s | 14.83 s | 80.85 s | **2.22x** | **5.45x** | 2.04 GB | 18.85 GB |
 
 | metric | mapped | mapq 60 | agreement with C++ (12 core PAF cols) |
 |---|---:|---:|---:|
@@ -96,9 +96,9 @@ Reads `D3-HIFI1X` against `REF-HS1`. Single-threaded is the like-for-like column
 
 | metric | shmap-rs `-@1` | shmap-rs `-@4` | C++ | speedup `-@1` | speedup `-@4` | rs RSS | C++ RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Containment | 56.21 s | 20.70 s | 115.70 s | **2.06x** | **5.59x** | 1.82 GB | 18.85 GB |
-| Jaccard | 69.39 s | 23.64 s | 144.33 s | **2.08x** | **6.11x** | 2.01 GB | 18.85 GB |
-| bucket_SH *(no refinement)* | 46.42 s | 18.79 s | 99.20 s | **2.14x** | **5.28x** | 2.07 GB | 18.85 GB |
+| Containment | 55.19 s | 20.48 s | 116.02 s | **2.10x** | **5.67x** | 2.19 GB | 18.85 GB |
+| Jaccard | 71.42 s | 24.58 s | 144.68 s | **2.03x** | **5.89x** | 2.14 GB | 18.85 GB |
+| bucket_SH *(no refinement)* | 46.98 s | 17.82 s | 98.24 s | **2.09x** | **5.51x** | 1.99 GB | 18.85 GB |
 
 | metric | mapped | mapq 60 | agreement with C++ (12 core PAF cols) |
 |---|---:|---:|---:|
@@ -112,9 +112,9 @@ Reads `D4-HIFI10X` against `REF-HS1`. Single-threaded is the like-for-like colum
 
 | metric | shmap-rs `-@1` | shmap-rs `-@4` | C++ | speedup `-@1` | speedup `-@4` | rs RSS | C++ RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Containment | 450.48 s | 138.53 s | 855.47 s | **1.90x** | **6.18x** | 1.99 GB | 18.85 GB |
-| Jaccard | 599.67 s | 178.03 s | 1196.53 s | **2.00x** | **6.72x** | 2.15 GB | 18.85 GB |
-| bucket_SH *(no refinement)* | 359.75 s | 119.85 s | 660.11 s | **1.83x** | **5.51x** | 2.11 GB | 18.85 GB |
+| Containment | 451.89 s | 143.60 s | 841.27 s | **1.86x** | **5.86x** | 2.15 GB | 18.85 GB |
+| Jaccard | 615.90 s | 181.83 s | 1189.22 s | **1.93x** | **6.54x** | 2.02 GB | 18.85 GB |
+| bucket_SH *(no refinement)* | 359.63 s | 118.02 s | 707.66 s | **1.97x** | **6.00x** | 2.07 GB | 18.85 GB |
 
 | metric | mapped | mapq 60 | agreement with C++ (12 core PAF cols) |
 |---|---:|---:|---:|
@@ -128,9 +128,9 @@ Reads `D6-ONT24K` against `REF-HS1`. Single-threaded is the like-for-like column
 
 | metric | shmap-rs `-@1` | shmap-rs `-@4` | C++ | speedup `-@1` | speedup `-@4` | rs RSS | C++ RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Containment | 23.98 s | 11.19 s | 54.92 s | **2.29x** | **4.91x** | 2.00 GB | 18.85 GB |
-| Jaccard | 27.57 s | 11.91 s | 61.31 s | **2.22x** | **5.15x** | 2.19 GB | 18.85 GB |
-| bucket_SH *(no refinement)* | 22.75 s | 10.84 s | 51.80 s | **2.28x** | **4.78x** | 2.14 GB | 18.85 GB |
+| Containment | 24.97 s | 10.49 s | 55.48 s | **2.22x** | **5.29x** | 1.99 GB | 18.85 GB |
+| Jaccard | 28.15 s | 11.78 s | 59.00 s | **2.10x** | **5.01x** | 2.21 GB | 18.85 GB |
+| bucket_SH *(no refinement)* | 23.73 s | 10.75 s | 53.95 s | **2.27x** | **5.02x** | 1.82 GB | 18.85 GB |
 
 | metric | mapped | mapq 60 | agreement with C++ (12 core PAF cols) |
 |---|---:|---:|---:|
@@ -168,61 +168,61 @@ Output is **byte-identical across every thread count**, on every benchmark and m
 
 | `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
-| 1 | 46.97 s | 60.18 s | 38.77 s | 1.00x |
-| 2 | 28.41 s | 35.63 s | 23.70 s | 1.69x |
-| 4 | 18.30 s | 21.09 s | 16.12 s | 2.85x |
-| 8 | 11.16 s | 12.16 s | 10.05 s | 4.95x |
-| 16 | 7.57 s | 8.98 s | 7.82 s | 6.70x |
-| 32 | 8.13 s | 7.81 s | 7.83 s | 7.71x |
-| 64 | 8.74 s | 8.44 s | 8.33 s | 7.13x |
+| 1 | 47.59 s | 62.20 s | 38.97 s | 1.00x |
+| 2 | 29.02 s | 36.02 s | 24.63 s | 1.73x |
+| 4 | 18.18 s | 21.56 s | 16.08 s | 2.88x |
+| 8 | 11.18 s | 13.10 s | 9.35 s | 4.75x |
+| 16 | 8.30 s | 8.60 s | 8.24 s | 7.23x |
+| 32 | 7.77 s | 8.49 s | 8.43 s | 7.33x |
+| 64 | 8.57 s | 8.27 s | 7.75 s | 7.52x |
 
 ### B02 — Simulated 24 kb, 0.96x — long reads with ground truth (`D2-SIM24K`)
 
 | `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
-| 1 | 40.19 s | 55.00 s | 35.79 s | 1.00x |
-| 2 | 25.40 s | 30.59 s | 22.80 s | 1.80x |
-| 4 | 15.65 s | 19.74 s | 15.05 s | 2.79x |
-| 8 | 9.74 s | 11.99 s | 9.02 s | 4.59x |
-| 16 | 7.55 s | 8.07 s | 7.59 s | 6.82x |
-| 32 | 7.40 s | 6.97 s | 7.00 s | 7.89x |
-| 64 | 7.87 s | 7.26 s | 7.89 s | 7.58x |
+| 1 | 40.78 s | 55.38 s | 36.39 s | 1.00x |
+| 2 | 25.29 s | 32.42 s | 23.42 s | 1.71x |
+| 4 | 16.28 s | 19.86 s | 14.83 s | 2.79x |
+| 8 | 10.15 s | 11.84 s | 9.27 s | 4.68x |
+| 16 | 7.58 s | 8.44 s | 7.36 s | 6.56x |
+| 32 | 7.65 s | 7.48 s | 7.85 s | 7.40x |
+| 64 | 7.28 s | 7.64 s | 7.68 s | 7.25x |
 
 ### B03 — Real HiFi 12.8 kb, 1x — the long-standing reference workload (`D3-HIFI1X`)
 
 | `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
-| 1 | 56.21 s | 69.39 s | 46.42 s | 1.00x |
-| 2 | 33.66 s | 40.06 s | 28.83 s | 1.73x |
-| 4 | 20.70 s | 23.64 s | 18.79 s | 2.94x |
-| 8 | 12.46 s | 14.29 s | 11.32 s | 4.86x |
-| 16 | 9.36 s | 9.96 s | 8.66 s | 6.97x |
-| 32 | 9.44 s | 9.81 s | 9.26 s | 7.07x |
-| 64 | 10.56 s | 10.50 s | 10.38 s | 6.61x |
+| 1 | 55.19 s | 71.42 s | 46.98 s | 1.00x |
+| 2 | 33.84 s | 41.24 s | 30.73 s | 1.73x |
+| 4 | 20.48 s | 24.58 s | 17.82 s | 2.91x |
+| 8 | 11.87 s | 14.33 s | 10.68 s | 4.98x |
+| 16 | 9.23 s | 10.86 s | 9.21 s | 6.58x |
+| 32 | 9.59 s | 8.98 s | 9.73 s | 7.95x |
+| 64 | 9.88 s | 10.36 s | 10.64 s | 6.89x |
 
 ### B04 — Real HiFi 12.8 kb, 10x — depth, where mapping dominates indexing (`D4-HIFI10X`)
 
 | `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
-| 1 | 450.48 s | 599.67 s | 359.75 s | 1.00x |
-| 2 | 255.93 s | 331.70 s | 206.72 s | 1.81x |
-| 4 | 138.53 s | 178.03 s | 119.85 s | 3.37x |
-| 8 | 75.76 s | 94.66 s | 64.38 s | 6.33x |
-| 16 | 42.95 s | 52.02 s | 42.23 s | 11.53x |
-| 32 | 40.88 s | 37.94 s | 39.28 s | 15.81x |
-| 64 | 43.17 s | 43.28 s | 40.78 s | 13.86x |
+| 1 | 451.89 s | 615.90 s | 359.63 s | 1.00x |
+| 2 | 243.71 s | 325.41 s | 200.65 s | 1.89x |
+| 4 | 143.60 s | 181.83 s | 118.02 s | 3.39x |
+| 8 | 75.77 s | 96.83 s | 63.34 s | 6.36x |
+| 16 | 43.34 s | 53.08 s | 39.24 s | 11.60x |
+| 32 | 43.15 s | 37.94 s | 41.87 s | 16.23x |
+| 64 | 41.27 s | 41.44 s | 42.55 s | 14.86x |
 
 ### B05 — Real ONT 23.8 kb, 0.70x — a different error profile (`D6-ONT24K`)
 
 | `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
-| 1 | 23.98 s | 27.57 s | 22.75 s | 1.00x |
-| 2 | 17.27 s | 19.17 s | 16.64 s | 1.44x |
-| 4 | 11.19 s | 11.91 s | 10.84 s | 2.31x |
-| 8 | 6.86 s | 7.73 s | 6.60 s | 3.57x |
-| 16 | 6.16 s | 6.78 s | 6.58 s | 4.07x |
-| 32 | 6.77 s | 6.67 s | 6.38 s | 4.13x |
-| 64 | 6.94 s | 7.14 s | 6.73 s | 3.86x |
+| 1 | 24.97 s | 28.15 s | 23.73 s | 1.00x |
+| 2 | 16.64 s | 19.43 s | 17.22 s | 1.50x |
+| 4 | 10.49 s | 11.78 s | 10.75 s | 2.39x |
+| 8 | 7.01 s | 7.80 s | 6.46 s | 3.67x |
+| 16 | 6.49 s | 6.91 s | 6.25 s | 4.07x |
+| 32 | 6.75 s | 6.78 s | 7.25 s | 4.15x |
+| 64 | 6.28 s | 6.28 s | 6.94 s | 4.48x |
 <!-- END GENERATED: thread-scaling -->
 
 Whole-run scaling is best at depth simply because there is enough mapping work to bury the fixed
@@ -268,75 +268,75 @@ Shares of `query_mapping`, single-threaded. Indented rows are part of the row ab
 
 | stage | Containment | Jaccard | bucket_SH |
 |---|---:|---:|---:|
-| `match_rest` | 32.5% | 51.2% | 13.5% |
-| ⌐ `refine` | 19.8% | 37.7% | 0.3% |
-| `prepare` | 24.2% | 17.1% | 29.8% |
-| ⌐ `collect_kmer_info` | 16.2% | 11.4% | 19.4% |
-| `match_seeds` | 20.9% | 15.4% | 27.0% |
-| `sketching` | 19.7% | 14.2% | 26.2% |
-| `bucket_merge` | 2.5% | 1.8% | 3.3% |
-| *`query_mapping` total* | *33.9 s* | *47.3 s* | *25.8 s* |
+| `match_rest` | 33.9% | 51.5% | 13.7% |
+| ⌐ `refine` | 21.5% | 38.2% | 0.3% |
+| `prepare` | 22.8% | 17.4% | 28.9% |
+| ⌐ `collect_kmer_info` | 15.0% | 11.7% | 18.7% |
+| `match_seeds` | 20.9% | 15.2% | 27.6% |
+| `sketching` | 19.7% | 14.0% | 26.3% |
+| `bucket_merge` | 2.5% | 1.7% | 3.2% |
+| *`query_mapping` total* | *34.1 s* | *48.9 s* | *26.1 s* |
 
 **B02** — Simulated 24 kb, 0.96x — long reads with ground truth
 
 | stage | Containment | Jaccard | bucket_SH |
 |---|---:|---:|---:|
-| `match_rest` | 25.6% | 49.7% | 12.8% |
-| ⌐ `refine` | 13.0% | 35.7% | 0.3% |
-| `prepare` | 25.0% | 17.8% | 29.6% |
-| ⌐ `collect_kmer_info` | 16.2% | 12.0% | 19.4% |
-| `match_seeds` | 25.0% | 16.6% | 28.8% |
-| `sketching` | 21.4% | 14.0% | 25.3% |
+| `match_rest` | 25.6% | 50.9% | 12.9% |
+| ⌐ `refine` | 13.3% | 37.1% | 0.3% |
+| `prepare` | 24.8% | 16.8% | 29.0% |
+| ⌐ `collect_kmer_info` | 16.1% | 11.2% | 18.8% |
+| `match_seeds` | 25.1% | 16.5% | 29.2% |
+| `sketching` | 21.5% | 13.9% | 25.4% |
 | `bucket_merge` | 2.8% | 1.8% | 3.2% |
-| *`query_mapping` total* | *27.0 s* | *41.7 s* | *22.9 s* |
+| *`query_mapping` total* | *27.5 s* | *42.5 s* | *23.3 s* |
 
 **B03** — Real HiFi 12.8 kb, 1x — the long-standing reference workload
 
 | stage | Containment | Jaccard | bucket_SH |
 |---|---:|---:|---:|
-| `match_rest` | 29.5% | 46.8% | 11.6% |
-| ⌐ `refine` | 18.2% | 33.9% | 0.4% |
-| `prepare` | 20.5% | 15.2% | 24.6% |
-| ⌐ `collect_kmer_info` | 13.5% | 10.1% | 15.9% |
-| `match_seeds` | 30.0% | 23.0% | 38.3% |
-| `sketching` | 15.2% | 11.3% | 19.4% |
-| `bucket_merge` | 4.6% | 3.4% | 5.8% |
-| *`query_mapping` total* | *41.1 s* | *54.9 s* | *31.9 s* |
+| `match_rest` | 29.6% | 47.5% | 11.3% |
+| ⌐ `refine` | 18.2% | 34.7% | 0.4% |
+| `prepare` | 19.9% | 15.3% | 25.1% |
+| ⌐ `collect_kmer_info` | 13.1% | 10.3% | 16.4% |
+| `match_seeds` | 30.4% | 22.6% | 38.2% |
+| `sketching` | 15.3% | 11.1% | 19.4% |
+| `bucket_merge` | 4.6% | 3.3% | 5.7% |
+| *`query_mapping` total* | *40.7 s* | *56.5 s* | *32.5 s* |
 
 **B04** — Real HiFi 12.8 kb, 10x — depth, where mapping dominates indexing
 
 | stage | Containment | Jaccard | bucket_SH |
 |---|---:|---:|---:|
-| `match_rest` | 30.0% | 48.2% | 11.4% |
-| ⌐ `refine` | 18.4% | 35.1% | 0.4% |
-| `prepare` | 19.3% | 14.3% | 23.9% |
-| ⌐ `collect_kmer_info` | 12.6% | 9.5% | 15.4% |
-| `match_seeds` | 30.5% | 22.8% | 38.8% |
-| `sketching` | 15.3% | 11.2% | 19.7% |
-| `bucket_merge` | 4.6% | 3.4% | 5.9% |
-| *`query_mapping` total* | *404.2 s* | *552.0 s* | *314.6 s* |
+| `match_rest` | 30.2% | 49.2% | 11.5% |
+| ⌐ `refine` | 18.7% | 36.3% | 0.4% |
+| `prepare` | 18.9% | 14.1% | 23.5% |
+| ⌐ `collect_kmer_info` | 12.3% | 9.4% | 15.1% |
+| `match_seeds` | 30.7% | 22.4% | 39.1% |
+| `sketching` | 15.4% | 11.0% | 19.8% |
+| `bucket_merge` | 4.5% | 3.2% | 5.8% |
+| *`query_mapping` total* | *405.7 s* | *567.9 s* | *314.1 s* |
 
 **B05** — Real ONT 23.8 kb, 0.70x — a different error profile
 
 | stage | Containment | Jaccard | bucket_SH |
 |---|---:|---:|---:|
-| `match_rest` | 15.8% | 33.5% | 8.7% |
-| ⌐ `refine` | 7.1% | 22.6% | 0.2% |
-| `prepare` | 37.1% | 29.5% | 40.1% |
-| ⌐ `collect_kmer_info` | 22.5% | 17.8% | 24.3% |
-| `match_seeds` | 8.8% | 7.0% | 9.6% |
-| `sketching` | 36.1% | 28.2% | 39.2% |
-| `bucket_merge` | 1.9% | 1.5% | 2.1% |
-| *`query_mapping` total* | *11.8 s* | *15.8 s* | *11.2 s* |
+| `match_rest` | 18.2% | 33.1% | 8.8% |
+| ⌐ `refine` | 9.0% | 21.8% | 0.2% |
+| `prepare` | 36.1% | 30.2% | 40.1% |
+| ⌐ `collect_kmer_info` | 22.0% | 18.9% | 24.4% |
+| `match_seeds` | 8.9% | 7.1% | 9.6% |
+| `sketching` | 34.6% | 27.9% | 39.1% |
+| `bucket_merge` | 1.8% | 1.5% | 2.1% |
+| *`query_mapping` total* | *12.7 s* | *16.2 s* | *11.3 s* |
 
 ### Indexing against thread count (B01, Containment)
 
 | stage | `-@1` | `-@2` | `-@4` | `-@8` | `-@16` | `-@32` | `-@64` |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `indexing` (s) | 9.1 | 7.7 | 4.9 | 3.4 | 3.0 | 3.3 | 3.7 |
-| `index_reading` (s) | 4.4 | 3.3 | 2.2 | 1.7 | 1.6 | 1.6 | 1.6 |
-| `index_sketching` (s) | 5.9 | 5.9 | 5.8 | 6.5 | 9.8 | 15.8 | 19.9 |
-| `index_collecting` (s) | 7.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `indexing` (s) | 9.5 | 7.7 | 4.7 | 3.3 | 3.6 | 3.5 | 3.7 |
+| `index_reading` (s) | 4.2 | 3.4 | 2.4 | 1.6 | 1.7 | 1.7 | 1.6 |
+| `index_sketching` (s) | 6.1 | 5.8 | 5.8 | 6.5 | 10.1 | 16.6 | 20.3 |
+| `index_collecting` (s) | 7.6 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 <!-- END GENERATED: stage-breakdown -->
 
 **What refinement costs.** `refine` is ~0.3% of `query_mapping` under `bucket_SH` and 20-38% under

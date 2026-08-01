@@ -38,6 +38,7 @@ RESULTS = Path(__file__).resolve().parent / "results"
 ACCEPT, REVIEW, BLOCK, ERROR = 0, 1, 2, 3
 NAMES = {ACCEPT: "ACCEPT", REVIEW: "REVIEW", BLOCK: "BLOCK", ERROR: "ERROR"}
 SUBJECT = "shmap-rs"
+REFERENCE_IMPL = "cpp-shmap"
 
 # One measurement per configuration for shmap-rs, so a single row carries this
 # host's run-to-run noise (~1-2%). Comparing ~105 of them against a 3% line
@@ -264,6 +265,50 @@ def compare(base: dict, cand: dict, thr: dict, allow_output_change: bool) -> dic
             add(REVIEW, "concordance", f"{k[0]} {k[1]}/{k[2]}",
                 f"good {bv:.4f} -> {cv:.4f} — reproducing fewer of its placements")
 
+    # -- host drift, measured against the unchanged reference implementation --
+    #
+    # The C++ is re-measured in every full run from a binary that does not
+    # change between our commits, on the same inputs. Its movement between two
+    # result sets is therefore host drift and nothing else — a free control that
+    # was already being collected and thrown away.
+    #
+    # Without it, a run on a slightly busier machine shifts every shmap-rs row
+    # together and the 3% line catches whichever benchmark was nearest it. That
+    # is a false REVIEW on identical output, which is how a gate loses its
+    # authority.
+    drift, drift_note = 1.0, None
+    bref = {k: r["wall_s"] for k, r in brows.items() if k[1] != SUBJECT and r["wall_s"] > 0}
+    cref = {k: r["wall_s"] for k, r in crows.items() if k[1] != SUBJECT}
+    shared = sorted(set(bref) & set(cref))
+    bbin = (base["manifest"].get("binaries") or {}).get(REFERENCE_IMPL)
+    cbin = (cand["manifest"].get("binaries") or {}).get(REFERENCE_IMPL)
+
+    if not thr.get("drift_normalize", False):
+        drift_note = "disabled in suite.toml"
+    elif len(shared) < thr.get("drift_min_samples", 6):
+        drift_note = f"only {len(shared)} reference measurements in common; not enough to trust"
+    elif bbin != cbin:
+        # A rebuilt reference is not a control: its own change is confounded
+        # with the host's.
+        drift_note = f"reference binary differs ({bbin} vs {cbin}); not a control"
+    else:
+        ratios = [cref[k] / bref[k] for k in shared]
+        d = math.exp(statistics.fmean(math.log(x) for x in ratios))
+        cap = thr.get("drift_max", 0.10)
+        if abs(d - 1) > cap:
+            # Large drift means the host was in a different state, not that we
+            # can correct for it. Correcting a 20% shift would be inventing a
+            # measurement.
+            add(REVIEW, "host", "reference implementation moved",
+                f"{(d-1)*100:+.1f}% on an unchanged binary over {len(shared)} measurements — "
+                f"beyond the {cap*100:.0f}% correctable range, so timings are not normalised "
+                f"and this run should be repeated")
+            drift_note = f"{(d-1)*100:+.1f}% — too large to correct"
+        else:
+            drift = d
+            drift_note = (f"{(d-1)*100:+.2f}% measured on the unchanged reference binary "
+                          f"over {len(shared)} measurements")
+
     # -- wall time and memory, aggregated per (benchmark, metric) ----------
     perf: list[dict] = []
     groups: dict[tuple, list[tuple]] = {}
@@ -277,10 +322,14 @@ def compare(base: dict, cand: dict, thr: dict, allow_output_change: bool) -> dic
         items.sort()
         wall_ratios = [c / b for _, b, c, _, _ in items]
         rss_ratios = [c / b for _, _, _, b, c in items if b > 0]
-        gm = math.exp(statistics.fmean(math.log(x) for x in wall_ratios))
+        gm_raw = math.exp(statistics.fmean(math.log(x) for x in wall_ratios))
+        # The subject is corrected; the reference is what defines the
+        # correction, so normalising it would flatten it to zero by
+        # construction and hide the evidence.
+        gm = gm_raw / drift if impl == SUBJECT else gm_raw
         rss_gm = math.exp(statistics.fmean(math.log(x) for x in rss_ratios)) if rss_ratios else 1.0
         row = dict(benchmark=bid, impl=impl, metric=metric, n=len(items),
-                   wall=gm - 1, rss=rss_gm - 1,
+                   wall=gm - 1, wall_raw=gm_raw - 1, rss=rss_gm - 1,
                    base_s=sum(b for _, b, _, _, _ in items),
                    cand_s=sum(c for _, _, c, _, _ in items),
                    worst_thread=max(items, key=lambda t: t[2] / t[1])[0],
@@ -304,7 +353,7 @@ def compare(base: dict, cand: dict, thr: dict, allow_output_change: bool) -> dic
 
     verdict = max([f["level"] for f in findings], default=ACCEPT)
     return dict(verdict=verdict, findings=findings, notes=notes, perf=perf,
-                agreement=(ba, ca))
+                agreement=(ba, ca), drift=drift, drift_note=drift_note)
 
 
 # --------------------------------------------------------------------------
@@ -348,14 +397,25 @@ def render(base: dict, cand: dict, res: dict, thr: dict) -> str:
     else:
         L += ["No blocking or reviewable differences.", ""]
 
+    dn = res.get("drift_note")
+    corrected = abs(res.get("drift", 1.0) - 1) > 1e-9
     L += ["## Wall time by benchmark",
           "",
           "Geometric mean of the per-thread-count ratios; a single thread count is too "
           "noisy to judge on its own, so the worst one is shown for context but does not "
           "decide the verdict.",
-          "",
-          "| benchmark | metric | impl | threads | baseline | candidate | change | worst |",
-          "|---|---|---|---|---|---|---|---|"]
+          ""]
+    if corrected:
+        L += [f"**Host drift: {dn}.** The reference implementation's binary does not change "
+              f"between our commits, so its movement is the host's, not ours. shmap-rs rows "
+              f"are divided by it; the `raw` column is before that correction and the "
+              f"reference's own rows are never corrected.",
+              ""]
+    elif dn:
+        L += [f"*No drift correction applied: {dn}.*", ""]
+    L += ["| benchmark | metric | impl | threads | baseline | candidate | "
+          + ("raw | corrected" if corrected else "change") + " | worst |",
+          "|---|---|---|---|---|---|---|---|" + ("---|" if corrected else "")]
     for p in sorted(res["perf"], key=lambda p: (p["impl"] != SUBJECT, p["benchmark"], p["metric"])):
         flag = ""
         if p["impl"] == SUBJECT:
@@ -365,8 +425,10 @@ def render(base: dict, cand: dict, res: dict, thr: dict) -> str:
                 flag = " ⚠️"
             elif p["wall"] < -thr["wall_regression_review"]:
                 flag = " ✅"
+        change = (f"{pct(p['wall_raw'])} | {pct(p['wall'])}{flag}" if corrected
+                  else f"{pct(p['wall'])}{flag}")
         L.append(f"| {p['benchmark']} | {p['metric']} | {p['impl']} | {p['n']} | "
-                 f"{p['base_s']:.1f}s | {p['cand_s']:.1f}s | {pct(p['wall'])}{flag} | "
+                 f"{p['base_s']:.1f}s | {p['cand_s']:.1f}s | {change} | "
                  f"{pct(p['worst'])} @-@{p['worst_thread']} |")
     L.append("")
 

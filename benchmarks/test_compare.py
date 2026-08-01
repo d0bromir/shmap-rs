@@ -32,7 +32,7 @@ COLS = ["benchmark", "impl", "metric", "threads", "repeat", "reference_id", "rea
 def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_version=1,
              host="a2", commit="a" * 40, fail_check=None, agreement=0.9792,
              rc=0, drop_config=None, rss_scale=1.0, ground_truth=0.992064,
-             concordance=0.9633):
+             concordance=0.9633, ref_wall_scale=1.0, ref_binary="shmap 1.0.0-cpp"):
     d.mkdir(parents=True, exist_ok=True)
     rows, checks = [], []
     for b in BENCHES:
@@ -51,7 +51,7 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
             rows.append(dict(
                 benchmark=b, impl="cpp-shmap", metric=m, threads=1, repeat="median3",
                 reference_id="REF-HS1", reads_id="D1-HIFI23K", params_id="paper",
-                rc=0, wall_s=250.0, peak_rss_kb=9_000_000,
+                rc=0, wall_s=round(250.0 * ref_wall_scale, 2), peak_rss_kb=9_000_000,
                 mapped=130000, mapq60=120000, cmd="shmap -s ref -p reads"))
             for name in ("thread_determinism", "validate_paf"):
                 checks.append(dict(check=name, benchmark=b, metric=m,
@@ -82,7 +82,7 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
         host=host, authorized_by="test", started="2026-07-30T00:00:00+00:00",
         finished="2026-07-30T01:00:00+00:00", duration_s=3600, invocations=len(rows),
         failures=0, datasets={"REF-HS1": dict(bytes=3179638084, records=25)},
-        binaries={"shmap-rs": "shmap 1.2.0"}), indent=2) + "\n")
+        binaries={"shmap-rs": "shmap 1.2.0", "cpp-shmap": ref_binary}), indent=2) + "\n")
     return d
 
 
@@ -150,6 +150,25 @@ def main() -> int:
     case("concordance dropped", REVIEW, dict(concordance=0.9500),
          expect_in="concordance")
     case("concordance improved", ACCEPT, dict(concordance=0.9700))
+
+    # Host drift: the reference binary is unchanged, so its movement is the
+    # host's. A run where everything moved together must not read as a
+    # regression in the subject.
+    case("5% slower, host also 5% slower", ACCEPT,
+         dict(wall_scale=1.05, ref_wall_scale=1.05))
+    case("5% slower, host steady", REVIEW, dict(wall_scale=1.05))
+    case("5% faster, host 5% faster too", ACCEPT,
+         dict(wall_scale=0.95, ref_wall_scale=0.95))
+    # A real regression must still be caught when the host drifts the other way.
+    case("15% slower, host 3% faster", BLOCK,
+         dict(wall_scale=1.15, ref_wall_scale=0.97))
+    # A rebuilt reference is not a control, so no correction is applied.
+    case("host moved but reference rebuilt", REVIEW,
+         dict(wall_scale=1.05, ref_wall_scale=1.05, ref_binary="shmap 2.0.0-cpp"),
+         expect_in="not a control")
+    # Drift too large to correct is itself a finding.
+    case("reference moved 20%", REVIEW, dict(ref_wall_scale=1.20),
+         expect_in="reference implementation moved")
 
     # --- checks -----------------------------------------------------------
     case("thread determinism failed", BLOCK, dict(fail_check="thread_determinism"),

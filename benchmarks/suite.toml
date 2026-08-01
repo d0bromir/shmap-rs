@@ -193,6 +193,16 @@ blocking = false
 # ---------------------------------------------------------------------------
 
 [thresholds]
+# Divide shmap-rs's wall-time change by the reference implementation's change in
+# the same pair of runs. The C++ binary does not change between our commits, so
+# its movement is host drift and nothing else — a control that was already being
+# measured every run and discarded. Without it, a run on a busier machine shifts
+# every row together and the review line catches whichever benchmark sat nearest
+# it, producing a REVIEW on byte-identical output.
+drift_normalize = true
+drift_min_samples = 6      # too few reference measurements to trust -> no correction
+drift_max = 0.10           # beyond this the host changed state; flag, do not correct
+
 wall_regression_review = 0.03     # >3% slower on any benchmark needs justification (host noise)
 wall_regression_block = 0.10      # >10% blocks outright
 peak_rss_regression_review = 0.05
