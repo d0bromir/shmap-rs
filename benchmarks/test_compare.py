@@ -26,13 +26,15 @@ METRICS = ["Containment", "Jaccard", "bucket_SH"]
 THREADS = [1, 2, 4, 8, 16, 32, 64]
 
 COLS = ["benchmark", "impl", "metric", "threads", "repeat", "reference_id", "reads_id",
-        "params_id", "rc", "wall_s", "peak_rss_kb", "mapped", "mapq60", "cmd"]
+        "params_id", "rc", "wall_s", "index_s", "map_s", "peak_rss_kb", "mapped",
+        "mapq60", "cmd"]
 
 
 def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_version=1,
              host="a2", commit="a" * 40, fail_check=None, agreement=0.9792,
              rc=0, drop_config=None, rss_scale=1.0, ground_truth=0.992064,
-             concordance=0.9633, ref_wall_scale=1.0, ref_binary="shmap 1.0.0-cpp"):
+             concordance=0.9633, ref_wall_scale=1.0, ref_binary="shmap 1.0.0-cpp",
+             map_scale=1.0, index_frac=0.5):
     d.mkdir(parents=True, exist_ok=True)
     rows, checks = [], []
     for b in BENCHES:
@@ -41,17 +43,29 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
                 if drop_config == (b, m, t):
                     continue
                 # A plausible scaling curve; exact values do not matter, only ratios.
-                wall = (100.0 / (1 + (t - 1) * 0.8)) * wall_scale
+                # wall is built FROM its parts so the two stay consistent: a
+                # mapper-only change must move map_s fully and wall only by the
+                # mapper's share, which is the situation the split exists for.
+                base_wall = (100.0 / (1 + (t - 1) * 0.8))
+                # wall_scale is a whole-run effect (host drift, or a change that
+                # touches both phases) so it multiplies BOTH parts; map_scale is
+                # mapper-only. wall is their sum, never scaled independently.
+                index_s = base_wall * index_frac * wall_scale
+                map_s = base_wall * (1 - index_frac) * map_scale * wall_scale
+                wall = index_s + map_s
                 rows.append(dict(
                     benchmark=b, impl="shmap-rs", metric=m, threads=t, repeat=0,
                     reference_id="REF-HS1", reads_id="D1-HIFI23K", params_id="paper",
-                    rc=rc, wall_s=round(wall, 2), peak_rss_kb=int(8_000_000 * rss_scale),
+                    rc=rc, wall_s=round(wall, 2),
+                    index_s=round(index_s, 3), map_s=round(map_s, 3),
+                    peak_rss_kb=int(8_000_000 * rss_scale),
                     mapped=130000 + mapped_delta, mapq60=120000 + mapped_delta,
                     cmd="shmap -s ref -p reads"))
             rows.append(dict(
                 benchmark=b, impl="cpp-shmap", metric=m, threads=1, repeat="median3",
                 reference_id="REF-HS1", reads_id="D1-HIFI23K", params_id="paper",
-                rc=0, wall_s=round(250.0 * ref_wall_scale, 2), peak_rss_kb=9_000_000,
+                rc=0, wall_s=round(250.0 * ref_wall_scale, 2),
+                index_s="", map_s="", peak_rss_kb=9_000_000,
                 mapped=130000, mapq60=120000, cmd="shmap -s ref -p reads"))
             for name in ("thread_determinism", "validate_paf"):
                 checks.append(dict(check=name, benchmark=b, metric=m,
@@ -169,6 +183,18 @@ def main() -> int:
     # Drift too large to correct is itself a finding.
     case("reference moved 20%", REVIEW, dict(ref_wall_scale=1.20),
          expect_in="reference implementation moved")
+
+    # A mapper regression hidden inside a large fixed index cost. The total
+    # moves under the review line; the mapping time does not. This is the case
+    # the split exists for.
+    case("mapper 12% slower, index dominates", BLOCK,
+         dict(map_scale=1.12, index_frac=0.9), dict(index_frac=0.9),
+         expect_in="MAPPING time")
+    case("mapper 5% slower, index dominates", REVIEW,
+         dict(map_scale=1.05, index_frac=0.9), dict(index_frac=0.9),
+         expect_in="MAPPING time")
+    case("mapper unchanged, index dominates", ACCEPT,
+         dict(index_frac=0.9), dict(index_frac=0.9))
 
     # --- checks -----------------------------------------------------------
     case("thread determinism failed", BLOCK, dict(fail_check="thread_determinism"),

@@ -325,6 +325,37 @@ STAGES = [("match_rest", 0), ("refine", 1), ("prepare", 0), ("collect_kmer_info"
 INDEX_STAGES = ["indexing", "index_reading", "index_sketching", "index_collecting"]
 
 
+def block_phase_split(rs: dict) -> str:
+    """Index vs mapping vs total, per benchmark.
+
+    Indexing is a fixed cost set by the reference, not the read set, and it is
+    largely serial. Mapping is what scales with reads and threads. A whole-run
+    speedup mixes the two, and the mix changes with depth — so the same code
+    looks very different at 1x and 10x unless the phases are shown apart.
+    """
+    rows, idx = rs["rows"], index(rs["rows"])
+    out = ["| benchmark | `-@` | index | mapping | total | index share | mapping speedup |",
+           "|---|---:|---:|---:|---:|---:|---:|"]
+    any_row = False
+    for bid in benchmarks_in(rows):
+        threads = sorted({r["threads"] for r in rows
+                          if r["benchmark"] == bid and r["impl"] == SUBJECT})
+        base = idx.get((bid, SUBJECT, "Containment", 1))
+        for t in threads:
+            r = idx.get((bid, SUBJECT, "Containment", t))
+            if not r or r.get("index_s") in (None, "") or r.get("map_s") in (None, ""):
+                continue
+            i, m, w = float(r["index_s"]), float(r["map_s"]), r["wall_s"]
+            sp = (float(base["map_s"]) / m) if (base and base.get("map_s") and m > 0) else None
+            out.append(f"| {bid} | {t} | {i:.2f} s | {m:.2f} s | {w:.2f} s | "
+                       f"{i/w*100:.0f}% | " + (f"{sp:.2f}x |" if sp else "— |"))
+            any_row = True
+        out.append("| | | | | | | |")
+    if not any_row:
+        return ("_This result set predates the index/mapping split; re-run to populate._\n")
+    return "\n".join(out) + "\n"
+
+
 def block_readme_pitch(rs: dict) -> str:
     """README's one-line claim, at headline precision.
 
@@ -513,6 +544,7 @@ BUILDERS = {
     "stage-breakdown": lambda rs, reg: block_stage_breakdown(rs),
     "readme-summary": lambda rs, reg: block_readme_summary(rs),
     "readme-pitch": lambda rs, reg: block_readme_pitch(rs),
+    "phase-split": lambda rs, reg: block_phase_split(rs),
 }
 
 

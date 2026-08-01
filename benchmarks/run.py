@@ -335,9 +335,29 @@ def measure(job: dict, binary: str, outdir: Path, suite: dict) -> dict:
     wall, rss = parse_time_v(tf)
     mapped = sum(1 for _ in open(paf))
     q60 = sum(1 for l in open(paf) if l.split("\t")[11:12] == ["60"])
+
+    # Split the wall into its two phases. Indexing is a fixed cost that does not
+    # depend on the read set, and it is largely serial; mapping is what scales
+    # and what a change to the mapper actually moves. Reporting only the total
+    # mixes them, which flatters or damns a change depending on how much of the
+    # run the index happened to be — at -@16 on a 1x read set it is over half.
+    #
+    # These come from the -x report's own timers, which are WALL for `indexing`
+    # and `mapping` (the per-stage timers below them are CPU summed across
+    # threads, and must never be compared against these). The C++ emits no such
+    # report, so its rows carry only the total.
+    index_s = map_s = ""
+    if spec.get("supports_threads"):
+        try:
+            t = json.loads(Path(f"{outdir}/{tag}.json").read_text())["global"]["timers_secs"]
+            index_s, map_s = round(t.get("indexing", 0.0), 3), round(t.get("mapping", 0.0), 3)
+        except (OSError, ValueError, KeyError):
+            pass
+
     return dict(**{k: job[k] for k in ("benchmark", "impl", "metric", "threads", "repeat",
                                        "reference_id", "reads_id", "params_id")},
-                rc=rc, wall_s=wall, peak_rss_kb=rss, mapped=mapped, mapq60=q60,
+                rc=rc, wall_s=wall, index_s=index_s, map_s=map_s,
+                peak_rss_kb=rss, mapped=mapped, mapq60=q60,
                 cmd=" ".join(shlex.quote(c) for c in cmd), paf=str(paf))
 
 
@@ -581,11 +601,15 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
         med = dict(rs_[0])
         med["wall_s"] = statistics.median(x["wall_s"] for x in rs_)
         med["peak_rss_kb"] = statistics.median(x["peak_rss_kb"] for x in rs_)
+        for c in ("index_s", "map_s"):
+            vals = [x[c] for x in rs_ if isinstance(x[c], (int, float))]
+            med[c] = round(statistics.median(vals), 3) if vals else ""
         med["repeat"] = f"median{len(rs_)}"
         reduced.append(med)
 
     cols = ["benchmark", "impl", "metric", "threads", "repeat", "reference_id", "reads_id",
-            "params_id", "rc", "wall_s", "peak_rss_kb", "mapped", "mapq60", "cmd"]
+            "params_id", "rc", "wall_s", "index_s", "map_s", "peak_rss_kb", "mapped",
+            "mapq60", "cmd"]
     with open(outdir / "results.tsv", "w") as fo:
         fo.write("\t".join(cols) + "\n")
         for r in sorted(reduced, key=lambda r: (r["benchmark"], r["metric"], r["impl"], r["threads"])):

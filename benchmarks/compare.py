@@ -69,6 +69,11 @@ def load_set(d: Path) -> dict:
             r[k] = int(r[k])
         for k in ("wall_s", "peak_rss_kb"):
             r[k] = float(r[k])
+        # Present only for the subject (the C++ emits no -x report) and absent
+        # from result sets written before the split existed.
+        for k in ("index_s", "map_s"):
+            v = r.get(k, "")
+            r[k] = float(v) if v not in ("", None) else None
     checks = []
     if (d / "checks.tsv").exists():
         with open(d / "checks.tsv") as f:
@@ -317,6 +322,29 @@ def compare(base: dict, cand: dict, thr: dict, allow_output_change: bool) -> dic
         if br and br["wall_s"] > 0:
             groups.setdefault((k[0], k[1], k[2]), []).append(
                 (k[3], br["wall_s"], cr["wall_s"], br["peak_rss_kb"], cr["peak_rss_kb"]))
+
+    # Mapping time judged separately from the total. A change to the mapper
+    # moves `map_s`; `index_s` is a fixed cost that dilutes it — at -@16 on a 1x
+    # read set the index is over half the wall, so a 10% mapper regression shows
+    # up as under 5% of the total and can slip under the review line.
+    map_groups: dict[tuple, list[tuple]] = {}
+    for k, cr in crows.items():
+        br = brows.get(k)
+        if (br and k[1] == SUBJECT
+                and br.get("map_s") and cr.get("map_s") and br["map_s"] > 0):
+            map_groups.setdefault((k[0], k[2]), []).append((br["map_s"], cr["map_s"]))
+    for (bid, metric), items in sorted(map_groups.items()):
+        if len(items) < MIN_THREADS_FOR_AGGREGATE:
+            continue
+        gm = math.exp(statistics.fmean(math.log(c / b) for b, c in items)) / drift
+        if gm - 1 > thr["wall_regression_block"]:
+            add(BLOCK, "perf", f"{bid}/{metric} MAPPING time",
+                f"{(gm-1)*100:+.1f}% over {len(items)} thread counts — the mapper itself, "
+                f"with indexing excluded")
+        elif gm - 1 > thr["wall_regression_review"]:
+            add(REVIEW, "perf", f"{bid}/{metric} MAPPING time",
+                f"{(gm-1)*100:+.1f}% over {len(items)} thread counts — the mapper itself, "
+                f"with indexing excluded")
 
     for (bid, impl, metric), items in sorted(groups.items()):
         items.sort()

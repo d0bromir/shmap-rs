@@ -25,6 +25,7 @@ Contents, in fixed order:
 [1 Summary](#1-summary) ·
 [2 Versus the C++](#2-versus-the-c) ·
 [3 Thread scaling](#3-thread-scaling) ·
+[3b Index vs mapping](#3b-index-vs-mapping) ·
 [4 Coverage scaling](#4-coverage-scaling) ·
 [5 Stage breakdown](#5-stage-breakdown) ·
 [6 Datasets](#6-datasets) ·
@@ -229,6 +230,33 @@ Output is **byte-identical across every thread count**, on every benchmark and m
 Whole-run scaling is best at depth simply because there is enough mapping work to bury the fixed
 index cost — indexing is ~9% of the wall at `-@ 32` on 10x, against ~50% for a 1x run. The mapper's
 own ceiling is a consistent ~7.7-11.4x, reached at 16-32 threads.
+
+---
+
+## 3b Index vs mapping
+
+A run has two phases with different behaviour, and a single wall-clock figure hides both.
+
+**Indexing** is a fixed cost set by the reference, not the read set, and it is largely serial —
+sharding and a two-pass reader took it from ~9.4 s to ~3 s, but it does not keep falling with
+threads. **Mapping** is what scales with reads and with cores.
+
+The mix changes with depth, which is why the same code looks different across benchmarks: on a 1x
+read set at high thread counts the index is over half the wall, while at 10x it is under a tenth.
+Quoting only the total therefore understates thread scaling on shallow sets and overstates the
+effect of a mapper change on deep ones. `compare.py` judges mapping time separately for this
+reason: a 12% mapper regression behind a dominant index moves the total by ~1%, which would pass
+unnoticed under a 3% review line.
+
+Containment, subject only — the C++ emits no phase breakdown, so its comparison stays total-vs-total.
+
+<!-- BEGIN GENERATED: phase-split -->
+_This result set predates the index/mapping split; re-run to populate._
+<!-- END GENERATED: phase-split -->
+
+The `mapping speedup` column is the honest parallel-scaling number: mapping time at `-@1` divided by
+mapping time at `-@N`. Whole-run speedup is always lower, and by Amdahl it is bounded by the serial
+index share regardless of how well the mapper scales.
 
 ---
 
