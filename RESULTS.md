@@ -879,6 +879,39 @@ mapped against**, with 0.498% substitutions and no indels. It therefore contains
 real reads.** §8's concordance figures are agreement with another mapper's estimate. Where shmap-rs
 and Winnowmap2 disagree, nothing here says which is right.
 
+### The operating-point proxies are validated for two metrics out of three
+
+§7's accuracy-at-operating-point table rests on simulated reads standing in for each real dataset.
+That substitution is checked, not assumed — and it does not hold everywhere:
+
+| B05, real ONT | simulated proxy | real | |
+|---|---:|---:|---|
+| Containment | 41.7% mapped | 42.95% | agrees |
+| bucket_SH | 43.2% | 44.6% | agrees |
+| **Jaccard** | **14.6%** | **6.46%** | **2.3x too optimistic** |
+
+The proxy is therefore evidence for Containment and `bucket_SH` at both HiFi and ONT error rates,
+and for Jaccard at HiFi rates — but **not for Jaccard at ONT rates**, where it overstates the
+mapping rate by more than a factor of two.
+
+The cause is known and is a property of the input, not of the mapper. The 3.19% error rate driving
+that row comes from `measure_error_rate.py --from-paf`, which can only compare a read against a
+locus it already mapped confidently: reads too damaged to reach mapq 60 are invisible to it, so the
+estimate is biased low by construction. Jaccard is the metric most sensitive to error — its
+denominator grows as the intersection shrinks — so it is where an understated error rate shows up
+first, and Containment and `bucket_SH` absorb the same bias without visibly diverging.
+
+Two consequences for anyone quoting §7:
+
+- **The Jaccard/ONT row is a lower bound on the damage, not a match.** Real ONT costs Jaccard more
+  than the table shows.
+- **Agreement on two metrics is not agreement on the model.** Containment and `bucket_SH` matching
+  within ~1.5 points is what made the proxy credible; the same reads falsify it for Jaccard. A
+  validation that only checks the metrics that pass is not a validation.
+
+Closing this would need an unbiased error estimate for real ONT — which needs truth for real reads,
+which is the limitation directly above.
+
 ### Scope
 
 One host, one reference genome (T2T-CHM13), one species. Read lengths 12.8 kb and 23–24 kb only —
