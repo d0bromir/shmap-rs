@@ -495,6 +495,55 @@ The test suite runs 53 tests in both release and debug. Running debug matters: i
 (`intersection == 0`), that the parallel reader's second pass writes precisely what its first pass
 counted, and that a segment's parts tile its buffer with no gaps.
 
+### Accuracy at each benchmark's operating point
+
+§7's ground-truth figures come from B02 alone, because it is the only dataset with true positions.
+The regimes the other benchmarks actually run in — different read lengths, very different error
+rates — had no accuracy number at all.
+
+`simulate/accuracy_at_operating_points.py` supplies one by simulating reads matched to each
+dataset's length and *measured* error rate (`simulate/measure_error_rate.py --from-paf`, which uses
+each read's own confidently-mapped locus as approximate truth). Scored by the mapeval
+intersection-over-union criterion, 20 000 reads per point.
+
+**This is not accuracy on the real datasets.** Accuracy needs truth; real reads have none. It is
+accuracy on reads *like* those — a proxy that captures length and error rate, and captures nothing
+of structural variation, heterozygosity or cross-individual divergence.
+
+| operating point | error | metric | mapped | correct of 20 000 | precision |
+|---|---:|---|---:|---:|---:|
+| B01-like HiFi 23.2 kb | 0.43% | Containment | 20 000 | **99.11%** | 99.1% |
+| | | Jaccard | 20 000 | 98.86% | 98.9% |
+| | | bucket_SH | 20 000 | 98.72% | 98.7% |
+| B03/B04-like HiFi 12.8 kb | 0.38% | Containment | 20 000 | **98.67%** | 98.7% |
+| | | Jaccard | 20 000 | 98.52% | 98.5% |
+| | | bucket_SH | 20 000 | 98.07% | 98.1% |
+| B05-like ONT 23.8 kb | 3.19% | Containment | 8 341 | 40.91% | **98.1%** |
+| | | Jaccard | 2 927 | 14.09% | 96.3% |
+| | | bucket_SH | 8 640 | 42.22% | 97.7% |
+| B05-like ONT, 6% bracket | 6.00% | Containment | 1 981 | 9.70% | **97.9%** |
+| B02, as generated | 0.50% | Containment | 20 000 | **99.16%** | 99.2% |
+
+**The proxies reproduce their datasets.** B05-like maps 41.7% where real B05 maps 42.95%, and
+bucket_SH 43.2% against a real 44.6%. Regenerating B02's own profile gives 99.16% against its
+measured 99.19% — a 0.03 pp self-consistency check on the generator, the mapper and the scorer at
+once. Without those, the rows would be plausible rather than evidence.
+
+**Precision is flat at ~98% across a 14x range of error rate; recall is what collapses**, from 100%
+to 9.7%. shmap-rs degrades by declining to map rather than by mis-placing, which is the same shape
+as §8 (every satellite misplacement already carries mapq 0) and §9. For a caller, an unmapped read
+is a known unknown; a confidently wrong one is not.
+
+**Shorter reads are less accurate despite a lower error rate** — 12.8 kb at 0.38% scores 98.67%
+against 23.2 kb at 0.43% scoring 99.11%. Fewer k-mers per read is less signal, and it outweighs the
+error difference. B03/B04 are not the easy case they look like.
+
+**One row does not match, and it is informative.** Jaccard on ONT maps 14.09% simulated against
+6.46% real, while Containment and bucket_SH match within ~1.5 points. The 3.19% error estimate is
+biased low by construction — it only sees reads good enough to reach mapq 60 — and Jaccard, the
+metric most sensitive to error, is where that bias shows first. Read that row as a lower bound on
+the damage, not as agreement.
+
 ### A bug these checks found
 
 Logical validation caught a defect that byte-identical diffing structurally could not, because
