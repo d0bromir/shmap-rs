@@ -7,8 +7,8 @@ that finds where a read belongs by k-mer set overlap rather than by alignment.
 benchmark suite, merge gate, and measured accuracy at every operating point. Mapping output is
 byte-identical to 1.2.0.
 
-Against the C++ original on real whole-genome data: **2.1–2.4x faster single-threaded, up to 13.6x
-with threads, and 8–10x less memory**, with identical mapping counts.
+Against the C++ original on real whole-genome data: **1.9–2.3x faster single-threaded, up to 16.2x
+with threads, and ~8.5x less memory**, with identical mapping counts.
 
 ---
 
@@ -19,10 +19,14 @@ The C++ is single-threaded by design, so `-@1` is the like-for-like column.
 
 | dataset | shmap-rs `-@1` | shmap-rs `-@4` | C++ `shmap` | speedup | memory |
 |---|---:|---:|---:|---:|---:|
-| HiFi, 23.2 kb, 149 438 reads | **46.2 s** | **17.5 s** | 98.3 s | **2.13x** / 5.61x | 1.9 GB vs 18.9 GB |
-| ONT, 23.8 kb, 92 220 reads | **24.1 s** | **11.1 s** | 54.3 s | **2.25x** / 4.91x | 2.1 GB vs 18.9 GB |
+| HiFi, 23.2 kb, 149 438 reads | **47.6 s** | **18.2 s** | 104.1 s | **2.19x** / 5.73x | 1.97 GB vs 18.85 GB |
+| ONT, 23.8 kb, 92 220 reads | **25.0 s** | **10.5 s** | 55.5 s | **2.22x** / 5.29x | 1.99 GB vs 18.85 GB |
 
-- **Scales to many threads** — up to **13.63x** whole-run at `-@ 32`; the C++ cannot use more than
+Across all five benchmarks and three metrics: **1.86–2.27x** single-threaded, **5.01–6.54x** at
+`-@4`. Every figure here is generated — see [RESULTS.md](RESULTS.md), which CI checks against the
+result set it claims to describe.
+
+- **Scales to many threads** — up to **16.23x** whole-run at `-@ 32`; the C++ cannot use more than
   one core. Output is byte-identical at every thread count.
 - **Memory is flat in coverage** — 2.13 GB at 1x, 2.16 GB at **100x** (311.7 Gbp of reads in one
   run). The C++ sits at 18.85 GB regardless.
