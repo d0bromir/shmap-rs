@@ -30,7 +30,8 @@ Contents, in fixed order:
 [6 Datasets](#6-datasets) ·
 [7 Correctness](#7-correctness) ·
 [8 Concordance with other mappers](#8-concordance-with-other-mappers) ·
-[9 Error tolerance](#9-error-tolerance)
+[9 Error tolerance](#9-error-tolerance) ·
+[10 Limitations](#10-limitations)
 
 ---
 
@@ -745,8 +746,36 @@ which reaches only 99.19%. So the accuracy gap to the reference implementation
 is not a trade-off against speed at all — it is a parameter choice that was
 inherited rather than tuned.
 
-The cost is real and should be stated: `-r 0.10` is ~9x the wall of `-r 0.01`,
-and the paper parameters remain `-r 0.01` because that is what the published
+#### Verified on real reads, and the cost is larger than wall time
+
+The table above is B02 — simulated, with known truth. On B01 (real HG002 HiFi,
+149 438 reads), scored as concordance against Winnowmap2 since real reads have
+no truth:
+
+| `-r` | mapped | wall (`-@32`) | peak RSS | `good` vs Winnowmap2 |
+|---:|---:|---:|---:|---:|
+| 0.01 | 149 194 | 7.4 s | **2.51 GB** | 0.9633 |
+| 0.10 | 149 238 | 64.9 s | **17.74 GB** | **0.9690** |
+
+The direction holds on real data — +0.57 pp — but two things must be said plainly
+that the simulated table alone would let a reader miss.
+
+**It does not "close the gap" on real data the way it does on simulated data.**
+On B02 it takes ground-truth accuracy from 99.19% to within 30 reads of
+Winnowmap2. On B01 it moves concordance from 0.9633 to 0.9690, leaving ~3% of
+Winnowmap2's placements unreproduced. Part of that residue is not reachable:
+on B02, where both can be scored against truth, 7.6% of the disagreements were
+Winnowmap2 being wrong, and real reads add cross-individual variation that
+neither mapper can resolve from the reference alone.
+
+**It costs the memory advantage, which is a headline claim elsewhere in this
+file.** Peak RSS goes from 2.51 GB to 17.74 GB — against the C++'s 18.85 GB. At
+`-r 0.10` shmap-rs is no longer the low-memory option; it is roughly the same
+size as the implementation it replaces, for 0.57 pp of concordance and 8.7x the
+wall. That trade is defensible for a one-off high-accuracy pass and is not
+defensible as a default.
+
+The paper parameters remain `-r 0.01` because that is what the published
 numbers use. What this shows is that the accuracy ceiling people attribute to
 sketch-based mapping in repeats is a ceiling of the *sampling rate*, not of the
 method — and that shmap-rs can buy Winnowmap2-level placement whenever the
@@ -759,3 +788,73 @@ With the reference it can parse, it reproduces 96-98% of shmap-rs's placements a
 everything shmap-rs maps (recall 0.998-1.000). It is the closest published analogue here:
 minimizer-space, PAF out, no base-level alignment. Its paper states performance degrades markedly
 below 97% read-reference identity, which is why it is skipped on ONT rather than scored badly there.
+
+---
+
+## 10 Limitations
+
+What the numbers above do **not** establish. Stated here rather than left for a reader to infer,
+because every figure in this file is bounded by at least one of these.
+
+### Statistical power is the weakest part of the design
+
+shmap-rs is measured **once** per configuration; the C++ reference gets median-of-three. That is
+backwards — the subject under test has weaker statistics than the control — and it is a deliberate
+cost trade: the full matrix is ~4.4 h, and three repeats would be ~13 h.
+
+Two mitigations stand in for repeats, and neither is as good:
+
+- **Aggregation.** A verdict reads the geometric mean over seven thread counts, not a single row.
+- **Drift normalisation.** The unchanged reference binary measures host drift in the same run, and
+  the subject's change is divided by it.
+
+**No confidence intervals are computed, and none are quoted.** Measured per-row variance on this
+host reaches ±10%: two runs of *behaviourally identical* code differed by +11.6% on one thread
+count while their aggregates stayed within ±2.8%. **Treat any single-row difference below ~10% as
+unmeasured.** A reader who needs intervals should raise `repeats` in `[run]` and re-run; the
+machinery already reduces by median.
+
+### Accuracy rests on one simulated dataset
+
+Every accuracy figure — §7's ground truth, §8's headroom analysis, §9's error sweep — comes from
+B02 or from reads generated the same way. That dataset is simulated **from the reference it is then
+mapped against**, with 0.498% substitutions and no indels. It therefore contains:
+
+- no structural variation, and no heterozygosity or cross-individual divergence;
+- no indels (§9 shows indels cost the same as substitutions at equal rate, which *bounds* this gap
+  but does not remove it);
+- no platform-specific error structure — errors are independent and uniform along the read, which
+  §9 shows is the assumption that most distorted the ONT conclusion.
+
+**Accuracy on real reads is not measured anywhere in this file, because no ground truth exists for
+real reads.** §8's concordance figures are agreement with another mapper's estimate. Where shmap-rs
+and Winnowmap2 disagree, nothing here says which is right.
+
+### Scope
+
+One host, one reference genome (T2T-CHM13), one species. Read lengths 12.8 kb and 23–24 kb only —
+no short reads and no ultra-long. Coverage 0.7x–10x in the suite, with a single archived 100x
+ladder (§4).
+
+**Warm cache throughout**: every benchmark `cat`s its inputs to `/dev/null` first. That isolates
+CPU behaviour, which is the intent, but it means cold-start I/O is never measured — and indexing is
+close enough to I/O-bound (§5: `index_reading` is within ~2x of the time to stream the reference
+off page cache) that a cold run would look different.
+
+### External comparisons are not reproductions of their papers
+
+Winnowmap2 is run in **PAF mode** (`-x map-pb`/`map-ont`, no `-a`), because this comparison is about
+coordinates and base-level alignment would cost far more for output we do not use. Its published
+accuracy claims concern alignments, so these numbers are not a reproduction of them. Both external
+mappers otherwise use defaults beyond the documented preset and the one-line reference mapquik
+requires; neither was tuned for these datasets, and a tuned run of either could do better.
+
+### The sampling-rate result is broader than its evidence
+
+§8's finding — that raising `-r` recovers accuracy no scoring change could — is established on B02,
+simulated, where truth is known. It is checked on real reads (B01) and the direction holds, but the
+magnitude does not transfer: +0.44 pp of ground-truth accuracy on simulated data against +0.57 pp of
+*concordance* on real data, which is a different quantity and leaves ~3% of Winnowmap2's placements
+unreproduced. And the configuration costs 7x peak memory (2.51 GB to 17.74 GB), which removes the
+memory advantage reported in §1. Quote the sampling-rate result as a property of the method, not as
+a recommended setting.

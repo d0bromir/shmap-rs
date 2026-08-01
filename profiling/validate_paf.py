@@ -21,12 +21,18 @@ for a in sys.argv[2:]:
             k, v = kv.rsplit(":", 1)
             reflen[k] = int(v)
 
+# paftools.js mapeval's threshold: intersection over union of the true and
+# reported intervals. Kept identical to benchmarks/concordance.py so the two
+# tools never disagree about what 'same place' means.
+MIN_OVERLAP = 0.1
+
 TRUTH = re.compile(r"^S\d+_\d+!([^!]+)!(\d+)!(\d+)!([+-])")
 tag = lambda fields, key: next((f.split(":")[-1] for f in fields if f.startswith(key)), None)
 
 n = 0
 fail = {}
 truth_ok = truth_bad = truth_absent = 0
+truth_ov_ok = truth_ov_bad = 0
 mapq = {}
 spans = []
 
@@ -87,12 +93,34 @@ for i, line in enumerate(open(paf), 1):
         gchrom, gstart, gend = m.group(1), int(m.group(2)), int(m.group(3))
         if tname != gchrom:
             truth_bad += 1
+            truth_ov_bad += 1
         else:
-            # one bucket is ~ the read's own half-length; allow a read-length slack
+            # Two criteria, reported side by side because they answer different
+            # questions and only one is comparable to the literature.
+            #
+            #   endpoint  -- an endpoint within one read length of the true one.
+            #                This repo's original rule. One bucket is ~the read's
+            #                own half-length, so it is a natural tolerance here,
+            #                but it is not what anyone else reports.
+            #   overlap   -- intersection / union of the true and reported
+            #                intervals above `min_overlap`. This is paftools.js
+            #                mapeval's documented rule, so this column is the one
+            #                to quote against published numbers.
+            #
+            # They can disagree: a mapping much WIDER than the read can have a
+            # near-exact endpoint while covering far more than the true interval,
+            # which the endpoint rule accepts and the overlap rule does not.
             if min(abs(ts - gstart), abs(te - gend)) <= qlen:
                 truth_ok += 1
             else:
                 truth_bad += 1
+            lo, hi = max(ts, gstart), min(te, gend)
+            inter = hi - lo
+            union = max(te, gend) - min(ts, gstart)
+            if inter > 0 and union > 0 and inter / union > MIN_OVERLAP:
+                truth_ov_ok += 1
+            else:
+                truth_ov_bad += 1
     else:
         truth_absent += 1
 
@@ -104,7 +132,12 @@ if spans:
 if want_truth:
     tot = truth_ok + truth_bad
     if tot:
-        print(f"ground truth: {truth_ok}/{tot} within one read length ({truth_ok/tot*100:.2f}%), {truth_bad} wrong")
+        print(f"ground truth: {truth_ok}/{tot} within one read length "
+              f"({truth_ok/tot*100:.2f}%), {truth_bad} wrong")
+        ov_tot = truth_ov_ok + truth_ov_bad
+        if ov_tot:
+            print(f"ground truth (mapeval overlap > {MIN_OVERLAP}): {truth_ov_ok}/{ov_tot} "
+                  f"({truth_ov_ok/ov_tot*100:.2f}%), {truth_ov_bad} wrong")
     if truth_absent:
         print(f"  ({truth_absent} records had no ground-truth header)")
 if fail:

@@ -48,8 +48,14 @@ distinguish one repeat copy from another: there is no signal for a scoring rule 
 
 Sampling more k-mers fixes what no scoring change could. At `-r 0.10` shmap-rs lands **within 30
 reads of Winnowmap2, roughly 15x faster** — and still faster than the C++ at its own default, which
-is 0.44 points less accurate. The paper numbers stay at `-r 0.01`; the point is that the ceiling
-usually attributed to sketch-based mapping in repeats belongs to the sampling rate, not the method.
+is 0.44 points less accurate.
+
+**That setting is not free, and is not the default.** It costs 8.7x wall and **7x peak memory —
+17.7 GB against 2.5 GB**, which is the same order as the C++'s 18.85 GB and gives up the memory
+advantage above. On real reads the gain is smaller than on simulated (+0.57 pp of concordance). The
+point is what it says about the method — the ceiling usually attributed to sketch-based mapping in
+repeats belongs to the *sampling rate*, not to the approach — not that anyone should run `-r 0.10`
+by default.
 
 Full tables, all three scoring metrics, six datasets, the correctness checks, and the rejected
 approaches with their data: **[RESULTS.md](RESULTS.md)**.
