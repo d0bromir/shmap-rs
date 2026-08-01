@@ -34,6 +34,18 @@ import re
 import sys
 
 COMP = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+
+
+class _PafMatch:
+    """Adapter so a PAF row can stand in for a ground-truth header match."""
+
+    def __init__(self, t):
+        self._t = t
+
+    def group(self, i):
+        return (None, self._t[0], str(self._t[1]), str(self._t[2]), self._t[3])[i]
+
+
 HDR = re.compile(r"^S\d+_\d+!([^!]+)!(\d+)!(\d+)!([+-])")
 
 
@@ -44,7 +56,10 @@ def read_fasta(path):
             if line.startswith(">"):
                 if name is not None:
                     yield name, "".join(parts)
-                name, parts = line[1:].split()[0], []
+                # A header can be bare ">" or ">  " in the wild; splitting it
+                # blind raises IndexError partway through a 2 GB file.
+                fields = line[1:].split()
+                name, parts = (fields[0] if fields else ""), []
             else:
                 parts.append(line.strip())
     if name is not None:
@@ -59,14 +74,42 @@ def main() -> int:
     ap.add_argument("--sample", type=int, default=300)
     ap.add_argument("--k", type=int, default=25)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--from-paf",
+                    help="reads have no truth header: take each read's own confident mapping "
+                         "(mapq>=60) from this PAF as approximate truth. Biased — it can only "
+                         "see reads good enough to map confidently — so it UNDERSTATES the "
+                         "dataset's error rate. Use it as an operating point, not a measurement.")
     a = ap.parse_args()
 
     rng = random.Random(a.seed)
+
+    # With --from-paf, the "truth" is the read's own confident placement.
+    paf_truth = {}
+    if a.from_paf:
+        for line in open(a.from_paf):
+            c = line.rstrip("\n").split("\t")
+            if len(c) < 12 or "tp:A:S" in c[12:]:
+                continue
+            try:
+                if int(c[11]) < 60:
+                    continue
+                paf_truth[c[0]] = (c[5], int(c[7]), int(c[8]), c[4])
+            except ValueError:
+                pass
+        if not paf_truth:
+            sys.exit("no mapq-60 records in " + a.from_paf)
+
     picked = []
     for name, seq in read_fasta(a.reads):
-        m = HDR.match(name)
-        if not m:
-            continue
+        if a.from_paf:
+            t = paf_truth.get(name)
+            if t is None:
+                continue
+            m = _PafMatch(t)
+        else:
+            m = HDR.match(name)
+            if not m:
+                continue
         if len(picked) < a.sample:
             picked.append((m, seq))
         else:
@@ -106,11 +149,22 @@ def main() -> int:
     est = 1 - mean_s ** (1 / a.k) if mean_s > 0 else float("nan")
 
     print(f"reads compared            {n}")
-    print(f"mean length delta         {mean_dl*100:+.4f}%   (net indel rate; + = insertions)")
+    if a.from_paf:
+        # The "truth" interval is shmap-rs's own reported window, which is sized
+        # by the read's k-mer count rather than by an alignment. Read length
+        # minus that window measures the mapper's windowing, not the read's
+        # indel content, so the column is suppressed rather than misread.
+        print(f"mean length delta         n/a (--from-paf: the interval is a mapping "
+              f"window, not an alignment)")
+    else:
+        print(f"mean length delta         {mean_dl*100:+.4f}%   (net indel rate; + = insertions)")
     print(f"mean {a.k}-mer survival      {mean_s*100:.2f}%")
     print(f"implied total error rate  {est*100:.3f}% per base")
     print()
-    if abs(mean_dl) < 1e-4:
+    if a.from_paf:
+        print("Estimated from confidently-mapped reads only, so it UNDERSTATES the dataset's")
+        print("error rate: reads too damaged to reach mapq 60 are invisible to it.")
+    elif abs(mean_dl) < 1e-4:
         print("Length is preserved to within 0.01%, so errors are substitutions")
         print("(or exactly balanced indels, which no simulator produces by accident).")
     else:
