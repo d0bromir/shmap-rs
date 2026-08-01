@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "suite_version": "1.0",
+  "dataset_version": 1,
+  "commit": "e9aa9c98a2c71b686579bae8c4e64c553bb01812",
+  "host": "a2",
+  "authorized_by": "n/a",
+  "started": "2026-08-01T14:22:46.715645+00:00",
+  "finished": "2026-08-01T18:53:07.509317+00:00",
+  "duration_s": 16220.8,
+  "invocations": 150,
+  "failures": 0,
+  "datasets": {
+    "D1-HIFI23K": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/real24k/reads_real24k.fa",
+      "bytes": "3470851001",
+      "records": "149438",
+      "bases": "3465413132"
+    },
+    "D2-SIM24K": {
+      "kind": "reads-sim",
+      "host": "a2",
+      "path": "/home/mpiuser/wgs24k/reads_24kbp_1x.fa",
+      "bytes": "3004619179",
+      "records": "125000",
+      "bases": "3000000000"
+    },
+    "D3-HIFI1X": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/hifi_real/hifi_1x.fa",
+      "bytes": "3122427506",
+      "records": "242534",
+      "bases": "3113721004"
+    },
+    "D4-HIFI10X": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/hifi_real/hifi_10x.fa",
+      "bytes": "31219607763",
+      "records": "2425341",
+      "bases": "31132446551"
+    },
+    "D6-ONT24K": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/ont24k/reads_ont24k.fa",
+      "bytes": "2193635779",
+      "records": "92220",
+      "bases": "2191178243"
+    },
+    "REF-HS1": {
+      "kind": "reference",
+      "host": "a2",
+      "path": "/home/mpiuser/_paper_work/hs1.fa",
+      "bytes": "3179638084",
+      "records": "25",
+      "bases": "3117292070"
+    }
+  },
+  "binaries": {
+    "shmap-rs": "shmap 1.3.1",
+    "cpp-shmap": "/home/mpiuser/Pesho/shmap/release/shmap"
+  }
+}
