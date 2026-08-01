@@ -154,11 +154,49 @@ Software version is SemVer, no `v` prefix (tags are `1.2.0`).
 Output-affecting *fixes* are PATCH even though the bytes change — the previous output was wrong.
 
 ```bash
-# bump Cargo.toml, commit, then:
-git tag -a 1.2.1 -m "$(cat release-notes.md)"
+# 1. bump Cargo.toml, then rebuild WITHOUT --locked so Cargo.lock follows.
+#    `--locked` refuses the bump until the lock is regenerated, and the binary
+#    keeps reporting the old version until you do.
+cargo build --release && ./target/release/shmap --version   # confirm before tagging
+
+# 2. commit the bump, then tag THAT commit by SHA
+git commit -am "Release 1.2.1" && git push origin main
+SHA=$(git rev-parse HEAD)
+git tag -a 1.2.1 "$SHA" -F release-notes.md
 git push origin 1.2.1
+
+# 3. publish
 gh release create 1.2.1 --verify-tag --notes-file release-notes.md
 ```
 
-Tag the commit you mean: `git tag -f -a` retargets `HEAD`, which has silently moved a published tag
-in this repo before. Pass the SHA explicitly.
+**Pass the SHA explicitly.** `git tag -f -a` without one retargets `HEAD`, which has silently moved
+a published tag in this repo before.
+
+**Verify `--version` before tagging.** Cutting 1.3.0, the first build after the bump still reported
+`1.2.0`: `Cargo.lock` pins the crate's own version, and `--locked` refuses to update it. That was
+caught before tagging only because `--locked` failed loudly — build without it, then read
+`--version` back.
+
+### Correcting notes after publishing
+
+Release notes live in **two** places that can diverge: the git tag annotation and the GitHub release
+body. `gh release edit --notes-file` updates only the second. That has already happened here —
+`git show 1.3.0` served pre-correction figures while the web page served corrected ones.
+
+Update both, and take the notes from the release body so there is one source:
+
+```bash
+gh release edit 1.3.0 --notes-file corrected.md
+
+SHA=$(git rev-list -n1 1.3.0)                    # capture BEFORE re-tagging
+gh release view 1.3.0 --json body -q .body > /tmp/notes.md
+git tag -f -a 1.3.0 "$SHA" -F /tmp/notes.md
+[ "$(git rev-list -n1 1.3.0)" = "$SHA" ] || { echo "tag moved — do not push"; exit 1; }
+git push --force origin 1.3.0
+```
+
+The check is not ceremony: force-pushing a tag that has quietly retargeted rewrites what a published
+version means, and nothing downstream would tell you.
+
+Nothing automated guards this. `report.py --check` covers `RESULTS.md` and `README.md`, but a tag
+annotation is not in the working tree and no CI job can see it.
