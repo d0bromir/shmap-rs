@@ -3,9 +3,8 @@
 A Rust port of [`shmap`](https://github.com/pesho-ivanov/shmap) — a sketch-based long-read mapper
 that finds where a read belongs by k-mer set overlap rather than by alignment.
 
-**Latest release: [1.3.0](https://github.com/d0bromir/shmap-rs/releases/tag/1.3.0)** — reproducible
-benchmark suite, merge gate, and measured accuracy at every operating point. Mapping output is
-byte-identical to 1.2.0.
+**Latest release: [1.3.1](https://github.com/d0bromir/shmap-rs/releases/tag/1.3.1)** — index and
+mapping time reported separately, and a corrected memory claim. Binary byte-identical to 1.3.0.
 
 <!-- BEGIN GENERATED: readme-pitch -->
 Against the C++ original on real whole-genome data: **1.8–2.5x faster single-threaded, up to 15.3x
