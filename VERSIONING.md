@@ -135,7 +135,7 @@ datasets.tsv (id, path, bytes/records/bases)
    -> suite.toml (which params, metrics, thread counts apply to that id)
       -> results/<suite>/<commit>/results.tsv (one row per measurement)
          -> results/<suite>/<commit>/raw/ (the -x report behind that row)
-            -> RESULTS.md (tables and conclusions, generated)
+            -> RESULTS.md and README.md (tables and conclusions, generated)
 ```
 
 Every results row names its dataset id, parameter set id, metric, thread count, implementation and

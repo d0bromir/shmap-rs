@@ -210,6 +210,18 @@ mapped_regression_block = 0        # any drop in mapped reads blocks
 mapq60_regression_block = 0        # any drop in mapq-60 reads blocks
 
 # ---------------------------------------------------------------------------
+# Reporting
+# ---------------------------------------------------------------------------
+
+[report]
+# Benchmarks featured in README.md's at-a-glance table. Here rather than in
+# report.py because which datasets front the project is an editorial decision,
+# not a property of the code — and because a benchmark id belongs in the file
+# that defines benchmark ids.
+readme_highlight = ["B01", "B05"]
+readme_labels = { B01 = "HiFi, 23.2 kb, 149 438 reads", B05 = "ONT, 23.8 kb, 92 220 reads" }
+
+# ---------------------------------------------------------------------------
 # External mappers — the concordance corpus
 # ---------------------------------------------------------------------------
 #

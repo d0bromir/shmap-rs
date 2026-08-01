@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Regenerate the numbers in RESULTS.md from a result set.
+"""Regenerate the numbers in RESULTS.md and README.md from a result set.
 
   report.py                    regenerate from results/suite-<v>/current/
   report.py <result-set-dir>   regenerate from a specific set
-  report.py --check            fail if RESULTS.md is out of date (CI uses this)
+  report.py --check            fail if any target is out of date (CI uses this)
   report.py --stdout           print the generated blocks instead of writing
 
 Every number in RESULTS.md resolves to a row in `results.tsv`, which names its
@@ -44,6 +44,9 @@ from run import REPO, load_registry, load_suite  # noqa: E402
 from compare import RESULTS, load_set, agreement_of  # noqa: E402
 
 RESULTS_MD = REPO / "RESULTS.md"
+# Every file with generated regions. README.md is here because it drifted for
+# several commits while --check only guarded RESULTS.md.
+TARGETS = [RESULTS_MD, REPO / "README.md"]
 SUBJECT = "shmap-rs"
 REFERENCE = "cpp-shmap"
 
@@ -322,6 +325,92 @@ STAGES = [("match_rest", 0), ("refine", 1), ("prepare", 0), ("collect_kmer_info"
 INDEX_STAGES = ["indexing", "index_reading", "index_sketching", "index_collecting"]
 
 
+def block_readme_pitch(rs: dict) -> str:
+    """README's one-line claim, at headline precision.
+
+    Generated for the same reason as the table below it: it is the first number
+    a reader sees, and it sat one line above a generated block while being
+    maintained by hand. Rounded to one decimal deliberately — a pitch reads
+    better as 1.9-2.3x than 1.86-2.27x — but rounded FROM the measurement rather
+    than from memory.
+    """
+    rows, idx = rs["rows"], index(rs["rows"])
+    sp, best, rss_rs, rss_cpp = [], [], [], []
+    for bid in benchmarks_in(rows):
+        for m in metrics_in(rows, bid):
+            r1 = idx.get((bid, SUBJECT, m, 1))
+            c1 = idx.get((bid, REFERENCE, m, 1))
+            if r1 and c1:
+                sp.append(c1["wall_s"] / r1["wall_s"])
+                rss_rs.append(r1["peak_rss_kb"])
+                rss_cpp.append(c1["peak_rss_kb"])
+            if r1:
+                ts = [r for r in rows if r["benchmark"] == bid and r["impl"] == SUBJECT
+                      and r["metric"] == m]
+                if ts:
+                    best.append(r1["wall_s"] / min(ts, key=lambda r: r["wall_s"])["wall_s"])
+    if not (sp and best and rss_rs):
+        return "_No reference-implementation rows in this result set._\n"
+    return (f"Against the C++ original on real whole-genome data: "
+            f"**{rng(sp, '{:.1f}')} faster single-threaded, up to {max(best):.1f}x\n"
+            f"with threads, and ~{ratio(max(rss_cpp)/max(rss_rs))}x less memory**, with identical "
+            f"mapping counts.\n")
+
+
+def block_readme_summary(rs: dict) -> str:
+    """README.md's at-a-glance table.
+
+    README used to carry these figures by hand and they drifted: it advertised
+    46.2 s against the C++'s 98.3 s long after the measured pair was 47.6 and
+    104.1, and a 13.63x thread speedup after it had become 16.23x. Nothing
+    caught it because `--check` only ever looked at RESULTS.md. Now it does not
+    need catching.
+    """
+    rows, idx = rs["rows"], index(rs["rows"])
+    cfg = load_suite().get("report", {})
+    labels = cfg.get("readme_labels", {})
+    out = ["| dataset | shmap-rs `-@1` | shmap-rs `-@4` | C++ `shmap` | speedup | memory |",
+           "|---|---:|---:|---:|---:|---:|"]
+    for bid in cfg.get("readme_highlight", []):
+        r1 = idx.get((bid, SUBJECT, "Containment", 1))
+        r4 = idx.get((bid, SUBJECT, "Containment", 4))
+        c1 = idx.get((bid, REFERENCE, "Containment", 1))
+        if not (r1 and r4 and c1):
+            continue
+        out.append(
+            f"| {labels.get(bid, bid)} | **{r1['wall_s']:.1f} s** | **{r4['wall_s']:.1f} s** | "
+            f"{c1['wall_s']:.1f} s | **{c1['wall_s']/r1['wall_s']:.2f}x** / "
+            f"{c1['wall_s']/r4['wall_s']:.2f}x | {gb(r1['peak_rss_kb'])} vs {gb(c1['peak_rss_kb'])} |")
+
+    sp1, sp4, best = [], [], []
+    for bid in benchmarks_in(rows):
+        for m in metrics_in(rows, bid):
+            r1, r4 = idx.get((bid, SUBJECT, m, 1)), idx.get((bid, SUBJECT, m, 4))
+            c1 = idx.get((bid, REFERENCE, m, 1))
+            if r1 and c1:
+                sp1.append(c1["wall_s"] / r1["wall_s"])
+                if r4:
+                    sp4.append(c1["wall_s"] / r4["wall_s"])
+            if r1:
+                ts = [r for r in rows if r["benchmark"] == bid and r["impl"] == SUBJECT
+                      and r["metric"] == m]
+                if ts:
+                    f = min(ts, key=lambda r: r["wall_s"])
+                    best.append((r1["wall_s"] / f["wall_s"], f["threads"]))
+    if sp1 and sp4:
+        out += ["",
+                f"Across all {len(benchmarks_in(rows))} benchmarks and three metrics: "
+                f"**{rng(sp1)}** single-threaded, **{rng(sp4)}** at `-@4`. Every figure here is "
+                f"generated from the current result set and checked in CI — see "
+                f"[RESULTS.md](RESULTS.md)."]
+    if best:
+        sp, th = max(best)
+        out += ["",
+                f"- **Scales to many threads** — up to **{sp:.2f}x** whole-run at `-@ {th}`; the C++ "
+                f"cannot use more than one core. Output is byte-identical at every thread count."]
+    return "\n".join(out) + "\n"
+
+
 def block_stage_breakdown(rs: dict) -> str:
     prof = _profiles(rs)
     if not prof:
@@ -422,6 +511,8 @@ BUILDERS = {
     "checks": lambda rs, reg: block_checks(rs),
     "concordance": lambda rs, reg: block_concordance(rs),
     "stage-breakdown": lambda rs, reg: block_stage_breakdown(rs),
+    "readme-summary": lambda rs, reg: block_readme_summary(rs),
+    "readme-pitch": lambda rs, reg: block_readme_pitch(rs),
 }
 
 
@@ -471,31 +562,40 @@ def main() -> int:
             print(f"<!-- END GENERATED: {name} -->")
         return 0
 
-    if not RESULTS_MD.exists():
-        print(f"{RESULTS_MD} does not exist", file=sys.stderr)
-        return 2
-    old = RESULTS_MD.read_text()
-    new, seen, unknown = regenerate(old, rs, reg)
+    changed, missing_all, seen_all = [], [], set()
+    for target in TARGETS:
+        if not target.exists():
+            print(f"{target} does not exist", file=sys.stderr)
+            return 2
+        old = target.read_text()
+        new, seen, unknown = regenerate(old, rs, reg)
+        seen_all |= set(seen)
+        if unknown:
+            print(f"unknown generated block(s) in {target.name}: {', '.join(unknown)}",
+                  file=sys.stderr)
+            return 2
+        if new != old:
+            changed.append((target, new))
 
-    if unknown:
-        print(f"unknown generated block(s) in RESULTS.md: {', '.join(unknown)}", file=sys.stderr)
-        return 2
-    missing = [b for b in BUILDERS if b not in seen]
+    missing = [b for b in BUILDERS if b not in seen_all]
     if missing:
-        print(f"note: RESULTS.md has no marker for: {', '.join(missing)}", file=sys.stderr)
+        print(f"note: no marker anywhere for: {', '.join(missing)}", file=sys.stderr)
 
     if a.check:
-        if new != old:
-            print("RESULTS.md is out of date — run `python3 benchmarks/report.py`", file=sys.stderr)
+        if changed:
+            for t, _ in changed:
+                print(f"{t.name} is out of date — run `python3 benchmarks/report.py`",
+                      file=sys.stderr)
             return 1
-        print(f"RESULTS.md is current with {rs['dir'].name}")
+        print(f"{', '.join(t.name for t in TARGETS)} are current with {rs['dir'].name}")
         return 0
 
-    if new == old:
-        print(f"RESULTS.md already current with {rs['dir'].name}")
+    if not changed:
+        print(f"{', '.join(t.name for t in TARGETS)} already current with {rs['dir'].name}")
         return 0
-    RESULTS_MD.write_text(new)
-    print(f"regenerated {len(seen)} block(s) in RESULTS.md from {rs['dir'].name}")
+    for t, text in changed:
+        t.write_text(text)
+        print(f"regenerated {t.name} from {rs['dir'].name}")
     return 0
 
 

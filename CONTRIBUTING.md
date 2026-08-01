@@ -28,8 +28,8 @@ Two of those are easy to trip over:
 - **Debug tests are not redundant.** They activate the `debug_assert!`s that pin the risky designs —
   that `best_fixed_length` restores `diff_hist` exactly, that the parallel reader's second pass
   writes what its first pass counted, that a segment's parts tile its buffer with no gaps.
-- **`report.py --check` fails if `RESULTS.md` was hand-edited.** Regenerate it instead
-  (`python3 benchmarks/report.py`); see §5.
+- **`report.py --check` fails if `RESULTS.md` *or* `README.md` was hand-edited.** Both carry
+  generated regions; regenerate with `python3 benchmarks/report.py`. See §5.
 
 **Do not add a `uses:` line to the workflow.** The repository is set to `allowed_actions: local_only`,
 so a third-party action does not produce a failing step — it aborts the whole run as
@@ -120,9 +120,14 @@ not passed to the binary — do not add flags in a script.
 
 ## 5 Results and reporting
 
-`RESULTS.md` is the single place benchmark numbers live. The tables between
-`<!-- BEGIN GENERATED -->` markers are produced by `benchmarks/report.py` from a result set — edit
-them and CI fails. The prose around them is written by people and is not derivable from a TSV.
+`RESULTS.md` is the single place benchmark numbers live, and `README.md`'s headline figures are
+generated from the same result set. The regions between `<!-- BEGIN GENERATED -->` markers are
+produced by `benchmarks/report.py` — edit them and CI fails. The prose around them is written by
+people and is not derivable from a TSV.
+
+README.md was added as a target after its headline table drifted for several commits: it advertised
+46.2 s against the C++'s 98.3 s long after the measured pair was 47.6 and 104.1. Nothing caught it
+because `--check` only looked at RESULTS.md.
 
 ```bash
 python3 benchmarks/report.py            # regenerate from results/suite-<v>/current/

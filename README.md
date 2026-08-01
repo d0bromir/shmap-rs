@@ -7,8 +7,10 @@ that finds where a read belongs by k-mer set overlap rather than by alignment.
 benchmark suite, merge gate, and measured accuracy at every operating point. Mapping output is
 byte-identical to 1.2.0.
 
+<!-- BEGIN GENERATED: readme-pitch -->
 Against the C++ original on real whole-genome data: **1.9–2.3x faster single-threaded, up to 16.2x
 with threads, and ~8.5x less memory**, with identical mapping counts.
+<!-- END GENERATED: readme-pitch -->
 
 ---
 
@@ -17,17 +19,17 @@ with threads, and ~8.5x less memory**, with identical mapping counts.
 Real HG002 reads against the whole T2T-CHM13 genome (3.117 Gbp), on a 64-core host.
 The C++ is single-threaded by design, so `-@1` is the like-for-like column.
 
+<!-- BEGIN GENERATED: readme-summary -->
 | dataset | shmap-rs `-@1` | shmap-rs `-@4` | C++ `shmap` | speedup | memory |
 |---|---:|---:|---:|---:|---:|
 | HiFi, 23.2 kb, 149 438 reads | **47.6 s** | **18.2 s** | 104.1 s | **2.19x** / 5.73x | 1.97 GB vs 18.85 GB |
 | ONT, 23.8 kb, 92 220 reads | **25.0 s** | **10.5 s** | 55.5 s | **2.22x** / 5.29x | 1.99 GB vs 18.85 GB |
 
-Across all five benchmarks and three metrics: **1.86–2.27x** single-threaded, **5.01–6.54x** at
-`-@4`. Every figure here is generated — see [RESULTS.md](RESULTS.md), which CI checks against the
-result set it claims to describe.
+Across all 5 benchmarks and three metrics: **1.86–2.27x** single-threaded, **5.01–6.54x** at `-@4`. Every figure here is generated from the current result set and checked in CI — see [RESULTS.md](RESULTS.md).
 
-- **Scales to many threads** — up to **16.23x** whole-run at `-@ 32`; the C++ cannot use more than
-  one core. Output is byte-identical at every thread count.
+- **Scales to many threads** — up to **16.23x** whole-run at `-@ 32`; the C++ cannot use more than one core. Output is byte-identical at every thread count.
+<!-- END GENERATED: readme-summary -->
+
 - **Memory is flat in coverage** — 2.13 GB at 1x, 2.16 GB at **100x** (311.7 Gbp of reads in one
   run). The C++ sits at 18.85 GB regardless.
 - **Identical mapping** — same reads mapped, same mapq-60 counts as the C++; 98.3% of records agree
