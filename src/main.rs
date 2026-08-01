@@ -2,12 +2,16 @@
 
 use anyhow::Context;
 use clap::Parser;
+use mimalloc::MiMalloc;
 
 use shmap::handler::Handler;
 use shmap::index::SketchIndex;
 use shmap::mapper::create_mapper;
 use shmap::params::Params;
 use shmap::profiling::Profiler;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() -> anyhow::Result<()> {
     let params = Params::parse();
