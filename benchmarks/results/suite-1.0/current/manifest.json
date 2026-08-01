@@ -2,12 +2,12 @@
   "schema": 1,
   "suite_version": "1.0",
   "dataset_version": 1,
-  "commit": "4c36739d9c85f3c6276cd1e309e703ce4c37d974",
+  "commit": "e9aa9c98a2c71b686579bae8c4e64c553bb01812",
   "host": "a2",
   "authorized_by": "n/a",
-  "started": "2026-08-01T08:31:07.587789+00:00",
-  "finished": "2026-08-01T13:14:41.761313+00:00",
-  "duration_s": 17014.2,
+  "started": "2026-08-01T14:22:46.715645+00:00",
+  "finished": "2026-08-01T18:53:07.509317+00:00",
+  "duration_s": 16220.8,
   "invocations": 150,
   "failures": 0,
   "datasets": {
@@ -61,7 +61,7 @@
     }
   },
   "binaries": {
-    "shmap-rs": "shmap 1.3.0",
+    "shmap-rs": "shmap 1.3.1",
     "cpp-shmap": "/home/mpiuser/Pesho/shmap/release/shmap"
   }
 }

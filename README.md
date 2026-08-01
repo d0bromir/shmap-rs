@@ -7,8 +7,8 @@ that finds where a read belongs by k-mer set overlap rather than by alignment.
 mapping time reported separately, and a corrected memory claim. Binary byte-identical to 1.3.0.
 
 <!-- BEGIN GENERATED: readme-pitch -->
-Against the C++ original on real whole-genome data: **1.8–2.5x faster single-threaded, up to 15.3x
-with threads**, with identical mapping counts. Memory is ~8.5x lower single-threaded (2.21 GB against 18.85 GB) — but it grows with thread count, reaching 9.44 GB at the highest, so size for the run you intend.
+Against the C++ original on real whole-genome data: **1.9–2.7x faster single-threaded, up to 17.8x
+with threads**, with identical mapping counts. Memory is ~6.9x lower single-threaded (2.73 GB against 18.85 GB) — but it grows with thread count, reaching 8.98 GB at the highest, so size for the run you intend.
 <!-- END GENERATED: readme-pitch -->
 
 ---
@@ -21,16 +21,17 @@ The C++ is single-threaded by design, so `-@1` is the like-for-like column.
 <!-- BEGIN GENERATED: readme-summary -->
 | dataset | shmap-rs `-@1` | shmap-rs `-@4` | C++ `shmap` | speedup | memory |
 |---|---:|---:|---:|---:|---:|
-| HiFi, 23.2 kb, 149 438 reads | **47.2 s** | **18.2 s** | 106.4 s | **2.26x** / 5.83x | 1.95 GB vs 18.85 GB |
-| ONT, 23.8 kb, 92 220 reads | **24.8 s** | **11.3 s** | 60.0 s | **2.42x** / 5.29x | 2.04 GB vs 18.85 GB |
+| HiFi, 23.2 kb, 149 438 reads | **42.7 s** | **16.3 s** | 106.3 s | **2.49x** / 6.54x | 2.58 GB vs 18.85 GB |
+| ONT, 23.8 kb, 92 220 reads | **20.3 s** | **9.1 s** | 55.6 s | **2.74x** / 6.13x | 2.65 GB vs 18.85 GB |
 
-Across all 5 benchmarks and three metrics: **1.85–2.55x** single-threaded, **5.29–6.37x** at `-@4`. Every figure here is generated from the current result set and checked in CI — see [RESULTS.md](RESULTS.md).
+Across all 5 benchmarks and three metrics: **1.91–2.74x** single-threaded, **5.90–7.02x** at `-@4`. Every figure here is generated from the current result set and checked in CI — see [RESULTS.md](RESULTS.md).
 
-- **Scales to many threads** — up to **15.32x** whole-run at `-@ 32`; the C++ cannot use more than one core. Output is byte-identical at every thread count.
+- **Scales to many threads** — up to **17.79x** whole-run at `-@ 32`; the C++ cannot use more than one core. Output is byte-identical at every thread count.
 <!-- END GENERATED: readme-summary -->
 
 - **Memory is flat in coverage** — 2.13 GB at 1x, 2.16 GB at **100x** (311.7 Gbp of reads in one
-  run). The C++ sits at 18.85 GB regardless.
+  run), from the archived ladder at `8bc38f1`; the level has moved since, the flatness has not.
+  The C++ sits at 18.85 GB regardless.
 - **Identical mapping** — same reads mapped, same mapq-60 counts as the C++; 98.3% of records agree
   byte-for-byte, the rest being adjacent-bucket ties broken differently by a stable sort.
 
@@ -56,8 +57,8 @@ Sampling more k-mers fixes what no scoring change could. At `-r 0.10` shmap-rs l
 reads of Winnowmap2, roughly 15x faster** — and still faster than the C++ at its own default, which
 is 0.44 points less accurate.
 
-**That setting is not free, and is not the default.** It costs 8.7x wall and **7x peak memory —
-17.7 GB against 2.5 GB**, which is the same order as the C++'s 18.85 GB and gives up the memory
+**That setting is not free, and is not the default.** It costs 6.6x wall and **7x peak memory —
+17.0 GB against 2.4 GB**, which is the same order as the C++'s 18.85 GB and gives up the memory
 advantage above. On real reads the gain is smaller than on simulated (+0.57 pp of concordance). The
 point is what it says about the method — the ceiling usually attributed to sketch-based mapping in
 repeats belongs to the *sampling rate*, not to the approach — not that anyone should run `-r 0.10`
