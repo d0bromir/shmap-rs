@@ -34,7 +34,7 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
              host="a2", commit="a" * 40, fail_check=None, agreement=0.9792,
              rc=0, drop_config=None, rss_scale=1.0, ground_truth=0.992064,
              concordance=0.9633, ref_wall_scale=1.0, ref_binary="shmap 1.0.0-cpp",
-             map_scale=1.0, index_frac=0.5):
+             map_scale=1.0, index_frac=0.5, rss_outlier=1.0):
     d.mkdir(parents=True, exist_ok=True)
     rows, checks = [], []
     for b in BENCHES:
@@ -58,7 +58,8 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
                     reference_id="REF-HS1", reads_id="D1-HIFI23K", params_id="paper",
                     rc=rc, wall_s=round(wall, 2),
                     index_s=round(index_s, 3), map_s=round(map_s, 3),
-                    peak_rss_kb=int(8_000_000 * rss_scale),
+                    peak_rss_kb=int(8_000_000 * rss_scale
+                                    * (rss_outlier if t >= 32 else 1.0)),
                     mapped=130000 + mapped_delta, mapq60=120000 + mapped_delta,
                     cmd="shmap -s ref -p reads"))
             rows.append(dict(
@@ -137,7 +138,11 @@ def main() -> int:
     # --- speed ------------------------------------------------------------
     case("5% slower", REVIEW, dict(wall_scale=1.05), expect_in="wall")
     case("15% slower", BLOCK, dict(wall_scale=1.15))
-    case("10% more memory", REVIEW, dict(rss_scale=1.10), expect_in="peak RSS")
+    case("10% more memory everywhere", REVIEW, dict(rss_scale=1.10), expect_in="peak RSS")
+    # Peak RSS is a max-over-time statistic and swings ~30% at high thread
+    # counts on deep data. Two such outliers must not read as a regression when
+    # the typical configuration did not move — measured on identical code.
+    case("RSS outliers at 2 of 7 thread counts", ACCEPT, dict(rss_outlier=1.30))
 
     # --- accuracy: any drop blocks, regardless of speed -------------------
     case("1 fewer read mapped", BLOCK, dict(mapped_delta=-1), expect_in="mapped regressed")

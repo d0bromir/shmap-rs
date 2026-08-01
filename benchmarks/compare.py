@@ -355,9 +355,18 @@ def compare(base: dict, cand: dict, thr: dict, allow_output_change: bool) -> dic
         # correction, so normalising it would flatten it to zero by
         # construction and hide the evidence.
         gm = gm_raw / drift if impl == SUBJECT else gm_raw
-        rss_gm = math.exp(statistics.fmean(math.log(x) for x in rss_ratios)) if rss_ratios else 1.0
+        # MEDIAN, not geometric mean. Peak RSS is a max-over-time statistic:
+        # its run-to-run distribution is right-skewed and heavy-tailed, because
+        # the peak depends on how many reads happen to be in flight when the
+        # sampler fires. Measured on identical code, B04/bucket_SH moved ±2.5%
+        # at -@1..8 and +28% and +30% at -@32 and -@64 — two outliers that drag
+        # a geometric mean over the review line while the typical configuration
+        # did not move. A median resists that; the max is reported alongside so
+        # a genuine tail regression is still visible.
+        rss_gm = statistics.median(rss_ratios) if rss_ratios else 1.0
+        rss_max = max(rss_ratios) if rss_ratios else 1.0
         row = dict(benchmark=bid, impl=impl, metric=metric, n=len(items),
-                   wall=gm - 1, wall_raw=gm_raw - 1, rss=rss_gm - 1,
+                   wall=gm - 1, wall_raw=gm_raw - 1, rss=rss_gm - 1, rss_max=rss_max - 1,
                    base_s=sum(b for _, b, _, _, _ in items),
                    cand_s=sum(c for _, _, c, _, _ in items),
                    worst_thread=max(items, key=lambda t: t[2] / t[1])[0],
@@ -377,7 +386,9 @@ def compare(base: dict, cand: dict, thr: dict, allow_output_change: bool) -> dic
                 f"{(gm-1)*100:+.1f}% over {len(items)} thread counts "
                 f"(review at {thr['wall_regression_review']*100:.0f}%)")
         if rss_gm - 1 > thr.get("peak_rss_regression_review", 0.05):
-            add(REVIEW, "perf", f"{bid}/{metric} peak RSS", f"{(rss_gm-1)*100:+.1f}%")
+            add(REVIEW, "perf", f"{bid}/{metric} peak RSS",
+                f"median {(rss_gm-1)*100:+.1f}% across {len(items)} thread counts "
+                f"(worst {(rss_max-1)*100:+.1f}%)")
 
     verdict = max([f["level"] for f in findings], default=ACCEPT)
     return dict(verdict=verdict, findings=findings, notes=notes, perf=perf,

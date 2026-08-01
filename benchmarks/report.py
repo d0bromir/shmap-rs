@@ -164,8 +164,18 @@ def block_summary(rs: dict) -> str:
     if rss_rs and rss_cpp:
         span = gb(min(rss_rs)) if gb(min(rss_rs)) == gb(max(rss_rs)) \
             else f"{gb(min(rss_rs))} – {gb(max(rss_rs))}"
-        L.append(f"| Peak memory | **{span} vs {gb(max(rss_cpp))}"
+        L.append(f"| Peak memory, `-@1` | **{span} vs {gb(max(rss_cpp))}"
                  f" — {ratio(max(rss_cpp)/max(rss_rs))}x less** |")
+        # The single-threaded figure is not the whole story: each worker owns
+        # its own bucket accumulator and per-read state, so memory grows with
+        # thread count, and it grows much faster on deep read sets. Reporting
+        # only -@1 would let someone size a machine 4x too small.
+        worst = max((r["peak_rss_kb"], r["threads"], r["benchmark"])
+                    for r in rows if r["impl"] == SUBJECT)
+        if worst[0] > max(rss_rs) * 1.2:
+            L.append(f"| Peak memory, worst case | **{gb(worst[0])}** at `-@{worst[1]}` on "
+                     f"{worst[2]} — {ratio(max(rss_cpp)/worst[0])}x less than the C++. "
+                     f"Memory grows with threads; see §3c |")
     if best:
         sp, th, m, bid = max(best)
         L.append(f"| Best whole-run thread speedup | **{sp:.2f}x** (`-@ {th}`, {m}, {bid}) |")
@@ -325,6 +335,29 @@ STAGES = [("match_rest", 0), ("refine", 1), ("prepare", 0), ("collect_kmer_info"
 INDEX_STAGES = ["indexing", "index_reading", "index_sketching", "index_collecting"]
 
 
+def block_memory_scaling(rs: dict) -> str:
+    """Peak RSS against thread count.
+
+    Each worker owns its own `Buckets` accumulator and per-read scratch, so
+    memory is a function of thread count as well as input. On a shallow set the
+    growth is slight; on a deep one it is several-fold, and the headline
+    single-threaded figure badly understates what a 64-thread run needs.
+    """
+    rows, idx = rs["rows"], index(rs["rows"])
+    threads = sorted({r["threads"] for r in rows if r["impl"] == SUBJECT})
+    out = ["| benchmark | " + " | ".join(f"`-@{t}`" for t in threads) + " | growth |",
+           "|---|" + "---:|" * (len(threads) + 1)]
+    for bid in benchmarks_in(rows):
+        vals = [idx.get((bid, SUBJECT, "Containment", t)) for t in threads]
+        if not vals[0]:
+            continue
+        cells = [gb(v["peak_rss_kb"]) if v else "—" for v in vals]
+        got = [v["peak_rss_kb"] for v in vals if v]
+        out.append(f"| {bid} | " + " | ".join(cells) +
+                   f" | **{max(got)/got[0]:.1f}x** |")
+    return "\n".join(out) + "\n"
+
+
 def block_phase_split(rs: dict) -> str:
     """Index vs mapping vs total, per benchmark.
 
@@ -382,10 +415,13 @@ def block_readme_pitch(rs: dict) -> str:
                     best.append(r1["wall_s"] / min(ts, key=lambda r: r["wall_s"])["wall_s"])
     if not (sp and best and rss_rs):
         return "_No reference-implementation rows in this result set._\n"
+    worst_rss = max(r["peak_rss_kb"] for r in rows if r["impl"] == SUBJECT)
     return (f"Against the C++ original on real whole-genome data: "
             f"**{rng(sp, '{:.1f}')} faster single-threaded, up to {max(best):.1f}x\n"
-            f"with threads, and ~{ratio(max(rss_cpp)/max(rss_rs))}x less memory**, with identical "
-            f"mapping counts.\n")
+            f"with threads**, with identical mapping counts. Memory is "
+            f"~{ratio(max(rss_cpp)/max(rss_rs))}x lower single-threaded "
+            f"({gb(max(rss_rs))} against {gb(max(rss_cpp))}) — but it grows with thread count, "
+            f"reaching {gb(worst_rss)} at the highest, so size for the run you intend.\n")
 
 
 def block_readme_summary(rs: dict) -> str:
@@ -545,6 +581,7 @@ BUILDERS = {
     "readme-summary": lambda rs, reg: block_readme_summary(rs),
     "readme-pitch": lambda rs, reg: block_readme_pitch(rs),
     "phase-split": lambda rs, reg: block_phase_split(rs),
+    "memory-scaling": lambda rs, reg: block_memory_scaling(rs),
 }
 
 
