@@ -26,14 +26,46 @@ impl RefSegment {
     }
 }
 
+// https://gist.github.com/Daniel-Liu-c0deb0t/7078ebca04569068f15507aa856be6e8
+const A: Hash = 0x3c8b_fbb3_95c6_0474;
+const C: Hash = 0x3193_c185_62a0_2b4c;
+const G: Hash = 0x2032_3ed0_8257_2324;
+const TN: Hash = 0x2955_49f5_4be2_4456;
+
+const LUT_FW: [Hash; 256] = {
+    let mut lut_fw = [0u64; 256];
+    lut_fw[b'a' as usize] = A;
+    lut_fw[b'A' as usize] = A;
+    lut_fw[b'c' as usize] = C;
+    lut_fw[b'C' as usize] = C;
+    lut_fw[b'g' as usize] = G;
+    lut_fw[b'G' as usize] = G;
+    lut_fw[b't' as usize] = TN;
+    lut_fw[b'T' as usize] = TN;
+
+    lut_fw
+};
+
+const LUT_RC: [Hash; 256] = {
+    let mut lut_rc = [0u64; 256];
+    lut_rc[b'a' as usize] = TN;
+    lut_rc[b'A' as usize] = TN;
+    lut_rc[b'c' as usize] = G;
+    lut_rc[b'C' as usize] = G;
+    lut_rc[b'g' as usize] = C;
+    lut_rc[b'G' as usize] = C;
+    lut_rc[b't' as usize] = A;
+    lut_rc[b'T' as usize] = A;
+
+    lut_rc
+};
+
 /// Rolling FracMinHash k-mer sketcher.
 ///
 /// Builds a forward and reverse-complement rolling hash per k-mer window
 /// using two 256-entry lookup tables, and keeps only k-mers whose
 /// (canonical) hash falls at or below the `h_frac` threshold.
 pub struct FracMinHash {
-    lut_fw: [Hash; 256],
-    lut_rc: [Hash; 256],
     /// Per-base contributions with the fixed rotates the rolling update
     /// applies to the *outgoing*/*incoming* base baked in, so the hot loop
     /// does a plain table load instead of a load+rotate each. Since these
@@ -56,12 +88,6 @@ pub struct FracMinHash {
 
 impl FracMinHash {
     pub fn new(k: i32, h_frac: f64) -> Self {
-        // https://gist.github.com/Daniel-Liu-c0deb0t/7078ebca04569068f15507aa856be6e8
-        const A: Hash = 0x3c8b_fbb3_95c6_0474;
-        const C: Hash = 0x3193_c185_62a0_2b4c;
-        const G: Hash = 0x2032_3ed0_8257_2324;
-        const TN: Hash = 0x2955_49f5_4be2_4456;
-
         // The C++ leaves every other LUT entry as uninitialized stack
         // memory (`hash_t LUT_fw[256]` is a raw array member, never
         // value-initialized before `initialize_LUT()` fills in exactly 8
@@ -70,35 +96,16 @@ impl FracMinHash {
         // makes unknown bases deterministically contribute a hash of 0,
         // which is well-defined and doesn't change behavior for any ACGT
         // (or ACGT-only test) input.
-        let mut lut_fw = [0u64; 256];
-        let mut lut_rc = [0u64; 256];
-
-        for &(lower, upper, v) in &[(b'a', b'A', A), (b'c', b'C', C), (b'g', b'G', G), (b't', b'T', TN)] {
-            lut_fw[lower as usize] = v;
-            lut_fw[upper as usize] = v;
-        }
-        for &(lower, upper, complement) in &[
-            (b'a', b'A', b'T'),
-            (b'c', b'C', b'G'),
-            (b'g', b'G', b'C'),
-            (b't', b'T', b'A'),
-        ] {
-            lut_rc[lower as usize] = lut_fw[complement as usize];
-            lut_rc[upper as usize] = lut_fw[complement as usize];
-        }
-
         let mut lut_fw_k = [0u64; 256];
         let mut lut_rc_r1 = [0u64; 256];
         let mut lut_rc_k1 = [0u64; 256];
         for c in 0..256 {
-            lut_fw_k[c] = lut_fw[c].rotate_left(k as u32);
-            lut_rc_r1[c] = lut_rc[c].rotate_right(1);
-            lut_rc_k1[c] = lut_rc[c].rotate_left((k - 1) as u32);
+            lut_fw_k[c] = LUT_FW[c].rotate_left(k as u32);
+            lut_rc_r1[c] = LUT_RC[c].rotate_right(1);
+            lut_rc_k1[c] = LUT_RC[c].rotate_left((k - 1) as u32);
         }
 
         FracMinHash {
-            lut_fw,
-            lut_rc,
             lut_fw_k,
             lut_rc_r1,
             lut_rc_k1,
@@ -123,7 +130,7 @@ impl FracMinHash {
 
     /// The selection threshold a hash must not exceed to be sketched.
     #[inline]
-    fn h_thres(&self) -> Hash {
+    const fn h_thres(&self) -> Hash {
         if self.h_frac < 1.0 {
             (self.h_frac * u64::MAX as f64) as u64
         } else {
@@ -166,21 +173,20 @@ impl FracMinHash {
     /// relies on to stay thread-count-independent.
     pub fn sketch_slice_into(&self, s: &[u8], offset: RPos, mut buf: SketchT) -> SketchT {
         buf.clear();
-        let k = self.k;
-        if (s.len() as RPos) < k || k <= 0 {
+        if (s.len() as RPos) < self.k || self.k <= 0 {
             return buf;
         }
         buf.reserve(self.expected_capacity(s.len()));
 
-        let ks = k as usize;
+        let ks = self.k as usize;
         let h_thres = self.h_thres();
 
         let mut h_fw: Hash = 0;
         let mut h_rc: Hash = 0;
         for (i, &c) in s[..ks].iter().enumerate() {
             let c = c as usize;
-            h_fw ^= self.lut_fw[c].rotate_left((ks - i - 1) as u32);
-            h_rc ^= self.lut_rc[c].rotate_left(i as u32);
+            h_fw ^= LUT_FW[c].rotate_left((ks - i - 1) as u32);
+            h_rc ^= LUT_RC[c].rotate_left(i as u32);
         }
 
         // `r` is the right end of the window currently held in `h_fw`/`h_rc`.
@@ -192,14 +198,15 @@ impl FracMinHash {
         // bounds check and a sign-extension for each of `s[r]` and `s[r - k]`
         // on every base of the reference, and the mid-loop `r >= s.len()`
         // break kept LLVM from treating it as a counted loop at all.
-        let mut r: RPos = k - 1 + offset;
+        let mut r: RPos = self.k - 1 + offset;
         emit(&mut buf, r, h_fw, h_rc, h_thres);
+
         for (&in_c, &out_c) in s[ks..].iter().zip(s.iter()) {
             // Identical arithmetic to the pre-baked form (see the LUT doc
             // comment) — the three fixed rotates on LUT values are now
             // precomputed, leaving only the two accumulator rotates here.
             let (in_c, out_c) = (in_c as usize, out_c as usize);
-            h_fw = h_fw.rotate_left(1) ^ self.lut_fw_k[out_c] ^ self.lut_fw[in_c];
+            h_fw = h_fw.rotate_left(1) ^ self.lut_fw_k[out_c] ^ LUT_FW[in_c];
             h_rc = h_rc.rotate_right(1) ^ self.lut_rc_r1[out_c] ^ self.lut_rc_k1[in_c];
             r += 1;
             emit(&mut buf, r, h_fw, h_rc, h_thres);
