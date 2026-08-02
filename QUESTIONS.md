@@ -10,6 +10,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 |---|---|---|---|---|
 | Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | merged |
 | Q2 | Check: does the suite run shmap-rs and map-shmap with Jaccard, Containment, SH? | `q2-three-metrics` | #7 | merged |
+| Q3 | Detailed, significance-ordered list of changes vs the C++/paper | `q3-optimizations-list` | #8 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -190,6 +191,106 @@ all. Not fixed here — it's inherited, unused by the documented benchmark flow,
 
 **Outcome.** No `src/`, `suite.toml`, or `run.py` change. This PR documents the verification in
 `QUESTIONS.md` only.
+
+---
+
+## Q3 — Speed and memory vs the C++/paper, verified against real C++ source with code snippets
+
+**Asked** 2026-08-02 · **Branch** `q3-optimizations-list` · **PR** #8 · **Status** in review
+
+**Question, as first asked.** *„тук ни трябва много подробно обяснение на това какво е сменено с
+всички базови дефиниции, как промените от оригиналния C++ shmap и статията са имплементирани,
+какво се променя като изчисление и структура от данни и защо. Подредено по значимост. да направи
+списък от доп. оптимизации по сравнение с оригиланата статия за shmap"* — a very detailed
+explanation of what changed, with definitions, how each change is implemented relative to the
+C++ and the paper, what changes computationally and in data structures, and why — ordered by
+significance.
+
+**Redirect.** The first draft of `PORT_CHANGES.md` covered every category of change (correctness
+fixes, the multithreading architecture, new CLI capabilities, and deliberately-kept quirks,
+alongside performance). Pesho clarified the actual scope: specifically the changes that improve
+single-thread speed and reduce memory usage, with deeper motivation than the first pass gave them.
+`PORT_CHANGES.md` was rewritten around that scope rather than kept as the broader survey — the
+earlier, broader version is still visible in this branch's git history if the fuller picture is
+ever wanted.
+
+**Answer.** [`PORT_CHANGES.md`](PORT_CHANGES.md), now 8 numbered sections matching Pesho's own
+list, each with real C++ and Rust code. Memory is almost entirely one data structure's
+three-generation evolution; multithreading and parallel indexing (restored per this round's ask)
+are genuinely new capabilities absent from the C++; the rest — streaming multi-hit seeds,
+`match_rest` memoization, the two-pass reader, sketching hot-loop work, and allocation/memory-
+traffic reductions — are roughly ten individually-measured techniques that compound. Ties back to
+both RESULTS.md's current headline figures (1.91–2.74x single-threaded speed, 6.90–7.43x less
+peak memory) and the depth-measurement figures Pesho cited (1.89–2.04x, 8.2–9.6x), explaining why
+both are real and where they differ. Still out of scope: correctness fixes and new CLI features,
+noted at the end with a pointer to where they live.
+
+**Headline findings:**
+
+- **Memory is almost entirely one story.** The bucket accumulator (`Buckets`) went from a
+  per-segment dense array sized by the *reference* (~15 GB per worker thread) through an
+  intermediate hashmap and radix-sort design, to the current array sized by the *read's own*
+  half-length (~4 MB, L3-resident) — three to four orders of magnitude smaller, because it scales
+  with how finely one read partitions the reference rather than with the coarsest partition the
+  algorithm ever allows. Generation 1's huge allocation was also a genuinely counterintuitive
+  *speed* bug: multithreaded whole-genome runs sometimes got slower with more threads, because a
+  worker finishing that allocation last started with zero reads left.
+- **One optimization is directly prescribed by the paper, not invented by the port.** The paper's
+  own Algorithm 4 names "Optimization 2: sort blocks by decreasing number of matches," reasoning
+  that it makes the acceptance threshold rise earlier. The C++ implements this with `std::sort`
+  (not stable); shmap-rs implements the same paper-prescribed ordering by sorting a packed 64-bit
+  key instead of the full record — reproducing stable-sort semantics with an unstable, faster sort,
+  and as a side effect becoming deterministic where the C++ isn't.
+- **Speed is an accumulation, not one dominant change** — `RefineCache`'s memoization of the
+  second-best search (44% of a hot function's calls eliminated, restricted to exactly the two
+  metrics where it's provably safe), the rolling-hash rotation tables plus bounds-check removal,
+  the two-pass parallel reference reader, mimalloc, and roughly six smaller techniques each worth
+  single-digit percentages.
+
+**Relationship to existing docs.** [`PROFILING.md`](PROFILING.md) already tracks every
+optimization chronologically with exact before/after numbers at the time each landed —
+`PORT_CHANGES.md` cites those rather than re-deriving them, reorganized around *why* each change
+exists rather than *when* it landed, and framed specifically against the paper and the C++.
+
+**Methodology.** Every `src/*.rs:line` citation was checked against the file on disk after
+writing (one was wrong on the first pass — a counter-reset citation that pointed at the wrong
+function — found and fixed before this was pushed). Every quoted number was traced to its source:
+either a `PROFILING.md`/`RESULTS.md` figure or a doc comment already in the source, confirmed by
+the port's own stated practice of grep-based call-site audits rather than assumption.
+
+**Second expansion.** Pesho supplied a specific 8-item list of optimization claims (adaptive
+bucket accumulation, streaming multi-hit seeds, `match_rest` memoization, multithreaded mapping,
+parallel indexing, two-pass FASTA parsing, sketching hot-loop work, and allocation/memory-traffic
+reductions), most with direct GitHub links into `pesho-ivanov/shmap` at commit `63f1103`, and
+asked for each to be verified and expanded with exact data-structure names and code snippets —
+explicitly asking to keep the memory/speed findings already written, and to restore the
+multithreading and indexing sections the previous redirect had explicitly moved out of scope.
+
+This time the actual C++ source was fetched — `curl` against raw.githubusercontent.com works from
+this session even though the C++ source isn't checked out anywhere on `a2` — rather than relying
+only on what the Rust doc comments say about it, and every C++ snippet in `PORT_CHANGES.md` now
+quotes that fetch verbatim with exact line numbers rather than paraphrasing a port-time comment.
+This surfaced one correction worth recording: `RefSegment::seq`'s own comment in the C++ says
+"empty if only mapping and no alignment," but the constructor call that actually builds the index
+(`index.h:104`) passes the real sequence unconditionally — so the field holds a full second copy
+of the genome on *every* run, not conditionally as the comment implies. The claim about it
+("dead code upstream") holds and is now stronger, verified against two fully-commented-out call
+sites rather than taken on the Rust side's word for it.
+
+One more nuance found while verifying the `diff_hist`-is-a-dense-vector claim: there are two
+`diff_hist`s in the codebase. The hot path (`match_rest`/`find_best_mapping`, every normal read)
+uses the dense `Vec<QPos>` the claim describes; a second, hashmap-keyed one exists in `refine.rs`'s
+`Matcher`, but backs only the optional ground-truth diagnostic path in `analyse_simulated.rs` —
+off by default, not part of normal mapping. Recorded so the claim is precise about which path it
+describes.
+
+`PORT_CHANGES.md` is now organized around the 8 claims directly (renumbered 1–8 to match how they
+were presented) rather than the prior Memory/Speed split, since that's the structure that was
+asked for; each section states the concept, then the C++ implementation with a real snippet, then
+the Rust implementation with a real snippet, then the measured effect.
+
+**Outcome.** New file, `PORT_CHANGES.md`, plus a pointer added to `README.md`'s documentation
+table. No `src/` change.
 
 ---
 
