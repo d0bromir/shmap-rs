@@ -9,7 +9,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | # | Question | Branch | PR | Status |
 |---|---|---|---|---|
 | Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | merged |
-| Q2 | Check: does the suite run shmap-rs and map-shmap with Jaccard, Containment, SH? | `q2-three-metrics` | — | in review |
+| Q2 | Check: does the suite run shmap-rs and map-shmap with Jaccard, Containment, SH? | `q2-three-metrics` | #7 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -149,7 +149,7 @@ two probes that pin the SIMD one, so both stay checkable and nobody re-derives t
 
 ## Q2 — Check: does the suite already run shmap-rs and map-shmap with three metrics?
 
-**Asked** 2026-08-02 · **Branch** `q2-three-metrics` · **Status** in review
+**Asked** 2026-08-02 · **Branch** `q2-three-metrics` · **PR** #7 · **Status** in review
 
 **Question.** *„да пуска shmap-rs и map-shmap с три различни параметъра: Jaccard, Containment, SH"*
 — check whether this is already satisfied: does the project run both shmap-rs and map-shmap (the
