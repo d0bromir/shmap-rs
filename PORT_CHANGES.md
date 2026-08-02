@@ -1,349 +1,836 @@
 # Single-thread speed and memory: what changed vs the C++ `shmap` and the map-shmap paper
 
-**Scope.** Specifically the changes that make one thread run faster or use less memory than the
-C++ reference implementation and the paper's abstract algorithm (Ivanov & Medvedev, *map-shmap:
-Practical long-read mapping with seed heuristic on sketches*) would predict. Not covered here,
-deliberately: correctness fixes (they change output, not cost — a separate question), the
-multithreading capability itself (a purely additive capability on top of what's below — `-@1`
-pays none of its overhead and gains none of its benefit), and new CLI-visible features. A short
-closing section says where each of those lives instead.
+**Scope.** The changes that make shmap-rs faster or lighter than the C++ reference
+implementation and the paper's abstract algorithm (Ivanov & Medvedev, *map-shmap: Practical
+long-read mapping with seed heuristic on sketches*) would predict — including, in this revision,
+the multithreading and parallel-indexing capabilities the C++ has no analog for at all. Not
+covered here: correctness fixes (they change output, not cost — a separate concern) and new
+CLI-visible features with no effect on a default run's cost.
 
-**Why single-thread specifically.** It's the fair comparison — the C++ has no threading at all,
-so `-@1` is the only column measured against it on equal terms (RESULTS.md §2). It's also the
-number a per-worker cost multiplies from: several changes below live inside `Buckets`, one
-instance per worker thread, so what one thread costs is what every additional thread costs again.
+**The short version.** shmap-rs preserves shmap's core mapping algorithm — FracMinHash sketching,
+rarest-first seeding, seed-heuristic pruning, single/multi-hit index separation, sliding-window
+refinement all come from the paper and the C++ unchanged — but substantially redesigns the hot
+paths that algorithm runs through, and adds multithreading the C++ has none of. Two measurements
+exist, from two different result sets, and both are real:
 
-**The headline numbers these changes produce**, across five benchmarks and three metrics
-(RESULTS.md §1–2): **1.91–2.74x** faster wall-clock than the C++, single-threaded, and **6.90–
-7.43x less peak memory** (2.54–2.73 GB vs the C++'s constant 18.85 GB). Two largely independent
-stories explain them — one data structure whose peak size fell by roughly three orders of
-magnitude accounts for nearly all of the memory result, and about ten smaller techniques,
-individually worth single- to double-digit percentages, add up to the speed result.
+- **RESULTS.md's current suite** (five benchmarks, three metrics, commit `e9aa9c98a2c7`):
+  **1.91–2.74x** faster single-threaded, **6.90–7.43x** less peak memory (2.54–2.73 GB vs the
+  C++'s constant 18.85 GB).
+- **An earlier, real-HiFi-whole-genome-at-depth measurement** (commit `f85d9a2`, four coverage
+  levels of real HG002 HiFi against the whole genome, single mapping worker): **1.89–2.04x**
+  faster, **8.2–9.6x** less peak memory. This lived in a now-consolidated `COMPARISON.md`; its
+  numbers are quoted here because they were measured at *depth* (up to 3.17M reads) rather than
+  the current suite's smaller per-benchmark counts, which is a meaningfully different regime for
+  a mapper whose fixed costs (indexing) amortize differently at different read counts.
 
-**Methodology and its limit.** C++ comparisons come from the Rust source's own doc comments,
-written against the C++ source at port time and confirmed by grep-based call-site audits (see
-`docs/sections/16_defects.tex`'s methodology note). The C++ *source* isn't available on this host
-— only its release binary — so where a comment makes no C++ claim, this document invents none.
-Numbers not attributed to RESULTS.md come from `PROFILING.md`, the chronological engineering log
-that records exact before/after figures at the time each change landed and is deliberately never
-updated — cited here rather than re-derived, reorganized around *why*, not *when*. For the base
-algorithm's own definitions, see `docs/shmap_algorithm.pdf` (chapters cited as, e.g., §8
-Bucketing).
+Neither supersedes the other — they're different datasets. RESULTS.md is regenerated on every
+suite run and is the one to trust for anything current; the depth measurement is kept here
+because it's real evidence at a scale the standing suite doesn't currently cover.
+
+**A caveat that has to be stated plainly.** The C++ this is measured against is already a tuned
+`-O3 -march=native -flto` build, not a naive baseline — every number above is against an
+optimized implementation, not a straw man. And the comparison favors shmap-rs more as inputs grow:
+the C++ can still win on tiny, startup-dominated inputs (a 101 KB reference finishes in 0.09 s
+against shmap-rs's 0.40 s — RESULTS.md §1), while shmap-rs's advantage is a chromosome-scale-and-up
+story. Below, "the algorithm" means what the paper specifies and the C++ already implements;
+everything under each heading is what changed *on top of* that algorithm, not a replacement for
+it.
+
+**Methodology.** Every C++ snippet below is fetched directly from
+[`github.com/pesho-ivanov/shmap`](https://github.com/pesho-ivanov/shmap) at commit
+[`63f1103`](https://github.com/pesho-ivanov/shmap/tree/63f1103a6e72394fada5f9d9726f4a38f739e8fa)
+— the pinned commit this port was checked against — and quoted verbatim with exact line numbers,
+not paraphrased from a doc comment. Every Rust snippet is quoted from the file on disk at the time
+of writing. Where a number isn't attributed to RESULTS.md, it's from `PROFILING.md`, the
+chronological engineering log that records exact before/after figures at the time each change
+landed and is deliberately never updated — cited here rather than re-derived, reorganized around
+*why* each change exists rather than *when* it landed.
+
+**Definitions used throughout**, so each section below doesn't have to re-derive them:
+
+| term | meaning |
+|---|---|
+| `BucketLoc` | `(segm_id, b)` — which reference segment, and which window index within it |
+| `BucketContent` | the accumulated state for one bucket: `matches`, `codirection`, `r_min`/`r_max`, plus `i`/`seeds` propagated from the read |
+| `halflen` | half the width of a bucket window; a bucket spans `[b·halflen, (b+2)·halflen)`, so consecutive buckets overlap by half — this is what lets a hit at position `pos` belong to *two* buckets, `pos/halflen` and `pos/halflen − 1` |
+| `Kmer` | one sketched k-mer from a sequence: position, hash, strand |
+| `Hit` | one occurrence of a k-mer's hash in the *reference*: position, strand, which segment |
+| `Seed` | one of a *read's* distinct k-mers, with its reference hit count and every position in the read it occurs at |
+| `Match` | a `(Seed, Hit)` pair — one specific seed matched to one specific reference occurrence |
 
 ---
 
-## Part A — Memory: from a C++-competitive footprint to 6.9–7.4x smaller
+## 1. Adaptive bucket accumulation — the largest redesign
 
-### A.1 The bucket accumulator: three generations, ~15 GB down to ~4 MB per worker
+**What it is.** `Buckets` (§8 Bucketing) accumulates per-bucket match counts and coordinate
+ranges while a read is scored against candidate reference windows. It exists because the paper's
+Definition 10 covers a mapping by a *block* (bucket), and every hit needs to be attributed to the
+bucket(s) whose window contains it before scoring can happen.
 
-This single data structure is nearly the whole memory story. `Buckets` (§8 Bucketing) accumulates
-per-bucket match counts and coordinate ranges while a read is scored against candidate reference
-windows — one live instance per worker thread, since per-read scratch state can't be shared.
+### The C++: a dense array sized by the reference
 
-**Generation 1: a dense array sized by the reference, not the read.** One `Vec<BucketContent>` per
-reference segment, sized up front from the segment's length divided by the algorithm's *minimum*
-allowed half-length (`sz / MIN_HALFLEN + 2` slots) — on a multi-gigabase genome, a ~15 GB
-allocation *per worker thread*. The reasoning behind this first design is straightforward: without
-knowing in advance which buckets a read will touch, size for the worst case the algorithm permits.
-The problem is that the worst case is enormously pessimistic — a single read only ever touches a
-handful of buckets near where it maps, so the array sits almost entirely idle. Profiling found the
-one-time allocation-plus-zero-init alone cost 7–21+ seconds per worker depending on contention —
-this generation cost speed as well as memory, and in a genuinely counterintuitive way:
+```cpp
+// buckets.h:76-97 (https://github.com/pesho-ivanov/shmap/blob/63f1103a6e72394fada5f9d9726f4a38f739e8fa/src/buckets.h#L76-L97)
+template<bool abs_pos>
+class Buckets {
+	static int    const MAX_SEGMENTS = 100;
+	static qpos_t const MIN_HALFLEN  = 5;
+public:
+	const SketchIndex &tidx;
+	qpos_t halflen;
+	int i;
+	int seeds;
+    std::vector<BucketContent> buckets[MAX_SEGMENTS];   // buckets[segm_id][b]
+	std::vector<BucketLoc> non_empty_buckets_with_repeats;
+
+	Buckets(const SketchIndex &tidx)
+	: tidx(tidx), halflen(-1), i(0), seeds(0) {
+		if (tidx.segments() > MAX_SEGMENTS)
+			throw std::runtime_error("Number of segments exceeds MAX_SEGMENTS (" + std::to_string(MAX_SEGMENTS) + ")");
+		for (int b = 0; b < (int)tidx.segments(); ++b)
+			buckets[b].resize(tidx.get_segment(b).sz / MIN_HALFLEN + 2);
+	}
+```
+
+Every segment gets a slot for every `MIN_HALFLEN`-wide window it could ever be divided into —
+`MIN_HALFLEN` is a compile-time constant, `5`, so this is sized for the *smallest bucket width the
+algorithm ever allows*, not for what any particular read will actually use. `BucketContent` itself
+is `int i; qpos_t seeds, matches; int codirection; rpos_t r_min, r_max;` — six 4-byte fields, 24
+bytes, no padding. For a ~3.1 Gbp human genome: `3.1×10⁹ / 5 × 24 bytes ≈ 14.9 GB` — matching the
+"~15 GB" figure. This is allocated once and lives for the whole run (there is no threading to
+duplicate it across, since the C++ has none — see §4).
+
+Filling it (`add_to_pos`) is a direct indexed write — `buckets[hit.segm_id][b] += content` — but
+harvesting the result needs two full sorts, because different hits can touch the same bucket at
+different times and `non_empty_buckets_with_repeats` records every touch, duplicates included:
+
+```cpp
+// buckets.h:151-174 (https://github.com/pesho-ivanov/shmap/blob/63f1103a6e72394fada5f9d9726f4a38f739e8fa/src/buckets.h#L151-L174)
+std::vector< std::pair<BucketLoc, BucketContent> > get_sorted_buckets() {
+    std::sort(non_empty_buckets_with_repeats.begin(), non_empty_buckets_with_repeats.end(),
+        [](const BucketLoc &a, const BucketLoc &b) {
+            if (a.segm_id != b.segm_id) return a.segm_id < b.segm_id;
+            return a.b < b.b;
+        });
+    auto unique_end = std::unique(non_empty_buckets_with_repeats.begin(), non_empty_buckets_with_repeats.end());
+    std::vector< std::pair<BucketLoc, BucketContent> > sorted_buckets;
+    for (auto it = non_empty_buckets_with_repeats.begin(); it != unique_end; ++it) {
+        const BucketLoc& loc = *it;
+        sorted_buckets.push_back(std::make_pair(loc, buckets[loc.segm_id][loc.b]));
+    }
+    std::sort(sorted_buckets.begin(), sorted_buckets.end(), [](const auto &a, const auto &b) {
+        return a.second.matches > b.second.matches;
+    });
+    return sorted_buckets;
+}
+```
+
+Sort by location to make duplicates adjacent, `std::unique` to collapse them, then a *second* sort
+by descending match count — the paper's own Algorithm 4 Optimization 2 (§3 below covers this sort
+specifically). Three passes over the touched-bucket list to produce one ordered, deduplicated
+result.
+
+### shmap-rs: three generations, driven by measuring what went wrong each time
+
+**Generation 1 mirrored the C++ almost exactly** — one dense `Vec<BucketContent>` per segment,
+sized by `sz / MIN_HALFLEN + 2`, the same ~15 GB allocation. Profiling found the one-time
+allocation-plus-zero-init alone cost 7–21+ seconds *per worker thread* once threading existed
+(§4) — a cost the single-threaded C++ never had to pay more than once, but which multiplies with
+every additional worker. It was also the direct cause of a genuinely counterintuitive bug:
 multithreaded whole-genome runs sometimes got *slower* with more threads, because a worker that
 finishes this huge allocation last simply starts with zero reads left to process.
 
-**Generation 2: size by what's touched, not by what's possible.** An `FxHashMap<BucketLoc,
-BucketContent>` — only buckets a read actually reaches get an entry, so memory scales with reads
-processed, not with reference size. This fixes the memory problem outright, but introduces a new
-*speed* one: at k=15 on a whole genome, nearly every 15-mer window in a read has a match
-*somewhere* in a 3+ Gbp reference, so a single read can touch millions of distinct buckets — and
-every touch through this generation was a full hashmap `entry()` call: hash the key, probe for a
-slot, possibly trigger a resize. Amortized O(1), but with a large constant next to "one indexed
-write" — measured ~20% slower single-threaded than generation 1's array despite fixing its memory
-blowup.
+**Generation 2** replaced the array with `FxHashMap<BucketLoc, BucketContent>` — only touched
+buckets exist, so memory scales with reads processed, not with reference size. This fixes the
+memory problem outright, but costs speed: at k=15 on a whole genome, nearly every 15-mer window in
+a read has a match *somewhere* in a 3+ Gbp reference, so a single read can touch millions of
+distinct buckets, and every touch through a hashmap is a full `entry()` call — hash the key, probe
+for a slot, possibly resize. Measured ~20% slower single-threaded than generation 1's array
+despite fixing its memory blowup.
 
-**Generation 2.5, still live today as the fallback for the cases below can't handle.** An
+**Generation 2.5, still live today as the fallback for what generation 3 can't handle:** an
 append-only `Vec` of raw contributions, merged once per read by an LSD radix sort on a packed
-`(segm_id, b)` key rather than by a hashmap. This recovers the speed generation 2 lost — measured
-at the time as 1.6x faster than the hashmap and, notably, already 25% faster than the C++ original
-itself on whole-genome k=15 HiFi at `-@1` (1972.7 s vs 2637.2 s), byte-identical mapped/mapq
-counts. What it still pays for is materializing every raw contribution before collapsing them: on
-that same benchmark a read produced ~4M raw contributions collapsing to only ~242k *distinct*
-buckets, and sorting 4M 32-byte records to do that collapse moved ~1.1 GB per read at
-memory-bandwidth speed — 56% of total wall by itself. Its own internals were separately tuned
-before generation 3 took over the common case, and they still carry the fallback traffic today:
-the radix key's width is measured per read rather than fixed at 37 bits (cutting a pass, −30%),
-the sorted record shrank 32→24 bytes by hoisting the per-read-uniform `i`/`seeds` fields out of
-the per-entry payload, and every pass's histogram is built in one counting scan instead of one per
-pass.
+`(segm_id, b)` key instead of a hashmap. Already, at this stage, **25% faster than the C++
+original** on whole-genome k=15 HiFi at `-@1` (1972.7 s vs 2637.2 s), byte-identical mapped/mapq
+counts. What it still pays for is materializing every raw contribution before collapsing them: a
+read producing ~4M raw contributions collapsing to only ~242k distinct buckets means sorting 4M
+32-byte records to do that collapse — ~1.1 GB moved per read at memory-bandwidth speed, 56% of
+total wall by itself.
 
-**Generation 3, current for the common case: a dense array again — but this time sized correctly.**
-The insight that removes the sort entirely: the bucket space is small and *known*, once it's sized
-by the *read's own* half-length rather than by the algorithm's coarsest-allowed one. A read with
-half-length `l` partitions a reference of sketch length `n` into only `n / l` buckets total — for
-a typical whole-genome HiFi read that is ~242k slots (the same figure generation 2.5 was
-collapsing down to by sorting), each 16 bytes: **~4 MB, entirely L3-resident**, three to four
-orders of magnitude smaller than generation 1's per-segment array because it scales with how
-finely *this one read* divides the reference rather than with the smallest half-length the
-algorithm ever allows anyone to request. Accumulation becomes one indexed read-modify-write —
-`add_to_pos`/`add_to_bucket` no longer sort, deduplicate, or materialize a record at all. Capped
-at `MAX_DENSE_SLOTS = 2 << 20` (2,097,152 slots × 16 bytes = exactly 32 MB per worker) as a safety
-valve for the read that *doesn't* fit this profile — an unusually small half-length implies an
-unusually large slot count — with generation 2.5 kept as the fallback beyond that cap, pinned by a
-test asserting the two paths agree exactly. On a 6,000-read whole-genome HiFi run at `-@1`,
-`bucket_merge` fell from 1342.1 s to 39.1 s and whole-run wall from 1995.6 s to 725.6 s,
-byte-identical output.
+**Generation 3, current for the common case, is the actual redesign** — a dense array again, but
+correctly sized this time: by the *read's own* half-length divided into the reference, not by the
+algorithm's minimum-allowed half-length divided into the whole genome. A read with half-length `l`
+partitions a reference of sketch length `n` into only `n / l` buckets total — for a typical
+whole-genome HiFi read, ~242k slots (the exact figure generation 2.5 was collapsing down to by
+sorting), each 16 bytes: **~4 MB, entirely L3-resident**. Three to four orders of magnitude
+smaller than generation 1's array, because it scales with how finely *this one read* divides the
+reference rather than with the smallest half-length the algorithm ever allows anyone to request:
 
-One more deliberate choice inside generation 3, itself a small memory-vs-speed trade stated
-explicitly: the array is *not* re-zeroed between reads. Extraction already clears every slot it
-takes, so between reads the array is already all-empty — re-zeroing it anyway would cost O(slots)
-per read regardless, measured at ~50 s of pure `memset` across a 240,000-read whole-genome run.
-The one case that can leave it dirty — a read abandoned mid-accumulation, before extraction ran —
-is handled precisely, by clearing only that read's own touched slots rather than the whole array
-(`src/buckets.rs:196-238`, `:367`).
+```rust
+// src/buckets.rs:620-638
+pub fn add_to_pos(&mut self, hit: &Hit, content: BucketContent) {
+    let b = (if AP { hit.r } else { hit.tpos }) / self.halflen;
+    self.merged = false;
+    if self.dense_on {
+        let g = self.slot(hit.segm_id, b);
+        self.dense_add(g, &content);
+        if b > 0 {
+            self.dense_add(g - 1, &content);
+        }
+        return;
+    }
+    // ... sparse fallback below
+}
 
-**Why this is not merely an implementation detail.** The paper specifies buckets abstractly
-(Definition 10: a block covers a mapping if the mapping lies fully inside it) and says nothing
-about how a block's accumulated state should be stored. All three generations, and specifically
-the discoveries that drove each transition — the paradoxical more-threads-is-slower allocation
-stall, the hashmap's per-touch cost on a dense-hit workload, the sort's memory-bandwidth cost —
-are engineering entirely below the level the paper (or the C++, which shares its abstraction) ever
-had to reason about.
+// src/buckets.rs:407-413
+#[inline(always)]
+fn dense_add(&mut self, g: usize, content: &BucketContent) {
+    let slot = &mut self.dense[g];
+    if slot.matches == 0 {
+        self.touched.push(g as u32);
+    }
+    slot.add(content);
+}
+```
 
-### A.2 A segment's memory is freed the moment sketching no longer needs it
+`add_to_pos`/`add_to_bucket` are now one indexed read-modify-write, with the touched slot recorded
+inline the first time it's hit — no sort, no dedup pass, no per-contribution record. Extraction
+then picks the cheaper of two strategies depending on how much of the array a read actually
+touched: a whole-genome k=15 read touches nearly every slot, so a linear scan is free and sorting
+the (equally long) touched list would be pure overhead; a k=25 read touches a handful, so the
+scan's O(slots) cost would dominate and walking just the touched list wins instead:
 
-Multiple chunks of one reference segment share a single `Arc`'d copy of its raw bases (so parallel
-sketching doesn't each hold a private copy). The `Arc` used to be carried all the way into the
-completion message and released only once the — slower, serial — index-*apply* step consumed it;
-narrowing its lifetime to release as soon as the segment is sketched, since nothing downstream
-needs the raw bases again once its k-mers exist, cut **~11–13% off peak RSS** on indexing-dominated
-runs. This is a lifetime decision, not an algorithmic one: the data was always safe to free at that
-point, it simply hadn't been.
+```rust
+// src/buckets.rs:432-441
+fn extract_dense(&mut self) {
+    // ...
+    if touched.len().saturating_mul(3) >= self.dense_slots {
+        // scan every slot in order — cheap when most are occupied
+    } else {
+        // sort and walk just the touched slots — cheap when few are
+    }
+}
+```
 
-### A.3 The two-pass reference reader avoids reallocation churn as a side effect of being parallel
+Capped at `MAX_DENSE_SLOTS = 2 << 20` — 2,097,152 slots × 16 bytes = **exactly 32 MB per worker**
+— as a safety valve for the read that doesn't fit this profile (an unusually small half-length
+implies an unusually large slot count), with generation 2.5 kept as the fallback beyond that cap,
+pinned by a test asserting the two paths agree exactly.
 
-Covered for its speed contribution in §B.4 below, but it earns a mention here too: `PROFILING.md`
-records that peak RSS falls slightly alongside the timing win, because pass 2 writes directly into
-an exactly-sized buffer instead of the single-pass design's pattern of repeatedly reallocating a
-growing per-segment buffer as more ranges arrived. A reallocating growth strategy transiently holds
-both the old and new buffer during a copy; sizing the buffer exactly once removes that overhead
-entirely rather than shrinking it.
+**Measured, on a 6,000-read whole-genome HiFi run at `-@1`:** `bucket_merge` fell from 1342.1 s to
+39.1 s, and whole-run wall from 1995.6 s to 725.6 s — byte-identical output.
 
-### A.4 Sizing allocations from the actual distribution, not a flat safety margin
-
-Sketch output buffers (`FracMinHash::sketch_slice_into`) are pre-reserved from a binomial model —
-selection is a Bernoulli trial per k-mer, so the count of selected k-mers has mean `len · h_frac`
-and standard deviation `√mean` — rather than a flat `1.1x` over-allocation. Reserving `mean + 6σ`
-leaves the chance of a mid-sketch reallocation astronomically small while costing only ~0.5% slack
-on a whole chromosome, against the ~10% a flat factor spends unconditionally on every sequence
-regardless of its actual variance. Overflow stays merely slow (one extra reallocation), never
-wrong.
-
-A related, smaller case for the same reasoning: `h2multi` lists (k-mers with more than one
-reference hit) start at capacity 2, not the default-grown capacity 1, since by construction a
-k-mer that reaches this map already has at least two hits — sidestepping millions of
-allocate-at-1-then-immediately-regrow calls across a whole-genome index, for identical final
-memory.
-
-### A.5 Why the `-@1` figure specifically is the honest one to quote
-
-Every technique above lives inside per-worker state. At `-@1` there is exactly one `Buckets`
-instance, so the 6.90–7.43x memory ratio is a clean single-instance comparison against the C++'s
-one process. RESULTS.md §3c shows this ratio narrows at higher thread counts precisely because it
-*is* per-worker: `N` threads hold `N` copies of a data structure that individually became tiny,
-and tiny times many is no longer tiny. That is a property of parallelism multiplying a fixed
-per-worker cost, not a regression in any of the memory work above — the per-worker cost genuinely
-fell by three orders of magnitude; it just still multiplies.
+One more deliberate choice, itself a small stated trade: the array is *not* re-zeroed between
+reads. Extraction already clears every slot it takes, so between reads the array is already
+all-empty; re-zeroing it anyway would cost O(slots) per read regardless, measured at ~50 s of pure
+`memset` across a 240,000-read whole-genome run. The one case that can leave it dirty — a read
+abandoned mid-accumulation, before extraction ran — is handled by clearing only that read's own
+touched slots.
 
 ---
 
-## Part B — Single-thread speed: an accumulation, not one dominant change
+## 2. Streaming multi-hit seeds, instead of a fresh hash map per seed
 
-Unlike the memory story, no single item here explains most of the 1.91–2.74x. Each is a real,
-separately measured win; together they compound.
+**What it is.** During `match_seeds`, a seed with more than one reference hit (a "multi-hit"
+seed) needs its hits folded into buckets, with a cap: a bucket's contribution from one seed is
+`min(hits in that bucket, occurrences of the seed in the read)`, so counting can't simply happen
+per-hit — it needs to be aggregated per-bucket first.
 
-### B.1 Not recomputing the second-best search when the first already computed it
+### The C++: a fresh `BucketsHash` per seed
 
-**Definition.** `match_rest` (§10 Scoring; the paper's Algorithm 1) finds a read's best mapping,
-then searches again for the second-best — needed for mapq, Definition 6 — over the same surviving
-buckets with a lower-bound cutoff. The paper calls `slideChain` once per search without discussing
-whether they can share work.
+```cpp
+// shmap.h:105-140 (https://github.com/pesho-ivanov/shmap/blob/63f1103a6e72394fada5f9d9726f4a38f739e8fa/src/shmap.h#L105-L140)
+void match_seeds(const Seeds &p_unique, BucketsType &B, qpos_t S) {
+    for (; B.i < (qpos_t)p_unique.size() && B.seeds < S; B.i++) {
+        Seed seed = p_unique[B.i];
+        if (seed.hits_in_T > 0) {
+            if (seed.hits_in_T == 1) {
+                const auto &hit = tidx.h2single.at(seed.kmer.h);
+                BucketContent content(1, 0, hit.strand == seed.kmer.strand ? 1 : -1, hit.r, hit.r);
+                B.add_to_pos(hit, content);
+            } else {
+                BucketsHash<abs_pos> b2m(B.halflen);
+                for (const auto &hit: tidx.h2multi.at(seed.kmer.h)) {
+                    BucketContent content(1, 0, hit.strand == seed.kmer.strand ? 1 : -1, hit.r, hit.r);
+                    b2m.add_to_pos(hit, content);
+                }
+                for (auto it = b2m.buckets.begin(); it != b2m.buckets.end(); ++it) {
+                    BucketContent content(min(it->second.matches, seed.occs_in_p), 0, it->second.codirection, it->second.r_min, it->second.r_max);
+                    B.add_to_bucket(it->first, content);
+                }
+            }
+        }
+    }
+}
+```
 
-**The discovery, precisely.** On the `Containment`/`Jaccard` path specifically, `find_best_mapping`
-turns out to be a *pure* function of a bucket's location alone: it never reads the mutable
-`content` that the pruning pass updates between the two searches, and it restores its own scratch
-state (`diff_hist`) exactly as it found it — which is exactly what `best_fixed_length`'s closing
+`BucketsHash<abs_pos> b2m(B.halflen)` is a fresh scratch structure — `ankerl::unordered_dense::map
+<BucketLoc, BucketContent, ...>` — constructed for *every multi-hit seed*, populated by calling
+`add_to_pos` (a hashmap insert, twice per hit: `buckets[b]` and `buckets[b-1]`) for every one of
+that seed's reference hits, then walked once to fold its results into the real accumulator `B`.
+For a seed with a million hits, that's a million-entry hashmap built and torn down, purely as
+scratch space to compute one `min(...)` clamp per bucket.
+
+### shmap-rs: exploit that the hits are already sorted
+
+```rust
+// src/shmap/seeding.rs:106-165 (abridged; full comments in the file explain each step)
+} else {
+    // Streaming replacement for the per-seed `BucketsHash`:
+    // `h2multi[h]` is sorted by `(segm_id, r)`, and within a
+    // segment `r`/`tpos` increase together, so the bucket
+    // index `pos/halflen` is monotonically non-decreasing
+    // across this seed's hits. Each hit only touches buckets
+    // `b` and `b-1`, so a bucket is final once we reach a hit
+    // two buckets ahead.
+    let occs = seed.occs_in_p;
+    let mut cur_sid: SegmId = -1;
+    let mut b: RPos = 0;
+    let mut b_hi: RPos = 0;
+    // The only two buckets that can still receive a contribution,
+    // held as fixed slots for `base` and `base + 1`.
+    let mut base: RPos = 0;
+    let mut acc = [BucketContent::default(); 2];
+    for hit in self.tidx.multi_hits(seed.kmer.h) {
+        let pos = if AP { hit.r } else { hit.tpos };
+        let content =
+            BucketContent::new(1, 0, if hit.strand == seed.kmer.strand { 1 } else { -1 }, hit.r, hit.r);
+        if hit.segm_id != cur_sid {
+            // New segment: everything buffered is final.
+            for (j, a) in acc.iter_mut().enumerate() {
+                if a.matches > 0 {
+                    flush_slot(buckets, cur_sid, base + j as RPos, a, occs);
+                    *a = BucketContent::default();
+                }
+            }
+            cur_sid = hit.segm_id;
+            b = pos / halflen;
+            b_hi = (b + 1) * halflen;
+            base = (b - 1).max(0);
+        } else {
+            // Advance `b` to the bucket containing `pos` by comparison,
+            // not division — recomputed by division only on this
+            // segment change, an amortized-O(1) replacement for a
+            // per-hit integer divide over billions of hits.
+            while pos >= b_hi {
+                b += 1;
+                b_hi += halflen;
+            }
+            // Slide the two-slot window up to the new `base`, finalizing
+            // whatever falls out the bottom — one slot if `base` advanced
+            // by exactly one bucket (the common case), both if it jumped
+            // further (a gap with no hits in between).
+            let new_base = (b - 1).max(0);
+            if new_base > base {
+                if acc[0].matches > 0 {
+                    flush_slot(buckets, cur_sid, base, &acc[0], occs);
+                }
+                if new_base == base + 1 {
+                    acc[0] = acc[1];
+                } else {
+                    if acc[1].matches > 0 {
+                        flush_slot(buckets, cur_sid, base + 1, &acc[1], occs);
+                    }
+                    acc[0] = BucketContent::default();
+                }
+                acc[1] = BucketContent::default();
+                base = new_base;
+            }
+        }
+        // A hit touches both bucket b and b-1 (halflen-overlapping windows).
+        acc[(b - base) as usize] += content;
+        if b > 0 {
+            acc[(b - 1 - base) as usize] += content;
+        }
+    }
+    // Flush whatever is still buffered after the seed's last hit.
+    for (j, a) in acc.iter().enumerate() {
+        if a.matches > 0 {
+            flush_slot(buckets, cur_sid, base + j as RPos, a, occs);
+        }
+    }
+}
+```
+
+The insight is the same sortedness the C++'s own index already guarantees (`h2multi[h]` sorted by
+`(segm_id, r)`) — shmap-rs's version just *uses* it instead of re-deriving structure with a
+hashmap. Because a hit only ever touches bucket `b` and `b-1`, and `b` is monotonically
+non-decreasing within a segment, at most two buckets can be "live" at any point while streaming
+through a seed's hits — held as two fixed array slots, `acc[0]`/`acc[1]`, rather than a growable
+map. A bucket is flushed (finalized and folded into the real accumulator, with the `min(...,
+occs)` clamp applied) the moment the stream moves past it. Bucket-index computation itself avoids
+a division per hit too: since `pos` only increases within a segment, `b` is advanced by comparing
+against a precomputed upper bound (`b_hi`) instead of recomputing `pos / halflen` every time —
+division is paid only once per segment change.
+
+**Why this is `match_seeds`'s dominant cost on repetitive references**, per the source's own
+comment: this replaces the ~O(hits) `FxHashMap` inserts the scratch `BucketsHash` did with O(1)
+integer work per hit. Output is unchanged — the same set of buckets receives the same accumulated,
+clamped content, in whatever order `Buckets` re-derives results in, which doesn't depend on
+insertion order.
+
+---
+
+## 3. Memoizing the second-best search against the best-mapping search
+
+**What it is.** `match_rest` (§10 Scoring; the paper's Algorithm 1) finds a read's best mapping,
+then searches again for the second-best — needed to compute mapq, Definition 6 — over the same
+surviving buckets with a lower-bound cutoff.
+
+### The C++: two full, separate searches
+
+```cpp
+// shmap.h:508-520 (https://github.com/pesho-ivanov/shmap/blob/63f1103a6e72394fada5f9d9726f4a38f739e8fa/src/shmap.h#L508-L520)
+int lost_on_pruning = 1;
+std::optional<Mapping> best, best2;
+T.start("match_rest");
+    T.start("match_rest_for_best");
+        best = match_rest(P.size(), m, lmax, p_unique, B, sorted_buckets, diff_hist, p_ht, theta, std::nullopt, query_id, &lost_on_pruning, params.max_overlap);
+    T.stop("match_rest_for_best");
+    T.start("match_rest_for_best2");
+        if (best) {
+            double second_best_thr = best->score() * (1.0 - params.min_diff);
+            best2 = match_rest(P.size(), m, lmax, p_unique, B, sorted_buckets, diff_hist, p_ht, second_best_thr, best, query_id, &lost_on_pruning, params.max_overlap);
+        }
+    T.stop("match_rest_for_best2");
+T.stop("match_rest");
+```
+
+Two calls into `match_rest`, over the identical `sorted_buckets` list, differing only in the
+threshold and which mapping (if any) to exclude. The paper's Algorithm 1 calls `slideChain` once
+per search without discussing whether the two searches can share work — and as written, they
+don't: every bucket both searches visit gets scored from scratch twice.
+
+### shmap-rs: the second search is a pure function of bucket location — on two of the four metrics
+
+**The discovery, precisely.** On `Containment`/`Jaccard` specifically, `find_best_mapping` turns
+out to be a *pure* function of a bucket's location alone: it never reads the mutable `content`
+that pruning updates between the two searches, and it restores its own scratch state (`diff_hist`)
+exactly as it found it — which is exactly what `best_fixed_length`'s closing
 `debug_assert_eq!(intersection, 0)` exists to pin down. So the second sweep was recomputing
 bit-identical scores for every bucket the first sweep had already scored. This is specifically
 *not* true for `bucket_SH`/`bucket_LCS`: both build their result directly out of `content`, the
-same mutable state pruning changes between sweeps — memoizing those would replay a stale value, not
-a correct one, so the cache is restricted to the two metrics where it's provably safe
-(`src/shmap/scoring.rs:401`, and the comment immediately above it).
+same mutable state pruning changes between sweeps — so the cache is restricted to exactly the two
+metrics where it's provably safe:
 
-**Implementation.** `RefineCache` records the first sweep's results and replays them in the
-second; because both sweeps walk the identical `sorted_buckets` slice in the identical order,
-replay is a monotone cursor over one reusable `Vec` — no hashing, no lookup structure at all.
+```rust
+// src/shmap/scoring.rs:399-401
+// `find_best_mapping` is only a pure function of the bucket location
+// on the fixed-length metrics; `BucketSh`/`BucketLcs` both build
+// their result out of `content`, which the pruning pass mutates
+// between the two sweeps, so they must not be memoized.
+let memoizable = matches!(metric, Metric::Containment | Metric::Jaccard);
+```
+
+`RefineCache` records the first sweep's results and replays them in the second; because both
+sweeps walk the identical `sorted_buckets` slice in the identical order, replay is a monotone
+cursor over one reusable `Vec` — no hashing, no lookup structure at all.
 
 **Not a full hit by construction.** The first pass's acceptance threshold ratchets upward as its
 own best score improves, so a bucket the first pass discards late can still clear the second
-pass's flatter cutoff. Those are genuine misses, recomputed from scratch — which is exactly why the
-measured win below is 44%, not 100%.
+pass's flatter cutoff. Those are genuine misses, recomputed from scratch — which is exactly why
+the measured win is 44%, not 100%.
 
-**Measured.** 44% of `find_best_mapping` calls eliminated, flat across coverage (1x/3x/10x) on real
-HG002 HiFi against the whole genome at `-@1`: `match_rest_for_best2` −66.4%/−67.1%/−66.5%, `refine`
-−39.2%/−41.3%/−39.8%, `query_mapping` −9.6%/−10.5%/−9.4%. PAF output byte-identical;
+**Measured.** 44% of `find_best_mapping` calls eliminated, flat across coverage (1x/3x/10x) on
+real HG002 HiFi against the whole genome at `-@1`: `match_rest_for_best2` −66.4%/−67.1%/−66.5%,
+`refine` −39.2%/−41.3%/−39.8%, `query_mapping` −9.6%/−10.5%/−9.4%. PAF output byte-identical;
 `SHMAP_NO_REFINE_MEMO=1` disables it for a direct A/B on one binary.
 
-### B.2 The bucket sort: the paper prescribes it, the C++ implements it plainly, shmap-rs implements it faster and deterministically
+---
 
-**In the paper, precisely.** This is not an invented optimization — the paper's own Algorithm 4
-names it as "Optimization 2: Sort block by decreasing number of matches," with the stated
-reasoning that the *previous* optimization (raising the acceptance threshold as better mappings
-are found, to reject more blocks sooner) works best when the threshold rises as early as possible,
-and sorting by descending match count visits the most promising blocks first — "the heuristic
-expectation that the blocks with most matches will have a higher similarity, which will increase
-θ earlier."
+## 4. Multithreaded read mapping
 
-**In the C++.** `get_sorted_buckets` (§8) implements exactly this with `std::sort` on the full
-bucket records — not a stable sort, so buckets tied on match count get whatever relative order the
-implementation happens to produce, which the standard doesn't even guarantee between runs of the
-same binary.
+**What it is.** Mapping every read against the built index — the phase that dominates wall time
+once the reference is indexed.
 
-**In shmap-rs.** Sorts a *packed* 64-bit key instead of the bucket records themselves —
-`((u32::MAX - matches) as u64) << 32 | index`, ascending, with `sort_unstable`
-(`src/buckets.rs:657-682`). Packing each entry's original index into the low 32 bits makes this
-reproduce exactly what a *stable* descending-by-`matches` sort would: ties keep their original,
-location-sorted order, purely as a side effect of the key, with no stability bookkeeping in the
-sort itself.
+**In the C++:** entirely serial. `map_reads` loops over the input FASTA and calls `map_read` once
+per record, with no threading construct anywhere in the mapping path — confirmed by grep, zero
+matches.
 
-**Computation.** Sorts 8-byte keys instead of the ~32-byte `(BucketLoc, BucketContent)` records
-directly — on a k=15 whole-genome read (~240k touched buckets) this moves a quarter of the bytes a
-record-sort would move, and needs no stable-sort temporary allocation, while implementing the same
-paper-prescribed ordering.
+**In shmap-rs:** `map_reads` runs a fixed three-stage pipeline over `std::thread::scope`:
 
-**A useful side effect, not the motivation.** Deterministic tie-breaking regardless of scheduling
-or standard-library version is why B01's records agree with the C++ on all 12 core PAF columns
-98.32% of the time under Containment (RESULTS.md §7), and the disagreements are almost entirely
-coordinate-only on the same target — a property of the C++ not guaranteeing tie order, not a port
-regression.
+- one reader thread streams records off disk and dispatches them as `Job`s over a bounded channel
+  (bounding memory to a few jobs ahead of the workers, not the whole file);
+- `-@` worker threads each own an independent `SHMapper` + `Buckets` — per-read scratch can't be
+  shared, which is exactly why §1's redesign had to happen before this could be affordable — and
+  turn each job into a `ReadOutput`, tagged with its original sequence index;
+- the scope's own thread is the sole collector: it reorders completions by index and applies them
+  strictly in input order.
 
-### B.3 The rolling-hash inner loop: precomputed rotations, and no bounds checks
+```rust
+// src/shmap/mod.rs — module doc comment, "Multithreading" section
+// Not present upstream at all (grep confirms zero threading in the C++).
+// one reader thread streams records off disk via `read_fasta` and
+// dispatches them as `Job`s over a bounded channel (bounding memory to
+// a few jobs ahead of the workers);
+// `params.threads.max(1)` worker threads each own an independent
+// `SHMapper` + `Buckets` (per-read scratch state can't be shared across
+// threads) and turn each `Job` into a `ReadOutput`, sent back tagged
+// with its original sequence index;
+// the scope's own thread (no extra thread for this part) is the sole
+// collector: it reorders completions by index and applies them
+// strictly in input order, so stdout/PAF/`.unmapped.paf`/`paul.tsv`
+// output is byte-identical regardless of thread count.
+```
 
-**Definition.** `FracMinHash::sketch_slice_into` (§5) computes a forward and reverse-complement
-ntHash-family rolling hash per k-mer window, each window derived from the previous by rotating and
-XORing in the incoming/outgoing base's contribution — the single hottest loop in the whole mapper,
-run once per base of the reference and once per base of every read.
+**Why determinism, specifically.** Output — stdout, the PAF, `.unmapped.paf`, `paul.tsv` — is
+byte-identical at every thread count because the collector applies strictly in submission order;
+only the CPU-bound mapping work parallelizes. Verified by a dedicated test
+(`tests/multithreaded_parity.rs`), and it's what makes any thread-scaling comparison meaningful at
+all — a mapper whose output changed with thread count couldn't be benchmarked this way in the
+first place.
 
-**Precomputed rotation tables.** Three additional 256-entry lookup tables are precomputed once per
-`FracMinHash` instance, each holding a base's contribution with a *fixed* rotate already folded in:
-`lut_fw_k[c] = lut_fw[c].rotate_left(k)`, `lut_rc_r1[c] = lut_rc[c].rotate_right(1)`, `lut_rc_k1[c]
-= lut_rc[c].rotate_left(k-1)` (`src/sketch.rs:37-52`). The mechanical reason this works: those
-three rotate *amounts* — `k`, `1`, `k-1` — depend only on the window geometry, never on which base
-is being processed, so they can be composed into the table once instead of applied at every use.
-The rolling update loop then does a plain table load per base instead of a load-then-rotate,
-removing 3 of the loop's 5 per-base rotates across the whole reference and every read. Tried and
-rejected: interleaving each base's forward/reverse pair into one `[Hash; 2]` table to halve the
-load count, measured ~6% *slower* instead — the 16-byte load goes through a vector register and has
-to be split apart again before the scalar XORs, costing more than the extra scalar load it was
-meant to remove.
+**Robustness, layered on top.** Each worker catches panics from its own `map_read` call rather
+than letting one bad read kill the thread — without this, a dead worker stops draining the bounded
+channel, the reader blocks trying to send into it, and the main thread blocks forever joining it,
+turning one bad read into a permanent hang. Found by reproducing exactly this hang (`-v 2` against
+reads without ground-truth-encoded headers, which panics by documented design).
 
-**Bounds-check-free iteration.** The update used to index the sequence at `s[r]` and `s[r - k]`
-through a signed `RPos`, which cost two bounds checks plus a sign-extension per base — and a
-mid-loop `r >= s.len()` break stopped LLVM from recognizing the loop as counted at all, losing
-further optimization opportunities. Walking the incoming and outgoing bases as a pair of zipped
-slice iterators lets the compiler prove the indices are always in range from the iterators'
-lengths alone, removing every check: **~13–17% off `index_sketching`**.
+**`-@1` is not a separate code path** — it runs through the identical pipeline, paying none of its
+threading overhead and gaining none of its benefit: with a single worker, completions already
+arrive in submission order, so the reorder buffer is a no-op.
 
-**Computation.** Both are constant-factor work removed per base, not a complexity change — the
-loop is still O(sequence length) either way; it simply does less work per iteration of that same
-loop.
+---
 
-### B.4 The reference reader: parallel, in two passes, specifically to keep the *copy* parallel too
+## 5. Parallel reference indexing
+
+**What it is.** Building `SketchIndex` — sketching every reference segment and populating the
+hash table that maps a k-mer hash to its reference occurrence(s) — once per run, before any read
+is processed.
+
+**In the C++:** entirely single-threaded.
+
+**In shmap-rs:** two techniques combine.
+
+**Hash-sharded index storage: `index_initializing` 8.4 s → 1.1–1.8 s.** The k-mer hash table is
+split into `N_SHARDS = 8` independent shards, each its own `HashMap`. Every occurrence of a given
+hash lands in the same shard by construction (`shard_of`, a pure function of the hash), so the
+parallel fill needs no locking and cannot depend on scheduling. Fixed at 8 regardless of `-@`, so
+the index's *contents* never depend on thread count. Three design choices had to be right, each
+found by measuring a wrong first attempt:
+
+- *Shard on the low hash bits, against the usual advice.* FracMinHash keeps only hashes below
+  `h_frac · u64::MAX`, so every hash reaching the index is small — at `-r 0.01`, under `2^57`,
+  with the top 7 bits always zero. Sharding on the high bits (normally the best-mixed choice)
+  puts every k-mer in shard 0 and silently serializes the whole build: an early version did
+  exactly this with 64 shards, and it cost 6.96 s on one thread while the other 63 finished in
+  0.13 s.
+- *Keep the fill interleaved with reading at `-@1`.* Deferring inserts to a separate phase loses
+  the overlap the collector already had with the reader and sketcher: 9.2 s → 15.1 s, slower.
+- *Hold the shards in a fixed-size array, not a `Vec`.* Every index probe in the mapping hot path
+  goes through this array; the extra dependent load through a `Vec`'s indirection cost
+  `collect_kmer_info` up to 24%.
+
+```rust
+// src/index.rs:73-74
+const SHARD_BITS: u32 = 3;
+pub const N_SHARDS: usize = 1 << SHARD_BITS;
+```
+
+**Why 8 shards, not more.** More shards cost real money elsewhere: every index probe in the
+*mapping* hot path indexes this array, and a wider one is colder. Measured on real HiFi at 10x
+`-@1`, where mapping is ~98% of the wall, 64 shards cost 3.4% overall while 8 cost 0.7%.
+
+**Sketching a segment is split into chunks, not one segment per worker.** A k-mer window depends
+only on the `k` bases under it, so `sketch_slice_into` can sketch an offset range of one segment
+and the pieces concatenate to exactly the serial sketch — removing the Amdahl cap where indexing
+couldn't finish faster than sketching the single longest chromosome. ~18% off `indexing` at `-@8`.
+
+---
+
+## 6. Two-pass parallel FASTA parsing
+
+**What it is.** Reading the reference FASTA and splitting it into per-segment nucleotide buffers,
+before any sketching happens.
 
 **Where the cost was.** Reading isn't I/O-bound — the 3.18 GB human reference streams off page
 cache at 3.7 GB/s, 0.87 s total — so the real cost is line-splitting, newline-stripping, and
 copying bases into segment buffers.
 
-**Why one pass isn't enough.** A first parallel design split the file into 16 MB byte ranges parsed
-by up to 8 workers in a single pass, but instrumenting it found the win was capped by the
+**Why one pass isn't enough.** A first parallel design split the file into 16 MB byte ranges
+parsed by up to 8 workers in a single pass, but instrumenting it found the win was capped by the
 *collector*: workers spent only 0.05 s waiting to hand off results, while 2.8–3.2 s of a 2.9–3.2 s
 total read went into concatenating those ranges into a growing per-segment buffer on one thread —
 not the memory copy itself, but the doubling reallocations and ~780k serialized first-touch page
 faults that come with growing a buffer incrementally.
 
-**The fix.** Two passes instead: pass 1 only *counts*, walking the same byte ranges in parallel to
-determine every segment's exact final size and every range's exact offset within it; pass 2 then
-lets worker threads write straight into disjoint slices of a buffer that is already the right size
-— no reallocation, no growth, first-touch page faults spread across threads instead of serialized
-on one. Both passes drive the same line-walking logic so they cannot disagree about where a line
-boundary falls, and two `debug_assert`s pin that pass 2 writes exactly what pass 1 counted and that
-a segment's parts tile its buffer with no gaps.
+**The fix:** two passes. Pass 1 only *counts*, walking the same byte ranges in parallel to
+determine every segment's exact final size and every range's exact offset within it; pass 2 lets
+worker threads write straight into disjoint slices of a buffer that's already the right size —
+zero reallocation, first-touch page faults spread across threads instead of serialized on one.
+Both passes drive the same line-walking logic so they cannot disagree about where a line boundary
+falls, and two `debug_assert`s pin that pass 2 writes exactly what pass 1 counted and that a
+segment's parts tile its buffer with no gaps.
 
-**Measured.** 4.4 s → 1.5–1.7 s (`fasta_scan` ~0.3 s + `fasta_fill` ~1.3 s). Falls back to the
-original single-pass reader for compressed input (byte offsets are meaningless there), small
-files, `-@1`, and non-Unix targets — behavior is unchanged wherever the split doesn't apply.
+```rust
+// src/io/mod.rs — read_fasta_parallel's doc comment
+// Reading was the last serial phase of indexing. It is not I/O bound —
+// the 3.18 GB human reference streams in 0.87 s at 3.7 GB/s — so the
+// cost is line splitting, newline stripping and copying, and that
+// parallelises. The two passes exist to keep the *copy* parallel too.
+```
 
-### B.5 Global allocator swap (community contribution, PR #5)
+**Measured:** `index_reading` 4.4 s → 1.5–1.7 s (`fasta_scan` ~0.3 s + `fasta_fill` ~1.3 s). Falls
+back to the original single-pass reader for compressed input, small files, `-@1`, and non-Unix
+targets — behavior is unchanged wherever the split doesn't apply. A side effect: peak RSS falls
+slightly too, since a reallocating growth strategy transiently holds both the old and new buffer
+during a copy, and sizing the buffer exactly once removes that overhead entirely rather than
+shrinking it.
 
-`mimalloc` replaces the system allocator globally (`src/main.rs:13`) — a two-line change,
-contributed by a community PR rather than part of the original port, and orthogonal to everything
-above: an allocator choice cannot change algorithm results, confirmed by re-running all nine
-ground-truth accuracy figures bit-for-bit identical after the swap. Measured effect (promotion
-commit `bacfec3`): single-threaded speedup over the C++ moved from 1.85–2.55x to 1.91–2.74x — the
-range quoted at the top of this document already reflects it. At high sketch density (`-r 0.10`)
-the effect is larger: wall time fell 35% (64.9 s → 42.4 s) and peak memory 4% (17.74 GB → 17.00
-GB). The one place it costs something: baseline single-threaded memory at the default sampling
-rate rose slightly, 2.21 GB → 2.73 GB — the allocator trades a small fixed overhead for
-substantially better behavior under the allocation pressure the denser settings create.
+---
 
-### B.6 Smaller wins, catalogued in full in `PROFILING.md`
+## 7. Sketching and index hot-loop improvements
 
-Below the threshold of their own section, but real and measured, each below the level of
-abstraction the paper or the C++ ever specifies — full detail and exact figures in
-`PROFILING.md`'s "What's optimized" list rather than repeated here:
+**What it is.** `FracMinHash::sketch_slice_into` (§5 Sketching) computes a forward and
+reverse-complement ntHash-family rolling hash per k-mer window — the single hottest loop in the
+mapper, run once per base of the reference and once per base of every read.
 
-- **Chunked sketching of a reference segment**, not one whole segment per worker — removes the
-  Amdahl cap where indexing couldn't finish faster than sketching the single longest chromosome
-  (~18% off `indexing` at `-@8`; relevant to single-thread speed because the same chunking logic,
-  not just its parallelism, is what `sketch_slice_into`'s offset-aware slicing enables).
+### Precomputed rotation tables: 3 of 5 per-base rotates removed
+
+```cpp
+// sketch.h:461-463 (https://github.com/pesho-ivanov/shmap/blob/63f1103a6e72394fada5f9d9726f4a38f739e8fa/src/sketch.h#L461-L463)
+h_fw = std::rotl(h_fw, 1) ^ std::rotl(LUT_fw[ size_t(s[r-k]) ], k) ^ LUT_fw[ size_t(s[r]) ];
+h_rc = std::rotr(h_rc, 1) ^ std::rotr(LUT_rc[ size_t(s[r-k]) ], 1) ^ std::rotl(LUT_rc[ size_t(s[r]) ], k-1);
+```
+
+Count them: `rotl(h_fw, 1)`, `rotl(LUT_fw[...], k)`, `rotr(h_rc, 1)`, `rotr(LUT_rc[...], 1)`,
+`rotl(LUT_rc[...], k-1)` — **five rotates per base.** The C++ already precomputes the *base* hash
+per character into `LUT_fw`/`LUT_rc` (256-entry tables filled once, at the four ACGT slots), but
+three of these five rotates are applied to a *table lookup result*, freshly, on every single base
+— even though the rotate amount (`k`, `1`, or `k-1`) never changes for the life of the run, since
+`k` is fixed.
+
+```rust
+// src/sketch.rs:37-52
+/// Per-base contributions with the fixed rotates the rolling update
+/// applies to the *outgoing*/*incoming* base baked in, so the hot loop
+/// does a plain table load instead of a load+rotate each. `lut_fw_k[c]
+/// = lut_fw[c].rotate_left(k)`, `lut_rc_r1[c] = lut_rc[c].rotate_right(1)`,
+/// `lut_rc_k1[c] = lut_rc[c].rotate_left(k-1)`.
+lut_fw_k: [Hash; 256],
+lut_rc_r1: [Hash; 256],
+lut_rc_k1: [Hash; 256],
+```
+
+shmap-rs precomputes those same three rotated values *into three additional tables*, once per
+`FracMinHash` instance, so the rolling loop does a plain table load instead of a load-then-rotate
+— removing 3 of the 5 rotates across every base of the reference and every read. Tried and
+rejected: interleaving each base's forward/reverse pair into one `[Hash; 2]` table to halve the
+load count, measured ~6% *slower* instead — the 16-byte load goes through a vector register and
+has to be split apart again before the scalar XORs.
+
+### Bounds-check-free iteration
+
+The update used to index the sequence at `s[r]` and `s[r - k]` through a signed `RPos`, costing
+two bounds checks plus a sign-extension per base, with a mid-loop `r >= s.len()` break stopping
+LLVM from recognizing the loop as counted at all. Walking the incoming and outgoing bases as a
+pair of zipped slice iterators lets the compiler prove the indices are always in range from the
+iterators' lengths alone: **~13–17% off `index_sketching`.**
+
+### `Entry` instead of `contains_key` + `insert`: one hash instead of two
+
+```rust
+// src/index.rs:264-286
+#[inline]
+fn insert_hit(shard: &mut Shard, kmer: &Kmer, tpos: RPos, segm_id: SegmId, max_matches: Option<i32>) {
+    let hit = Hit::new(kmer, tpos, segm_id);
+    // `entry` instead of `contains_key` + `insert`/`entry`: hashes
+    // `kmer.h` once instead of twice for the common (single-hit)
+    // case — this loop runs once per indexed k-mer (~19M for the
+    // full CHM13 genome), so the redundant hash was a real,
+    // measurable cost in `index_initializing`.
+    match shard.h2single.entry(kmer.h) {
+        std::collections::hash_map::Entry::Vacant(e) => {
+            e.insert(hit);
+        }
+        std::collections::hash_map::Entry::Occupied(_) => {
+            // `with_capacity(2)`, not `or_default()`: a k-mer that
+            // reaches `h2multi` at all ends up holding at least two
+            // hits, and most hold exactly two. Starting empty made
+            // that near-universal case allocate at capacity 1 and
+            // then immediately reallocate — millions of avoidable
+            // reallocations on a whole genome, for the same final memory.
+            let multi = shard.h2multi.entry(kmer.h).or_insert_with(|| Vec::with_capacity(2));
+            if max_matches.is_none_or(|m| (multi.len() as i32) < m + 1) {
+                multi.push(hit);
+            }
+        }
+    }
+}
+```
+
+A `contains_key` check followed by a separate `insert` call hashes the key twice — once to check,
+once to insert. `entry()` hashes once and returns a handle to the slot either way. Over ~19M
+indexed k-mers on the full CHM13 genome, that redundant hash was a real, measurable cost.
+
+### Sketch buffer capacity from the actual distribution
+
+Selection is a Bernoulli trial per k-mer, so the count of selected k-mers has mean `len · h_frac`
+and standard deviation `√mean`. shmap-rs reserves `mean + 6σ` instead of a flat `1.1x` — leaving
+the chance of a mid-sketch reallocation astronomically small while costing only ~0.5% slack on a
+whole chromosome, against the ~10% a flat factor spends unconditionally on every sequence
+regardless of its actual variance. Overflow stays merely slow, never wrong.
+
+**Combined effect of the hot-loop changes:** roughly **13–17% off reference sketching time.**
+
+---
+
+## 8. Lower allocation and memory traffic
+
+Several smaller structural choices, each removing an allocation or a copy that the C++ pays for on
+every read or every k-mer.
+
+### A single query position stored inline, not in a one-element vector
+
+```rust
+// src/types.rs:74-81
+/// The query positions a seed's k-mer occurs at, sorted decreasing.
+///
+/// Stored inline when there is exactly one, which is the overwhelmingly
+/// common case: on real HiFi reads ~96% of a read's k-mers occur exactly once
+/// in it (310 M k-mers against 299 M distinct, measured on a 10x whole-genome
+/// run). Building this as a `Vec` per seed meant ~300 M heap allocations for
+/// a single `i32` each.
+pub enum PMatches {
+    One(QPos),
+    Many(Vec<QPos>),
+}
+```
+
+The C++'s `Seed::pmatches` is unconditionally `std::vector<qpos_t>` — even a seed occurring once
+in the read allocates a one-element heap vector to record that. `PMatches::One(QPos)` stores that
+overwhelmingly common case inline in the enum itself, with no heap allocation at all; only the
+~4% of seeds with genuine repeats fall back to `Many(Vec<QPos>)`.
+
+### `Match` borrows its `Seed`; the C++ copies the whole thing, heap vector included
+
+```cpp
+// types.h:43-71 (https://github.com/pesho-ivanov/shmap/blob/63f1103a6e72394fada5f9d9726f4a38f739e8fa/src/types.h#L43-L71)
+struct Seed {
+	Kmer kmer;
+	rpos_t hits_in_T;
+	qpos_t occs_in_p;
+	qpos_t seed_num;
+	std::vector<qpos_t> pmatches;   // positions in `p' of all occurences of `kmer'
+	// ...
+};
+
+struct Match {
+	Seed seed;   // owned by value
+	Hit hit;
+	Match(const Seed &seed, const Hit &hit)
+		: seed(seed), hit(hit) {}   // copies the Seed, including its heap-allocated pmatches
+};
+```
+
+Every `Match` the C++ constructs deep-copies a full `Seed` — kmer, counts, and the heap-allocated
+`pmatches` vector all over again — even though the seed already exists elsewhere and outlives the
+match. shmap-rs's `Match` borrows the `Seed` it refers to instead of owning a copy, since nothing
+about a match needs the seed to outlive the borrow.
+
+### `diff_hist` is a dense `Vec` indexed by `seed_num`, on the path that matters
+
+```rust
+// src/shmap/mod.rs:659-663
+let mut diff_hist: Vec<QPos> = vec![0; p_unique.len()];
+for seed in &p_unique {
+    diff_hist[seed.seed_num as usize] = seed.occs_in_p;
+}
+```
+
+On `match_rest`'s actual hot path (`best_fixed_length`, `find_best_mapping` — every normal read),
+`diff_hist` is a plain `Vec<QPos>` indexed directly by `seed_num`, not a hash map — a read has at
+most a few thousand seeds, `seed_num` is already dense and contiguous by construction, so a vector
+index replaces a hash-and-probe with a direct offset. (A second, hashmap-keyed `diff_hist: H2Cnt`
+does exist in `refine.rs`'s `Matcher`, but it backs only the optional ground-truth diagnostic path
+in `analyse_simulated.rs` — off by default, and not part of normal mapping.)
+
+### The full reference sequence is discarded after sketching
+
+```cpp
+// sketch.h:20-27 (https://github.com/pesho-ivanov/shmap/blob/63f1103a6e72394fada5f9d9726f4a38f739e8fa/src/sketch.h#L20-L27)
+struct RefSegment {
+	sketch_t kmers;
+	std::string name;
+	std::string seq;   // empty if only mapping and no alignment
+	rpos_t sz;
+	int id;
+};
+```
+
+```cpp
+// index.h:104 (https://github.com/pesho-ivanov/shmap/blob/63f1103a6e72394fada5f9d9726f4a38f739e8fa/src/index.h#L104)
+T.push_back(RefSegment(sketch, segm_name, segm_seq, segm_seq.size(), T.size()));
+```
+
+The comment says `seq` is "empty if only mapping and no alignment" — but the constructor call that
+actually builds the index passes `segm_seq`, the real sequence content, *unconditionally*, so the
+field is populated with the full reference every time an index is built regardless. Searching the
+mapping code for anywhere `.seq` is actually read finds exactly two lines, both fully commented
+out:
+
+```cpp
+// shmap.h:433, 440 — both dead
+//const char *P = seq->seq.s;
+//qpos_t P_sz = (qpos_t)seq->seq.l;
+```
+
+So the C++ carries a second, full-size copy of the genome in memory for the entire run, for a
+consumer that doesn't exist in live code. shmap-rs's `RefSegment` has no `seq` field at all — only
+the sketch survives past indexing:
+
+```rust
+// src/sketch.rs:9-17
+/// The C++ `RefSegment` also stores the segment's full nucleotide sequence
+/// (`seq`), but that field is only ever read by the fully-commented-out
+/// SAM/edlib alignment code — carrying it here would roughly double index
+/// memory for a feature that's dead code upstream, so it's dropped.
+pub struct RefSegment {
+    pub kmers: SketchT,
+    pub name: String,
+    pub sz: RPos,
+    pub id: i32,
+}
+```
+
+### The rest, briefly
+
 - **FASTA records handed to the caller by value**, removing a second full copy of every
   chromosome that both call sites used to make with `.to_vec()`, since the underlying reader
   already returns an owned buffer.
-- **`match_seeds`'s per-seed scratch is two fixed slots, not a `Vec`** — a hit at bucket `b`
-  touches only `b` and `b - 1`, and `b` never decreases within a segment, so the live window is
-  provably two buckets wide; no dynamic growth is ever possible.
+- **A segment's read-ahead is bounded to its own chunks**, not `threads * 4` chunks, so its memory
+  frees as soon as it's sketched rather than staying alive until the (slower) index-apply step —
+  ~11–13% off peak RSS on indexing-dominated runs.
 - **Buffered stdout in the collector** — one `BufWriter` held for the whole run instead of
   `print!()` per read, which flushes (a syscall) on every trailing newline.
 - **`lto = "fat"` + `codegen-units = 1`** in the release profile — worth ~5% wall on its own,
   purely from cross-crate inlining across the `needletail`/`rustc-hash` boundary that the default
   16 codegen units prevented. `panic = "unwind"` stays as-is (not `"abort"`) because the per-read
-  panic isolation the multithreaded pipeline relies on needs `catch_unwind` — a case where a
-  build-profile choice is constrained by a capability outside this document's scope, not by
-  anything about speed itself.
+  panic isolation in §4 needs `catch_unwind`.
 
 ---
 
-## Not covered here, and where it lives instead
+## Why `-@1` is the number to quote for memory specifically
 
-- **Correctness fixes** — five places where shmap-rs's output differs from what the C++ or the
-  paper would produce (an uncleared-counters bug that corrupts two live PAF tags across a run,
-  a Jaccard scoring off-by-one the C++'s own author flagged as unresolved, a bucket-coordinate bug
-  that produced a mapping 1.28 Mb past a chromosome's end, and two cases of undefined C++ behavior
-  that had no faithful Rust translation). These change *what* gets computed, not its cost, so they
-  don't belong in a document about speed and memory.
-- **The multithreading capability** — the reader/worker-pool/collector pipeline and parallel
-  sharded indexing are new engineering absent from the C++ entirely, and account for RESULTS.md's
-  largest headline numbers (up to 17.79x whole-run speedup) — but they are explicitly not a
-  single-thread story: `-@1` runs through the identical pipeline and pays none of its overhead
-  while gaining none of its benefit. Index sharding's *storage* choices (a fixed-size shard array
-  rather than a `Vec`, to avoid a colder indirection in the mapping-time lookup path) are the one
-  piece of that work with single-thread consequences, since every index probe pays that cost
-  regardless of `-@`.
-- **New CLI-visible capabilities** — `--rarity-weight`/`--rarity-tiebreak`/`--rarity-alpha`
-  (research knobs for repeat-region accuracy, ultimately not the fix for that gap — RESULTS.md §8),
-  `-x`/`--profile` and `--per-read-stats` (profiling instrumentation), all off by default and none
-  changing the cost of a default run.
-- **Behavior kept deliberately unchanged from the C++** — two counters ported as the same inert,
-  self-consistent bumps the C++ has, because they feed only a diagnostic never a PAF tag; two dead
-  CLI flags kept for compatibility; one case where the C++'s own code comment describes a formula
-  the code beneath it doesn't actually implement.
+Almost every technique in §1 lives inside per-worker state. At `-@1` there is exactly one
+`Buckets` instance, so the 6.90–7.43x (or 8.2–9.6x, on the depth measurement) memory ratio is a
+clean single-instance comparison against the C++'s one process. RESULTS.md §3c shows this ratio
+narrows at higher thread counts precisely because it *is* per-worker: `N` threads hold `N` copies
+of a data structure that individually became tiny, and tiny times many is no longer tiny. That's
+parallelism multiplying a fixed per-worker cost, not a regression in the redesign — the per-worker
+cost genuinely fell by three orders of magnitude; it just still multiplies.
+
+---
+
+## Not covered here
+
+- **Correctness fixes** — five places where output itself differs from the C++ or the paper (an
+  uncleared-counters bug corrupting two live PAF tags across a run, a Jaccard scoring off-by-one
+  the C++'s own author flagged as unresolved, a bucket-coordinate bug, and two cases of undefined
+  C++ behavior with no faithful Rust translation). These change *what* gets computed, not its
+  cost.
+- **New CLI-visible capabilities** — research knobs for repeat-region accuracy, profiling
+  instrumentation — all off by default, none changing the cost of a default run.
+- **The full inventory of smaller changes**, including radix-layout and allocation details not
+  listed above — `PROFILING.md`'s "What's optimized" section is the exhaustive, chronological
+  record.

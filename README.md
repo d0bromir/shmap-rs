@@ -118,7 +118,7 @@ are window boundaries.
 | file | contents |
 |---|---|
 | [RESULTS.md](RESULTS.md) | **all benchmark numbers** — the single source, generated from `benchmarks/` |
-| [PORT_CHANGES.md](PORT_CHANGES.md) | single-thread speed and memory: what changed vs the C++ and the paper, and why |
+| [PORT_CHANGES.md](PORT_CHANGES.md) | speed and memory vs the C++ and the paper: verified C++ source snippets, exact data structures, and why |
 | [PROFILING.md](PROFILING.md) | optimization log: what changed, why, and what it measured at the time |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | how a PR is checked, and what decides a merge |
 | [VERSIONING.md](VERSIONING.md) | the four versions, and the PR rule |
