@@ -146,6 +146,36 @@ is just not headroom SIMD can reach, on this evidence.
 **Outcome.** No change to `sketch.rs`. The PR adds the test that pins the library finding and the
 two probes that pin the SIMD one, so both stay checkable and nobody re-derives them.
 
+### Addendum, 2026-08-02 — checked whether Cascade Lake downclocking confounds the SIMD numbers
+
+Raised mid-Q4 (this host's CPUs, Xeon Gold 5218, are Cascade Lake — well documented to throttle
+under sustained multi-core AVX-512). Worth checking directly rather than assuming it either
+invalidates or doesn't affect the numbers above, since `turbostat` itself needs root/MSR access
+this account doesn't have — `/proc/cpuinfo`'s per-core MHz field doesn't, so
+[`profiling/downclock_probe.rs`](profiling/downclock_probe.rs) uses that instead: one thread per
+core running a real (non-optimizable-away) loop for a few seconds, `/proc/cpuinfo` sampled every
+200ms.
+
+**Q1's single-threaded comparison was not itself confounded.** With only 1 core busy and the
+other 63 idle — Q1's actual test conditions — both scalar and AVX-512 hold the full single-core
+turbo ceiling, 3900 MHz, identically, reproduced twice. No frequency penalty at the scale Q1
+actually measured at.
+
+**But there is a real, separate, larger penalty — and it only shows up at production scale.**
+With all 64 cores busy simultaneously, scalar sustains a flat 2800 MHz; the same 64 cores running
+AVX-512 drop to ~2300–2460 MHz — once landing exactly on the 2300 MHz base clock, zero turbo at
+all. A 14–18% package-wide frequency cut, reproduced twice. This is exactly the condition that
+would occur if AVX-512 sketching had been adopted and every worker thread ran it concurrently at
+high `-@` — a cost no single-threaded microbenchmark, including Q1's, could ever see.
+
+**This reinforces the original conclusion; it doesn't reverse it.** The correctness-verified
+AVX-512 sketcher already lost to scalar (0.79–0.87x) *before* accounting for this. Deployed at
+`-@64` in production, it would additionally have cost the ~14–18% package-wide clock penalty just
+measured — on top of an already-losing comparison, and potentially dragging down every *other*
+concurrently-running worker thread's non-AVX-512 work too, not only the sketching itself. Recorded
+as project memory (`no-avx512-cascade-lake.md`) so any future SIMD proposal on this hardware is
+judged against the multi-core number, not just an isolated single-core comparison.
+
 ---
 
 ## Q2 — Check: does the suite already run shmap-rs and map-shmap with three metrics?
