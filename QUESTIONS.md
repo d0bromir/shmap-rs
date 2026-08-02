@@ -10,6 +10,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 |---|---|---|---|---|
 | Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | merged |
 | Q2 | Check: does the suite run shmap-rs and map-shmap with Jaccard, Containment, SH? | `q2-three-metrics` | #7 | merged |
+| Q3 | Detailed, significance-ordered list of changes vs the C++/paper | `q3-optimizations-list` | — | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -190,6 +191,59 @@ all. Not fixed here — it's inherited, unused by the documented benchmark flow,
 
 **Outcome.** No `src/`, `suite.toml`, or `run.py` change. This PR documents the verification in
 `QUESTIONS.md` only.
+
+---
+
+## Q3 — Detailed, significance-ordered list of changes vs the C++/paper
+
+**Asked** 2026-08-02 · **Branch** `q3-optimizations-list` · **Status** in review
+
+**Question.** *„тук ни трябва много подробно обяснение на това какво е сменено с всички базови
+дефиниции, как промените от оригиналния C++ shmap и статията са имплементирани, какво се
+променя като изчисление и структура от данни и защо. Подредено по значимост. да направи списък
+от доп. оптимизации по сравнение с оригиланата статия за shmap"* — a very detailed explanation
+of what changed, with definitions, how each change is implemented relative to the C++ and the
+paper, what changes computationally and in data structures, and why — ordered by significance.
+
+**Answer.** [`PORT_CHANGES.md`](PORT_CHANGES.md), new. 20 entries across five significance tiers:
+correctness fixes that change actual output (5), architecture absent from the C++ entirely (2),
+data-structure/algorithmic optimizations within the ported logic (6, one of them itself a
+three-generation evolution), new opt-in capabilities (4), and behavior kept exactly as the C++
+has it, with the reasoning for why (4).
+
+**Headline findings, not previously written down anywhere in one place:**
+
+- The C++ never clears its per-read `Counters` between reads, so two of its own live PAF tags
+  (`total_matches:i:`, `match_inefficiency:f:`) accumulate across a run instead of reporting one
+  read's own value — fixed in the port. The most significant finding here, since it's the only
+  one that corrupts a value a caller reads directly off the PAF line rather than a diagnostic.
+- Two further correctness fixes change actual mapping output: Jaccard's sliding-window scorer
+  used `prev(r)` instead of `r` (the C++'s own author left a `TODO` questioning it), and a
+  single-hit bucket match omitted the segment check its multi-hit sibling has twice, which
+  produced a `bucket_SH` coordinate 1.28 Mb past the end of chromosome 6 on real data.
+- The `Buckets` accumulator has evolved through three internal generations (a naive ~15 GB/worker
+  dense array → a hashmap → the current read-scaled dense array with a radix-sort fallback), each
+  transition driven by a measured, sometimes counterintuitive discovery — including a
+  more-threads-sometimes-slower bug in generation 1.
+- Two things were tried and are explicitly *not* in the codebase because they were measured and
+  didn't pay off: sharding the index on the conventionally-correct high hash bits (serialized the
+  whole build to one thread), and the `--rarity-weight`/`--rarity-tiebreak` research knobs for
+  repeat-region accuracy (RESULTS.md §8 already covers why raising sketch density wins instead).
+
+**Relationship to existing docs, to avoid duplication.** [`PROFILING.md`](PROFILING.md) already
+tracks every optimization chronologically with exact before/after numbers at the time each
+landed — `PORT_CHANGES.md` doesn't re-derive those; it cites them, reorganized by significance and
+framed specifically against the paper and the C++ rather than against the previous build, and adds
+the correctness and new-capability content a performance log has no reason to carry.
+
+**Methodology.** Every `src/*.rs:line` citation was checked against the file on disk after
+writing (one was wrong on the first pass — a counter-reset citation that pointed at the wrong
+function — found and fixed before this was pushed). Every quoted number was traced to its source:
+either a `PROFILING.md`/`RESULTS.md` figure or a doc comment already in the source, confirmed by
+the port's own stated practice of grep-based call-site audits rather than assumption.
+
+**Outcome.** New file, `PORT_CHANGES.md`, plus a pointer added to `README.md`'s documentation
+table. No `src/` change.
 
 ---
 
