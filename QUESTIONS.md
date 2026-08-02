@@ -11,7 +11,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | merged |
 | Q2 | Check: does the suite run shmap-rs and map-shmap with Jaccard, Containment, SH? | `q2-three-metrics` | #7 | merged |
 | Q3 | Speed and memory vs the C++/paper, verified with C++ source snippets | `q3-optimizations-list` | #8 | merged |
-| Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | — | in review |
+| Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | #9 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -297,7 +297,7 @@ table. No `src/` change.
 
 ## Q4 — Thread scaling caps at ~7x on 64 threads: diagnose, and is rayon the fix?
 
-**Asked** 2026-08-02 · **Branch** `q4-thread-scaling` · **Status** in review
+**Asked** 2026-08-02 · **Branch** `q4-thread-scaling` · **PR** #9 · **Status** in review
 
 **Question.** *"scaling with threads doesn't look good. 7x for 64 threads. My colleague dpetrov
 suggests rayon library. In any case, scaling with threads needs real significant optimization"* —
