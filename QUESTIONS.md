@@ -22,10 +22,12 @@ awaiting the benchmark) · **merged** · **dropped** (with the reason in its sec
 **Question.** *„sketch.rs да се замени от библиотека, която вече е оптимизирана."* — replace our
 sketching code with an existing, already-optimised library instead of maintaining our own.
 
-**Answer.** The library exists and the hash is genuinely standard, but swapping it in would change
-every mapping *and* run 4.5x slower. Recommendation: keep `sketch.rs`.
+**Answer.** Keep `sketch.rs`. The library exists and the hash is genuinely standard, but swapping it
+in would change every mapping *and* run 4.5x slower — and writing SIMD ourselves buys 1.33x on
+sketching, which is ~4% end to end and below the noise floor.
 
-Three findings, each pinned by a test in [`tests/nthash_equivalence.rs`](tests/nthash_equivalence.rs):
+Three findings on the library question, each pinned by a test in
+[`tests/nthash_equivalence.rs`](tests/nthash_equivalence.rs):
 
 1. **Our hash *is* ntHash.** The four base constants and the rolling scheme are identical to the
    `nthash` crate's, verified window by window against `ntf64`/`ntr64` at k = 15, 21, 25, 31. So
@@ -53,14 +55,60 @@ Three findings, each pinned by a test in [`tests/nthash_equivalence.rs`](tests/n
    checksum fold, the crate looks 2x *faster*, because that measures our `Vec` growth rather than
    anyone's hashing.
 
-**Outcome.** No change to `sketch.rs`. The PR adds only the test that documents this, so the claim
-stays checkable and nobody re-derives it.
+### What the literature says
 
-**Follow-up, not done here.** If sketching needs to be faster, the remaining headroom is SIMD: 8
-lanes of 64-bit ntHash computed in parallel. No crate offers that with both hashes exposed
-(`seq-hash` is SIMD but 32-bit), so it would be our code, not a library — a different question from
-this one, and worth asking separately since §5 of [RESULTS.md](RESULTS.md) puts sketching at
-15–38% of `query_mapping`.
+Surveyed after the crate comparison, to check the answer is not just "no crate" but "no known
+method":
+
+- **ntHash** ([Mohamadi et al. 2016](https://doi.org/10.1093/bioinformatics/btw397)) — the
+  algorithm we implement. Reference C++ at [bcgsc/ntHash](https://github.com/bcgsc/ntHash).
+- **SimdMinimizers** ([Groot Koerkamp & Marchet
+  2025](https://www.biorxiv.org/content/10.1101/2025.01.27.634998v2.full)) — the state of the art
+  for vectorised ntHash, and the most useful source here. Their own write-up records that the
+  AVX2 SIMD version *lost* to scalar because reading the sequence characters and looking up their
+  hashes needs too many instructions, and names the missing AVX-512 lookup instruction as what
+  would fix it. Their fastest form is parallel *scalar*, ~3 cycles/k-mer.
+- **sourmash / branchwater** ([Irber et al.
+  2022](https://www.biorxiv.org/content/10.1101/2022.01.11.475838.full.pdf)) — the reference
+  FracMinHash implementation, but it hashes with MurmurHash3 and is not rolling: a different
+  function *and* a slower one.
+
+### Then we tried SIMD ourselves
+
+The host has AVX-512, so the instruction SimdMinimizers lacked (`vpermq`, a table lookup in a
+register) is available. Four variants, all reproducing the scalar checksum exactly, hashing only,
+k = 25, 50 Mbase — [`profiling/sketch_simd_probe.rs`](profiling/sketch_simd_probe.rs) and
+[`profiling/sketch_lanes_probe.rs`](profiling/sketch_lanes_probe.rs):
+
+| variant | throughput |
+|---|---:|
+| scalar, as shipped | 727 Mbase/s |
+| multi-lane scalar (L = 2…16) | 382–645 Mbase/s — **all slower** |
+| AVX-512, 8 lanes, gathered | 427 Mbase/s |
+| AVX-512, 8 lanes, transposed input | **3011** hashing only; 587 with the transpose; 441 with the ASCII→code pass too |
+| AVX-512, 8 lanes, eight scalar loads, no prep | **969 Mbase/s** |
+
+**The loop is not latency-bound, it is load-bound.** Six L1 loads per base — two sequence bytes and
+four table entries. That is why adding independent lanes makes it *slower*: more lanes means
+proportionally more loads, and there was no stalled dependency chain to fill.
+
+**The vector core is 4.1x faster, and feeding it is the whole problem.** With the input already
+transposed, AVX-512 hashes at 3011 Mbase/s. But a gather costs more than it saves (427), and a
+transpose that removes the gather costs more than the hashing it accelerates (587). The only
+arrangement that wins reads ASCII directly with eight ordinary scalar loads: **969 Mbase/s, 1.33x**.
+
+**1.33x on sketching is ~4% end to end**, since §5 of [RESULTS.md](RESULTS.md) puts sketching at
+15–38% of `query_mapping` — under the ~10% per-row noise floor §10 documents. That does not pay for
+unsafe intrinsics in the hot path of a mapper whose output must stay byte-identical, plus runtime
+feature detection, a scalar fallback, tail handling and per-lane emission ordering. **Not shipped.**
+
+**The one direction that would pay** is making the transposed layout free rather than paying for
+it: the FASTA reader already walks every base, so if it emitted 2-bit codes in lane-major order,
+sketching could run near the 3011 Mbase/s core — ~4x. That is a change to the reader and the index
+build, not to `sketch.rs`, and it is a separate question.
+
+**Outcome.** No change to `sketch.rs`. The PR adds the test that pins the library finding and the
+two probes that pin the SIMD one, so both stay checkable and nobody re-derives them.
 
 ---
 
