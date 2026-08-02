@@ -8,7 +8,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 
 | # | Question | Branch | PR | Status |
 |---|---|---|---|---|
-| Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | in review |
+| Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | merged |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -17,7 +17,7 @@ awaiting the benchmark) · **merged** · **dropped** (with the reason in its sec
 
 ## Q1 — Replace `sketch.rs` with an already-optimised library
 
-**Asked** 2026-08-02 · **Branch** `q1-sketch-library` · **PR** #6 · **Status** in review
+**Asked** 2026-08-02 · **Branch** `q1-sketch-library` (merged) · **PR** #6 · **Status** merged 2026-08-02
 
 **Question.** *„sketch.rs да се замени от библиотека, която вече е оптимизирана."* — replace our
 sketching code with an existing, already-optimised library instead of maintaining our own.
