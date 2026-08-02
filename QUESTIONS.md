@@ -8,10 +8,141 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 
 | # | Question | Branch | PR | Status |
 |---|---|---|---|---|
-| — | *none yet* | | | |
+| Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
+
+---
+
+## Q1 — Replace `sketch.rs` with an already-optimised library
+
+**Asked** 2026-08-02 · **Branch** `q1-sketch-library` · **PR** #6 · **Status** in review
+
+**Question.** *„sketch.rs да се замени от библиотека, която вече е оптимизирана."* — replace our
+sketching code with an existing, already-optimised library instead of maintaining our own.
+
+**Answer.** Keep `sketch.rs`, unchanged. The library exists and the hash is genuinely standard, but
+swapping it in would change every mapping *and* run 4.5x slower. Writing SIMD ourselves does not pay
+either — the first pass looked like a 1.33x win, but that measured hashing only; a second pass added
+real k-mer emission, verified correctness bit-for-bit against the real code, and found it 0.79–0.96x
+— a wash to a regression, not a win.
+
+Three findings on the library question, each pinned by a test in
+[`tests/nthash_equivalence.rs`](tests/nthash_equivalence.rs):
+
+1. **Our hash *is* ntHash.** The four base constants and the rolling scheme are identical to the
+   `nthash` crate's, verified window by window against `ntf64`/`ntr64` at k = 15, 21, 25, 31. So
+   the premise of the question is right: this is a standard function, not a bespoke one.
+
+2. **No library exposes what we need.** We canonicalise as `h_fw ^ h_rc` and take the strand from
+   `h_fw > h_rc`, so both hashes are needed per window. `nthash` keeps them private and yields only
+   `min(h_fw, h_rc)`; `seq-hash` (the SIMD one) is a *different* function — 32-bit hashes with a
+   rotate-by-7 scheme, not 64-bit rotate-by-1. Substituting `min` for `xor` changes which k-mers are
+   sketched, so every mapping changes and the merge gate blocks it. `min` also clears a threshold
+   about twice as often as `xor`, so a naive swap silently doubles sketch density too.
+
+3. **The crate is 4.5x slower.** At `-r 0.01`, k = 25, on 20 Mbase, matched so both sides select the
+   same number of k-mers and push them into a pre-reserved buffer:
+
+   | | throughput |
+   |---|---:|
+   | `sketch.rs` | **731 Mbase/s** |
+   | `nthash` crate | 164 Mbase/s |
+
+   The gap is the optimisation already in `sketch.rs`: the fixed rotates are pre-baked into the
+   lookup tables and the hot loop walks incoming and outgoing bases as zipped slice iterators, so
+   there are no bounds checks and no sign extensions per base. The crate's iterator does the rotates
+   per step. Getting the comparison fair mattered more than running it — at `h_frac = 1.0` against a
+   checksum fold, the crate looks 2x *faster*, because that measures our `Vec` growth rather than
+   anyone's hashing.
+
+### What the literature says
+
+Surveyed after the crate comparison, to check the answer is not just "no crate" but "no known
+method":
+
+- **ntHash** ([Mohamadi et al. 2016](https://doi.org/10.1093/bioinformatics/btw397)) — the
+  algorithm we implement. Reference C++ at [bcgsc/ntHash](https://github.com/bcgsc/ntHash).
+- **SimdMinimizers** ([Groot Koerkamp & Marchet
+  2025](https://www.biorxiv.org/content/10.1101/2025.01.27.634998v2.full)) — the state of the art
+  for vectorised ntHash, and the most useful source here. Their own write-up records that the
+  AVX2 SIMD version *lost* to scalar because reading the sequence characters and looking up their
+  hashes needs too many instructions, and names the missing AVX-512 lookup instruction as what
+  would fix it. Their fastest form is parallel *scalar*, ~3 cycles/k-mer.
+- **sourmash / branchwater** ([Irber et al.
+  2022](https://www.biorxiv.org/content/10.1101/2022.01.11.475838.full.pdf)) — the reference
+  FracMinHash implementation, but it hashes with MurmurHash3 and is not rolling: a different
+  function *and* a slower one.
+
+### Then we tried SIMD ourselves — twice, because the first attempt was measuring the wrong thing
+
+The host has AVX-512, so the instruction SimdMinimizers lacked (`vpermq`, a table lookup in a
+register) is available. First pass, hashing only — no k-mer records produced, just a checksum and a
+count of windows clearing the threshold —
+[`profiling/sketch_simd_probe.rs`](profiling/sketch_simd_probe.rs) and
+[`profiling/sketch_lanes_probe.rs`](profiling/sketch_lanes_probe.rs), k = 25, 50 Mbase:
+
+| variant | throughput (hashing only) |
+|---|---:|
+| scalar, as shipped | 727 Mbase/s |
+| multi-lane scalar (L = 2…16) | 382–645 Mbase/s — **all slower** |
+| AVX-512, 8 lanes, gathered | 427 Mbase/s |
+| AVX-512, 8 lanes, transposed input | **3011** hashing only; 587 with the transpose; 441 with the ASCII→code pass too |
+| AVX-512, 8 lanes, eight scalar loads, no prep | **969 Mbase/s** |
+
+**The loop is not latency-bound, it is load-bound.** Six L1 loads per base — two sequence bytes and
+four table entries. That is why adding independent lanes makes it *slower*: more lanes means
+proportionally more loads, and there was no stalled dependency chain to fill. That finding still
+holds — it is the *speedup* estimate built on top of it that did not.
+
+**The 969 Mbase/s / 1.33x figure was wrong, and it was wrong in the direction that matters.**
+"Hashing only" does not produce a `Kmer` — no position, no strand, nothing pushed anywhere — and
+that is exactly the cost a real sketcher cannot skip. So a second pass added it:
+[`tests/avx_emit_probe.rs`](tests/avx_emit_probe.rs) extracts each lane's `{position, hash,
+strand}` on the ~1-in-13 step where any of the 8 lanes clears the `-r 0.01` threshold, pushes a real
+`Kmer` into that lane's own buffer, and concatenates the eight buffers at the end. **Its output is
+verified bit-for-bit identical to the real `FracMinHash::sketch_slice_into`** — same positions, same
+hashes, same strand bits, on chunk sizes matching what `chunk_windows` actually hands a worker
+(2²¹ windows, the `-@64` floor; ~97 Mbase, the `-@8` size):
+
+| chunk size | speedup, 8 repeats |
+|---|---|
+| ~2.1 M windows (`-@64` floor) | 0.84–1.08x — a wash, noisy at this size |
+| ~97 Mbase (`-@8` chunk) | **0.79–0.87x — consistently slower, never a win** |
+
+**The correctness-verified AVX-512 sketcher does not beat the scalar code it would replace, and
+loses outright at the chunk size that matters most.** `chunk_windows` (`src/index.rs`) only returns
+its `MIN_CHUNK` floor (2²¹ windows) at very high thread counts on this reference — most of the
+thread-count range indexes in chunks closer to the 97 Mbase size, where AVX-512 is reliably 13–21%
+slower. The extraction that a hash-only measurement has no reason to include — three
+`_mm512_storeu_si512` stores and a per-lane loop, paid on every step that selects at least one of 8
+lanes (~7.7% of steps at `-r 0.01`,
+by 1 − 0.99⁸) — costs more than the 4.1x-faster vector core saves.
+
+**A real thing was built and measured, and the honest answer reverses the earlier estimate: SIMD
+does not help `sketch.rs`, full stop.** Not "1.33x, not worth the complexity" — 0.8x, a regression,
+even setting complexity aside. `profiling/sketch_simd_probe.rs` and
+`profiling/sketch_lanes_probe.rs` are kept because the load-bound finding is still correct and
+useful context; their throughput numbers are hash-only and are superseded by
+`tests/avx_emit_probe.rs` for anything about real sketching speed.
+
+**The earlier "reader emits lane-major codes" follow-up is retracted.** It was reasoning from the
+hash-only number and assumed the transpose was the only cost standing between the code and the 4x
+vector core. It was not — the winning hash-only variant already needed no reader change (eight
+ordinary scalar loads against the existing ASCII buffer), and even that loses once it does real
+work. There is no cheap fix on the table; extracting a scattered, low-probability selection from a
+SIMD register is inherently what it costs.
+
+**One fact from this investigation is worth keeping for later, though it points nowhere yet.**
+Stubbing `sketch_slice_into` to a no-op (env-gated, never committed) and measuring real `-x`
+profiling on the actual reference (`REF-HS1`, `-@1/8/64`) shows sketch compute is 33–50% of
+indexing wall — not the small residue "indexing bottoms out near 3s... further gains need reading
+less" in §5 of RESULTS.md would suggest to a casual reading. That is real headroom in principle. It
+is just not headroom SIMD can reach, on this evidence.
+
+**Outcome.** No change to `sketch.rs`. The PR adds the test that pins the library finding and the
+two probes that pin the SIMD one, so both stay checkable and nobody re-derives them.
 
 ---
 
