@@ -16,8 +16,37 @@ measured (`<result-set>/paper/`) and typesets it there, so a run is self-describ
 with something a person can open. `generated/` here is the copy built from `current/`, and it
 updates when a set is promoted.
 
-`artifacts.pdf` is a build output and is **not** committed: the `.tex` and `.tsv` it is made
-from are, and `paper.py --check` guards those. Rebuild it with `make paper`.
+`artifacts.pdf` **is** committed, and is kept current by the promotion step below.
+
+That is only safe because the build is byte-reproducible: `build_pdf.py` sets
+`SOURCE_DATE_EPOCH` from the result set's own measurement date, so TeX stamps the data's date
+rather than the moment of the build. Without that every rebuild produced a different file and a
+committed PDF would churn on every run. `build_pdf.py --check` is a real equality test for the
+same reason.
+
+## Publishing after a benchmark run
+
+```
+python3 benchmarks/promote.py <result-set-dir>            # regenerate + verify
+python3 benchmarks/promote.py <result-set-dir> --commit   # ... and commit
+python3 benchmarks/promote.py <result-set-dir> --push     # ... and push
+make promote RESULT_SET=<dir> ARGS=--commit               # same, from the repo root
+```
+
+Promotion copies the result set over `current/`, regenerates RESULTS.md, README.md, the paper
+artifacts and this PDF, and then re-runs all three `--check`s against what it just wrote. It
+refuses a set whose suite version differs from the repo's, or one with recorded failures.
+
+Nothing is committed without `--commit` and nothing is pushed without `--push`: a promotion moves
+every headline number in the repository, so it should be a decision rather than a side effect.
+
+**Per-read data must be in the result set, not just in `current/`.** Promotion clears stale
+`per-read-*.tsv` before copying, so a set lacking them removes them — and `fig_time_vs_matches`
+quietly loses its data. Backfill the *source* set, then promote:
+
+```
+python3 benchmarks/run.py --per-read-stats <result-set-dir>
+```
 
 ## Using them in the paper
 
@@ -57,7 +86,7 @@ a run that produced correct artifacts should not be reported as failed by a prev
 | `fig_memory_vs_threads.tex` | peak RSS against thread count, with the C++ as a flat reference |
 | `fig_time_vs_matches.tex` | per-read mapping time against matches examined, binned medians with an IQR band |
 | `fig_stage_breakdown.tex` | stage shares of `query_mapping`, stacked, per dataset and metric |
-| `artifacts.pdf` | all of the above typeset into one document (build output, not committed) |
+| `artifacts.pdf` | all of the above typeset into one document, one artifact per page |
 | `*.tsv` | exactly the numbers the matching `.tex` draws |
 | `PROVENANCE.md` | per artifact: inputs down to the column, transformation, presentation, caveats |
 

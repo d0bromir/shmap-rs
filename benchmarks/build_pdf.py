@@ -36,6 +36,7 @@ reported as failed by a document previewer.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -110,6 +111,29 @@ def find_engine(explicit: str | None) -> tuple[str, list[str]] | None:
     return None
 
 
+def source_date_epoch(prov: list[str]) -> str:
+    """A fixed build clock, so the PDF is a pure function of the artifacts.
+
+    TeX stamps its own creation time into the PDF, which made every rebuild a
+    different file even when nothing had changed -- unusable for a document
+    that is committed. `SOURCE_DATE_EPOCH` replaces that clock, and taking it
+    from the result set's own measurement date means the stamp describes the
+    data rather than the moment someone happened to run the build.
+
+    The fallback is a constant rather than "now": a deterministic wrong date is
+    much better here than a correct one that churns the repository.
+    """
+    from datetime import datetime, timezone
+    for line in prov:
+        if line.startswith("measured:"):
+            try:
+                d = datetime.strptime(line.split(":", 1)[1].strip(), "%Y-%m-%d")
+                return str(int(d.replace(tzinfo=timezone.utc).timestamp()))
+            except ValueError:
+                break
+    return "0"
+
+
 def provenance_of(d: Path) -> list[str]:
     """The header lines the generator wrote into every artifact, lifted from
     whichever one is present so the PDF states the same provenance."""
@@ -163,6 +187,8 @@ def main() -> int:
     ap.add_argument("--dir", default=str(DEFAULT_DIR), help="artifact directory")
     ap.add_argument("--out", help="output PDF (default: <dir>/artifacts.pdf)")
     ap.add_argument("--engine", help="LaTeX engine to use")
+    ap.add_argument("--check", action="store_true",
+                    help="exit 1 if the built PDF would differ from the one on disk")
     a = ap.parse_args()
 
     d = Path(a.dir)
@@ -178,7 +204,9 @@ def main() -> int:
 
     engine = find_engine(a.engine)
     if not engine:
-        print(f"no LaTeX engine found, so {out.name} was not built.\n"
+        # Also the --check path: a machine that cannot build the PDF cannot
+        # judge whether the committed one is stale, and must not claim it is.
+        print(f"no LaTeX engine found, so {out.name} was not {'checked' if a.check else 'built'}.\n"
               f"  The {len(order)} artifacts in {d} are complete and unaffected.\n"
               f"  Install any of: {', '.join(n for n, _ in ENGINES)}. Tectonic needs no\n"
               f"  system TeX: extract its release binary to ~/tools/tectonic/tectonic.")
@@ -195,12 +223,29 @@ def main() -> int:
         tex = tmpd / "artifacts.tex"
         tex.write_text(doc)
         cmd = [exe] + [t.format(outdir=str(tmpd), tex=str(tex)) for t in argtmpl]
-        r = subprocess.run(cmd, capture_output=True, text=True, cwd=tmpd)
+        # FORCE_SOURCE_DATE as well as SOURCE_DATE_EPOCH: pdfTeX honours the
+        # epoch only when forced, while XeTeX (what tectonic runs) takes it
+        # either way. Setting both makes every supported engine deterministic.
+        env = {**os.environ,
+               "SOURCE_DATE_EPOCH": source_date_epoch(provenance_of(d)),
+               "FORCE_SOURCE_DATE": "1"}
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=tmpd, env=env)
         pdf = tmpd / "artifacts.pdf"
         if not pdf.exists():
             print(f"{Path(exe).name} produced no PDF (exit {r.returncode}).", file=sys.stderr)
             tail = (r.stderr or r.stdout or "").strip().splitlines()[-25:]
             print("\n".join(tail), file=sys.stderr)
+            return 1
+        if a.check:
+            # Byte comparison is meaningful because the build is deterministic
+            # (see source_date_epoch): the same artifacts always typeset to the
+            # same file, so any difference is a real one.
+            if out.exists() and out.read_bytes() == pdf.read_bytes():
+                print(f"{out.name} is current with the artifacts in {d}")
+                return 0
+            why = "differs from" if out.exists() else "is missing beside"
+            print(f"{out.name} {why} the artifacts in {d}\n"
+                  f"rebuild with: python3 benchmarks/build_pdf.py", file=sys.stderr)
             return 1
         out.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(pdf, out)

@@ -4,12 +4,6 @@
 __pycache__/
 *.pyc
 
-# Typeset preview of the generated artifacts. A build output, not a source:
-# the .tex and .tsv it is made from are committed and checked by
-# `paper.py --check`, and a binary that changes on every run would churn the
-# history without adding anything reviewable. Rebuild with `make paper`.
-paper/generated/artifacts.pdf
-
 # Claude Code's local state: a machine-specific permission allowlist and a
 # transient session lock. Both are per-checkout, both name local paths and
 # hosts, and neither means anything to anyone else's clone.

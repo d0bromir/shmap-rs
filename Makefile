@@ -103,7 +103,7 @@ SHMAP_ONESWEEP_PREF = $(ALLOUT_DIR)/shmap-onesweep/$(READS_PREFIX)/shmap-oneswee
 
 TIME_CMD = /usr/bin/time -f "%U\t%M"
 
-.PHONY: all build debug test clean remake paper paper-tex paper-pdf paper-check \
+.PHONY: all build debug test clean remake paper paper-tex paper-pdf paper-check promote \
 	simulate_SVs gen_reads eval_sketching eval_thinning fdr_per_theta \
 	eval_shmap eval_shmap_noprune eval_shmap_onesweep \
 	eval_mashmap1 eval_mashmap3 eval_astarix eval_winnowmap eval_minimap eval_mm2 eval_blend eval_mapquik \
@@ -138,6 +138,15 @@ paper-pdf: paper-tex
 
 paper-check:
 	python3 benchmarks/paper.py --check
+	python3 benchmarks/build_pdf.py --check
+
+# Publish a finished result set: copy it over current/, regenerate RESULTS.md,
+# README.md, the paper artifacts and the PDF, then verify every --check still
+# passes. Add ARGS=--commit to commit it, ARGS=--push to push.
+#   make promote RESULT_SET=/home/mpiuser/bench-results/1.3.1-...
+promote:
+	@test -n "$(RESULT_SET)" || { echo "usage: make promote RESULT_SET=<dir> [ARGS=--commit]"; exit 2; }
+	python3 benchmarks/promote.py $(RESULT_SET) $(ARGS)
 
 remake: clean all
 

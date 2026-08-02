@@ -147,8 +147,25 @@ python3 benchmarks/paper.py             # regenerate paper/generated/
 python3 benchmarks/paper.py --check     # what CI runs
 python3 benchmarks/paper.py --list      # each artifact's inputs and transformation
 python3 benchmarks/build_pdf.py         # typeset them into generated/artifacts.pdf
-make paper                              # both
+python3 benchmarks/build_pdf.py --check # fail if the committed PDF is stale
+make paper                              # regenerate and typeset
 ```
+
+`paper/generated/artifacts.pdf` is committed. That works only because the build is
+byte-reproducible: `build_pdf.py` sets `SOURCE_DATE_EPOCH` from the result set's measurement date,
+so the same artifacts always typeset to the same bytes. CI does not check it — the runner has no
+LaTeX engine, and `build_pdf.py` exits 0 rather than claiming a verdict it cannot reach. It is
+checked on the benchmark host during promotion instead.
+
+**Publishing a finished run:**
+
+```bash
+python3 benchmarks/promote.py <result-set-dir> --commit
+```
+
+That copies the set over `current/`, regenerates RESULTS.md, README.md, the paper artifacts and
+the PDF, re-runs all three `--check`s against what it wrote, and commits. `--push` pushes. It
+refuses a set whose suite version differs from the repo's or that recorded failures.
 
 `fig_time_vs_matches` needs per-read data, which a run collects only when `[per_read_stats]` is
 enabled in `suite.toml`. A result set measured before that existed can be given the data
