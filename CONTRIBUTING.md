@@ -8,6 +8,26 @@ one read fewer is blocked, not traded off.
 
 ---
 
+## 0 How work is organised
+
+Most work here answers a question or change request from Pesho, the C++ `shmap` author.
+[`QUESTIONS.md`](QUESTIONS.md) is the log of those: what was asked, what was done, what the
+benchmark said.
+
+**One question at a time, one branch and one PR each.**
+
+1. Cut a branch from an up-to-date `main`, named for the question (`q3-frequent-kmer-filter`).
+2. Work in steps, running the relevant tests as you go rather than only at the end — §1's cheap
+   tier is ~2.5 minutes and catches most of it.
+3. When the change is complete, open a PR and add its row to `QUESTIONS.md`.
+4. A maintainer runs the benchmark against the PR (§1), and its verdict decides the merge (§2).
+
+Do not batch several questions into one branch. The benchmark verdict is only useful if it is
+attributable to a single change: batched, a regression cannot be traced and a good change cannot be
+defended. The same applies to unrelated cleanups — they get their own PR.
+
+---
+
 ## 1 Two tiers of checking
 
 | tier | where | when | cost |
