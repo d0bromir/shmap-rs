@@ -146,7 +146,7 @@ is just not headroom SIMD can reach, on this evidence.
 **Outcome.** No change to `sketch.rs`. The PR adds the test that pins the library finding and the
 two probes that pin the SIMD one, so both stay checkable and nobody re-derives them.
 
-### Addendum, 2026-08-02 — checked whether Cascade Lake downclocking confounds the SIMD numbers
+### Addendum, 2026-08-02 (PR #10) — checked whether Cascade Lake downclocking confounds the SIMD numbers
 
 Raised mid-Q4 (this host's CPUs, Xeon Gold 5218, are Cascade Lake — well documented to throttle
 under sustained multi-core AVX-512). Worth checking directly rather than assuming it either
