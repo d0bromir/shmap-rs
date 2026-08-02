@@ -103,7 +103,7 @@ SHMAP_ONESWEEP_PREF = $(ALLOUT_DIR)/shmap-onesweep/$(READS_PREFIX)/shmap-oneswee
 
 TIME_CMD = /usr/bin/time -f "%U\t%M"
 
-.PHONY: all build debug test clean remake \
+.PHONY: all build debug test clean remake paper paper-check \
 	simulate_SVs gen_reads eval_sketching eval_thinning fdr_per_theta \
 	eval_shmap eval_shmap_noprune eval_shmap_onesweep \
 	eval_mashmap1 eval_mashmap3 eval_astarix eval_winnowmap eval_minimap eval_mm2 eval_blend eval_mapquik \
@@ -122,6 +122,15 @@ debug:
 
 test:
 	cargo test
+
+# Rebuild the paper's tables and figures from the promoted result set. A
+# benchmark run does this on its own for the set it just measured; this is the
+# repo copy, for when a set has been promoted to current/.
+paper:
+	python3 benchmarks/paper.py
+
+paper-check:
+	python3 benchmarks/paper.py --check
 
 remake: clean all
 

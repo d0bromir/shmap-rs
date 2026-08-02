@@ -244,7 +244,10 @@ def block_thread_scaling(rs: dict) -> str:
             continue
         reads, _ = dataset_of(bid, rows)
         out.append(f"### {bid} — {title_of(bid)} (`{reads}`)\n")
-        out.append("| `-@` | " + " | ".join(ms) + " | speedup vs `-@1` |")
+        # "best" because it is max() over the metrics, which is Jaccard: it is
+        # slowest at -@1 and so has the most room to recover. Unlabelled, the
+        # column reads as Containment's and overstates it by ~1.2x.
+        out.append("| `-@` | " + " | ".join(ms) + " | best speedup vs `-@1` |")
         out.append("|---:|" + "---:|" * (len(ms) + 1))
         for t in threads:
             cells, sps = [], []

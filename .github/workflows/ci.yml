@@ -99,6 +99,12 @@ jobs:
       - name: RESULTS.md matches the current result set
         run: python3 benchmarks/report.py --check
 
+      # Same failure mode one step further out: a table in the paper draft that
+      # no longer matches the measurement it claims to report. The artifacts are
+      # a pure function of the result set, so this is a real equality check.
+      - name: paper artifacts match the current result set
+        run: python3 benchmarks/paper.py --check
+
       # The simulators produce the only datasets that can support an accuracy
       # claim, so a syntax error in them is a silent hole in the evidence.
       - name: simulation tooling runs

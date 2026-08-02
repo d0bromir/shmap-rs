@@ -21,7 +21,8 @@ one read fewer is blocked, not traded off.
 
 `cargo fmt --check` · `cargo build --release --locked` · `cargo clippy -D warnings` ·
 `cargo test --release` · `cargo test` (debug) · `benchmarks/validate_suite.py` ·
-`benchmarks/test_compare.py` · `benchmarks/test_concordance.py` · `benchmarks/report.py --check`
+`benchmarks/test_compare.py` · `benchmarks/test_concordance.py` · `benchmarks/report.py --check` ·
+`benchmarks/paper.py --check`
 
 Two of those are easy to trip over:
 
@@ -136,6 +137,21 @@ because `--check` only looked at RESULTS.md.
 python3 benchmarks/report.py            # regenerate from results/suite-<v>/current/
 python3 benchmarks/report.py --check    # what CI runs
 ```
+
+The paper's tables and figures are generated the same way and from the same result set, into
+`paper/generated/`. A benchmark run rebuilds them for the set it just measured; `make paper`
+rebuilds the repo copy after a set is promoted.
+
+```bash
+python3 benchmarks/paper.py             # regenerate paper/generated/
+python3 benchmarks/paper.py --check     # what CI runs
+python3 benchmarks/paper.py --list      # each artifact's inputs and transformation
+```
+
+`paper/generated/PROVENANCE.md` is generated from the same `Artifact` declarations that build the
+files, so it cannot document a transformation the code does not perform. Adding an artifact means
+declaring its sources, transformation, presentation and caveats — there is no separate place to
+write them down, and no way to skip it.
 
 External mappers (Winnowmap2, mapquik) are a **concordance** corpus, not ground truth. They are run
 once per dataset by `benchmarks/reference_mappers.py` and cached; `run.py` only joins against them.

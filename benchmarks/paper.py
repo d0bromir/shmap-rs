@@ -1,0 +1,794 @@
+#!/usr/bin/env python3
+"""Regenerate the paper's data-driven tables and figures from a result set.
+
+  paper.py                    regenerate paper/generated/ from results/suite-<v>/current/
+  paper.py <result-set-dir>   regenerate from a specific set
+  paper.py --out DIR          write somewhere else (run.py uses this per run)
+  paper.py --check            exit 1 if any artifact would change (CI uses this)
+  paper.py --list             print what each artifact is built from, and stop
+
+---------------------------------------------------------------------------
+Why this exists, and what it guarantees
+---------------------------------------------------------------------------
+RESULTS.md is for us; the paper is for readers who cannot run anything. Both
+used to be transcribed by hand from a run, which is how RESULTS.md came to
+carry contradictory figures (see its header). report.py fixed that for
+RESULTS.md. This does the same job for the paper's tables and figures.
+
+Three guarantees, in the order they matter:
+
+1. **Provenance.** Every artifact declares its inputs down to the column, the
+   transformation applied, and the caveats a reader must carry. PROVENANCE.md
+   is generated from those declarations, so the documentation cannot drift from
+   the code that produced the numbers -- there is no second place to update.
+
+2. **Auditability.** Every artifact is emitted twice: once as LaTeX to be
+   \\input into the paper, and once as a .tsv holding exactly the numbers that
+   LaTeX draws. The .tsv is the audit trail. A reader who distrusts a bar in a
+   figure can read the value without a LaTeX toolchain, and a diff of two runs
+   shows what moved without rendering anything.
+
+3. **Reproducibility.** Output is a pure function of the result set: no
+   timestamps of its own, no locale-dependent formatting, sorted iteration
+   throughout. Running twice over one result set produces byte-identical files,
+   which is what makes --check meaningful. Each file's header names the result
+   set, its commit, and a digest of the inputs, so an artifact in a paper draft
+   can be traced back to the exact measurement.
+
+---------------------------------------------------------------------------
+What is NOT generated
+---------------------------------------------------------------------------
+Only what the result set actually measured. Two consequences worth stating
+because their absence is otherwise invisible:
+
+- The per-read `time vs number of matches` scatter, which is the direct
+  evidence for the logarithmic-scaling claim, needs per-read instrumentation
+  that does not exist yet. It is listed in PROVENANCE.md as unavailable rather
+  than approximated from whole-run totals, which would not show the shape of
+  the curve at all.
+- External mappers are measured threaded and without an index/mapping split,
+  so their rows carry a threads column and empty phase cells rather than
+  numbers that would look comparable and not be.
+
+LaTeX requirements for the emitted fragments: booktabs (tables) and pgfplots
+with `\\pgfplotsset{compat=1.18}` (figures). Neither is installed on the
+benchmark host, so the fragments are emitted but never compiled here.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from run import REPO, load_registry, load_suite  # noqa: E402
+from compare import RESULTS, load_set  # noqa: E402
+import report  # noqa: E402
+
+OUT_DEFAULT = REPO / "paper" / "generated"
+SUBJECT = "shmap-rs"
+REFERENCE = "cpp-shmap"
+
+# Metric order is the suite's, not alphabetical: "default, stricter, none"
+# is the order the prose argues in.
+METRIC_ORDER = ["Containment", "Jaccard", "bucket_SH"]
+
+# pgfplots needs a colour per series and the paper is printed in greyscale as
+# often as not, so series are distinguished by mark as well as colour.
+SERIES_STYLE = [
+    ("blue!70!black", "*"),
+    ("red!70!black", "square*"),
+    ("green!45!black", "triangle*"),
+    ("orange!85!black", "diamond*"),
+    ("violet", "pentagon*"),
+]
+
+
+# ---------------------------------------------------------------------------
+# formatting helpers -- LaTeX-safe and locale-independent
+# ---------------------------------------------------------------------------
+
+def tex_escape(s: str) -> str:
+    """Escape the characters that appear in our identifiers. `bucket_SH` in a
+    table cell is a subscript and a missing-`$` error, not a metric name."""
+    for a, b in (("\\", r"\textbackslash{}"), ("_", r"\_"), ("%", r"\%"),
+                 ("&", r"\&"), ("#", r"\#")):
+        s = s.replace(a, b)
+    return s
+
+
+def thousands(n) -> str:
+    r"""LaTeX thin space as the separator: 149\,194. Matches the paper's style
+    and avoids a comma that would be read as a decimal point in half of Europe."""
+    return f"{int(round(float(n))):,}".replace(",", r"\,")
+
+
+def fnum(x, places=2) -> str:
+    return f"{float(x):.{places}f}"
+
+
+def dash() -> str:
+    """One em dash for 'not measured', never 0 and never blank. A blank cell
+    reads as an oversight and a 0 reads as a measurement."""
+    return "---"
+
+
+# ---------------------------------------------------------------------------
+# the artifact declaration
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Artifact:
+    """One paper table or figure, plus the provenance that must travel with it.
+
+    `sources`, `transform` and `caveats` are not comments: PROVENANCE.md is
+    built from these fields, so a builder that starts reading a new column
+    without declaring it produces documentation that is visibly wrong.
+    """
+    name: str
+    kind: str                       # "table" | "figure"
+    caption: str
+    label: str                      # LaTeX \label, so the paper can \ref it
+    sources: tuple[str, ...]
+    transform: tuple[str, ...]
+    presentation: str
+    build: Callable[["Ctx"], tuple[str, list[str], list[list]]]
+    caveats: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass
+class Ctx:
+    """Everything a builder may read, loaded once and shared.
+
+    Builders take this rather than reaching for files themselves, so the
+    `sources` declaration on each artifact is the whole truth about its inputs.
+    """
+    rs: dict                        # result set: rows, checks, manifest, dir
+    registry: dict                  # datasets.tsv
+    counters: dict                  # (bench, metric, threads) -> -x counters
+    timers: dict                    # (bench, metric, threads) -> -x stage times
+    external: list                  # cached external-mapper runs
+    digest: str                     # sha256 over the input files
+
+    def rows(self, impl=None, threads=None) -> list[dict]:
+        out = self.rs["rows"]
+        if impl is not None:
+            out = [r for r in out if r["impl"] == impl]
+        if threads is not None:
+            out = [r for r in out if r["threads"] == threads]
+        return out
+
+    def benchmarks(self) -> list[str]:
+        return sorted({r["benchmark"] for r in self.rs["rows"]})
+
+    def metrics(self, bid: str) -> list[str]:
+        present = {r["benchmark"] == bid and r["metric"] or None
+                   for r in self.rs["rows"] if r["benchmark"] == bid}
+        return [m for m in METRIC_ORDER if m in present]
+
+    def thread_counts(self) -> list[int]:
+        return sorted({r["threads"] for r in self.rows(impl=SUBJECT)})
+
+    def check(self, name: str, bid: str, metric: str) -> str | None:
+        for c in self.rs["checks"]:
+            if c["check"] == name and c["benchmark"] == bid and c["metric"] == metric:
+                return c["detail"]
+        return None
+
+    def reads_in(self, bid: str) -> int:
+        """Records in the read set, from the dataset registry -- needed for the
+        'missed' column, which the PAF cannot supply because unmapped reads are
+        simply absent from it."""
+        r = next((r for r in self.rs["rows"] if r["benchmark"] == bid), None)
+        if not r:
+            return 0
+        entry = self.registry.get(r["reads_id"], {})
+        try:
+            return int(entry.get("records", 0))
+        except (TypeError, ValueError):
+            return 0
+
+
+# ---------------------------------------------------------------------------
+# builders
+# ---------------------------------------------------------------------------
+
+def build_comparison(c: Ctx) -> tuple[str, list[str], list[list]]:
+    """The paper's tool-comparison table: sensitivity, confident errors, cost."""
+    cols = ["benchmark", "tool", "metric", "threads", "mapped", "mapq60",
+            "missed_pct", "wrong_q60", "index_s", "map_s", "peak_rss_gb"]
+    data: list[list] = []
+
+    for bid in c.benchmarks():
+        total = c.reads_in(bid)
+        for impl in (SUBJECT, REFERENCE):
+            for metric in c.metrics(bid):
+                r = next((x for x in c.rows(impl=impl)
+                          if x["benchmark"] == bid and x["metric"] == metric
+                          and x["threads"] == 1), None)
+                if not r:
+                    continue
+                # "wrong at mapq 60" only exists where reads carry truth, i.e.
+                # the simulated benchmark. Elsewhere it is unknowable, not zero.
+                wq = c.check("wrong_q60", bid, metric) if impl == SUBJECT else None
+                wrong = wq.split("/")[0] if wq else None
+                q60 = int(r["mapq60"])
+                data.append([
+                    bid, impl, metric, 1, int(r["mapped"]), q60,
+                    round(100.0 * (total - q60) / total, 2) if total else None,
+                    int(wrong) if wrong is not None else None,
+                    float(r["index_s"]) if r.get("index_s") not in (None, "") else None,
+                    float(r["map_s"]) if r.get("map_s") not in (None, "") else None,
+                    round(int(r["peak_rss_kb"]) / 1048576, 2),
+                ])
+        for e in c.external:
+            if e.get("benchmark") != bid or not e.get("wall_s"):
+                continue
+            mapped = e.get("mapped")
+            data.append([
+                bid, e["mapper"], None, e.get("threads"), mapped, None, None, None,
+                None, float(e["wall_s"]),
+                round(int(e["peak_rss_kb"]) / 1048576, 2) if e.get("peak_rss_kb") else None,
+            ])
+
+    lines = [
+        r"\begin{tabular}{lllrrrrrrrr}",
+        r"\toprule",
+        r"Dataset & Tool & Metric & \texttt{-@} & Mapped & Mapq 60 & Missed & "
+        r"Wrong & Index & Map & Mem \\",
+        r" & & & & & & (\%) & Q60 & (s) & (s) & (GB) \\",
+        r"\midrule",
+    ]
+    last = None
+    for row in data:
+        if last is not None and row[0] != last:
+            lines.append(r"\midrule")
+        last = row[0]
+        cells = [tex_escape(str(row[0])), tex_escape(str(row[1])),
+                 tex_escape(row[2]) if row[2] else dash(),
+                 str(row[3]) if row[3] else dash(),
+                 thousands(row[4]) if row[4] is not None else dash(),
+                 thousands(row[5]) if row[5] is not None else dash(),
+                 fnum(row[6], 2) if row[6] is not None else dash(),
+                 thousands(row[7]) if row[7] is not None else dash(),
+                 fnum(row[8]) if row[8] is not None else dash(),
+                 fnum(row[9]) if row[9] is not None else dash(),
+                 fnum(row[10]) if row[10] is not None else dash()]
+        lines.append(" & ".join(cells) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    return "\n".join(lines), cols, data
+
+
+def build_seed_heuristic(c: Ctx) -> tuple[str, list[str], list[list]]:
+    """Efficiency of the seed heuristic: work avoided, and work still wasted."""
+    cols = ["benchmark", "metric", "possible_per_read", "examined_per_read",
+            "in_mapping_per_read", "realized_potential", "unrealized_potential",
+            "seeded_buckets_per_read", "final_buckets_per_read"]
+    data: list[list] = []
+    for bid in c.benchmarks():
+        for metric in c.metrics(bid):
+            k = c.counters.get((bid, metric, 1))
+            if not k:
+                continue
+            reads = k.get("reads", 0)
+            poss, seen = k.get("possible_matches", 0), k.get("total_matches", 0)
+            used = k.get("matches_in_reported_mappings", 0)
+            if not (reads and seen and used):
+                continue
+            data.append([
+                bid, metric,
+                round(poss / reads, 1), round(seen / reads, 1), round(used / reads, 1),
+                round(poss / seen, 1), round(seen / used, 1),
+                round(k.get("seeded_buckets", 0) / reads, 1),
+                round(k.get("final_buckets", 0) / reads, 2),
+            ])
+
+    lines = [
+        r"\begin{tabular}{llrrrrrrr}",
+        r"\toprule",
+        r"Dataset & Metric & \multicolumn{3}{c}{Matches per read} & "
+        r"\multicolumn{2}{c}{Potential} & \multicolumn{2}{c}{Buckets per read} \\",
+        r"\cmidrule(lr){3-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}",
+        r" & & possible & examined & in mapping & realized & unrealized & seeded & final \\",
+        r"\midrule",
+    ]
+    last = None
+    for row in data:
+        if last is not None and row[0] != last:
+            lines.append(r"\midrule")
+        last = row[0]
+        lines.append(" & ".join([
+            tex_escape(row[0]), tex_escape(row[1]),
+            thousands(row[2]), thousands(row[3]), thousands(row[4]),
+            f"{fnum(row[5], 1)}$\\times$", f"{fnum(row[6], 1)}$\\times$",
+            fnum(row[7], 1), fnum(row[8], 2)]) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    return "\n".join(lines), cols, data
+
+
+def _axis(body: list[str], *, xlabel, ylabel, extra=(), legend="north east") -> str:
+    opts = [f"xlabel={{{xlabel}}}", f"ylabel={{{ylabel}}}",
+            "width=0.8\\linewidth", "height=6cm",
+            f"legend pos={legend}", "legend cell align=left",
+            "grid=major", "grid style={gray!25}", "tick align=outside"]
+    opts.extend(extra)
+    return "\n".join([r"\begin{tikzpicture}", r"\begin{axis}[",
+                      "  " + ",\n  ".join(opts), "]", *body,
+                      r"\end{axis}", r"\end{tikzpicture}"])
+
+
+def build_thread_scaling(c: Ctx) -> tuple[str, list[str], list[list]]:
+    """Whole-run speedup against thread count, one series per dataset."""
+    cols = ["benchmark", "threads", "wall_s", "speedup_vs_1"]
+    data: list[list] = []
+    body: list[str] = []
+    threads = c.thread_counts()
+    for i, bid in enumerate(c.benchmarks()):
+        colour, mark = SERIES_STYLE[i % len(SERIES_STYLE)]
+        pts = []
+        base = next((r for r in c.rows(impl=SUBJECT)
+                     if r["benchmark"] == bid and r["metric"] == "Containment"
+                     and r["threads"] == 1), None)
+        if not base:
+            continue
+        for t in threads:
+            r = next((x for x in c.rows(impl=SUBJECT)
+                      if x["benchmark"] == bid and x["metric"] == "Containment"
+                      and x["threads"] == t), None)
+            if not r:
+                continue
+            sp = base["wall_s"] / r["wall_s"]
+            pts.append((t, sp))
+            data.append([bid, t, round(r["wall_s"], 2), round(sp, 2)])
+        if pts:
+            body.append(f"\\addplot[color={colour},mark={mark},thick] coordinates {{"
+                        + " ".join(f"({t},{sp:.2f})" for t, sp in pts) + "};")
+            body.append(f"\\addlegendentry{{{tex_escape(bid)}}}")
+    # Linear speedup, so a reader sees the gap rather than inferring it.
+    if threads:
+        body.append("\\addplot[dashed,gray,forget plot] coordinates {"
+                    + " ".join(f"({t},{t})" for t in threads) + "};")
+    tex = _axis(body, xlabel="threads (\\texttt{-@})", ylabel="speedup vs \\texttt{-@1}",
+                extra=["xmode=log", "ymode=log", "log basis x=2", "log basis y=2",
+                       f"xtick={{{','.join(str(t) for t in threads)}}}",
+                       "xticklabels={" + ",".join(str(t) for t in threads) + "}"],
+                legend="north west")
+    return tex, cols, data
+
+
+def build_memory_vs_threads(c: Ctx) -> tuple[str, list[str], list[list]]:
+    """Peak RSS against thread count -- the claim §1 of RESULTS.md gets wrong
+    if it is quoted single-threaded."""
+    cols = ["benchmark", "threads", "peak_rss_gb"]
+    data: list[list] = []
+    body: list[str] = []
+    for i, bid in enumerate(c.benchmarks()):
+        colour, mark = SERIES_STYLE[i % len(SERIES_STYLE)]
+        pts = []
+        for t in c.thread_counts():
+            r = next((x for x in c.rows(impl=SUBJECT)
+                      if x["benchmark"] == bid and x["metric"] == "Containment"
+                      and x["threads"] == t), None)
+            if not r:
+                continue
+            g = int(r["peak_rss_kb"]) / 1048576
+            pts.append((t, g))
+            data.append([bid, t, round(g, 3)])
+        if pts:
+            body.append(f"\\addplot[color={colour},mark={mark},thick] coordinates {{"
+                        + " ".join(f"({t},{g:.3f})" for t, g in pts) + "};")
+            body.append(f"\\addlegendentry{{{tex_escape(bid)}}}")
+    # The C++ is flat at its single figure whatever the thread count, which is
+    # the entire point of the comparison.
+    cpp = next((r for r in c.rows(impl=REFERENCE)), None)
+    if cpp:
+        g = int(cpp["peak_rss_kb"]) / 1048576
+        ts = c.thread_counts()
+        body.append("\\addplot[black,dashed,thick,mark=none] coordinates {"
+                    + " ".join(f"({t},{g:.3f})" for t in ts) + "};")
+        body.append(r"\addlegendentry{C++ \texttt{shmap}}")
+        data.append([REFERENCE, None, round(g, 3)])
+    tex = _axis(body, xlabel="threads (\\texttt{-@})", ylabel="peak RSS (GB)",
+                extra=["xmode=log", "log basis x=2", "ymin=0",
+                       f"xtick={{{','.join(str(t) for t in c.thread_counts())}}}",
+                       "xticklabels={" + ",".join(str(t) for t in c.thread_counts()) + "}"],
+                legend="north west")
+    return tex, cols, data
+
+
+def build_stage_breakdown(c: Ctx) -> tuple[str, list[str], list[list]]:
+    """Where mapping time goes, as shares of query_mapping, per metric."""
+    stages = ["match_seeds", "match_rest", "prepare", "sketching", "bucket_merge"]
+    cols = ["benchmark", "metric", "stage", "share_pct", "query_mapping_s"]
+    data: list[list] = []
+    bars: list[str] = []
+    labels: list[str] = []
+    per_stage: dict[str, list[float]] = {s: [] for s in stages}
+    for bid in c.benchmarks():
+        for metric in c.metrics(bid):
+            t = c.timers.get((bid, metric, 1))
+            if not t or not t.get("query_mapping"):
+                continue
+            total = t["query_mapping"]
+            labels.append(f"{bid} {metric}")
+            for s in stages:
+                share = 100.0 * t.get(s, 0.0) / total
+                per_stage[s].append(share)
+                data.append([bid, metric, s, round(share, 2), round(total, 2)])
+    for i, s in enumerate(stages):
+        colour, _ = SERIES_STYLE[i % len(SERIES_STYLE)]
+        bars.append(f"\\addplot+[ybar,fill={colour},draw=none] coordinates {{"
+                    + " ".join(f"({j},{v:.2f})" for j, v in enumerate(per_stage[s]))
+                    + "};")
+        bars.append(f"\\addlegendentry{{{tex_escape(s)}}}")
+    tex = _axis(bars, xlabel="", ylabel="share of \\texttt{query\\_mapping} (\\%)",
+                extra=["ybar stacked", "bar width=6pt", "ymin=0", "ymax=100",
+                       "xtick={" + ",".join(str(i) for i in range(len(labels))) + "}",
+                       "xticklabels={" + ",".join("{" + tex_escape(x) + "}" for x in labels) + "}",
+                       "x tick label style={rotate=60,anchor=east,font=\\tiny}",
+                       "legend style={font=\\small}"],
+                legend="outer north east")
+    return tex, cols, data
+
+
+# ---------------------------------------------------------------------------
+# the registry: every artifact, with its provenance
+# ---------------------------------------------------------------------------
+
+ARTIFACTS: tuple[Artifact, ...] = (
+    Artifact(
+        name="table_mapper_comparison",
+        kind="table",
+        caption="Long-read mapping tools on the benchmark suite. "
+                "Mapq~60 is the count of confident mappings; Missed is the share of input reads "
+                "either unmapped or below mapq~60; Wrong Q60 counts confident mappings that are "
+                "wrong against ground truth.",
+        label="tab:comparison",
+        sources=(
+            "results.tsv :: benchmark, impl, metric, threads, mapped, mapq60, index_s, map_s, peak_rss_kb",
+            "checks.tsv :: wrong_q60 detail (numerator)",
+            "benchmarks/datasets.tsv :: records, for the read count the 'missed' share needs",
+            "benchmarks/results/reference-mappers/manifest.json :: mapper, wall_s, peak_rss_kb, mapped",
+        ),
+        transform=(
+            "Keep the -@1 row for each (benchmark, implementation, metric); -@1 is the "
+            "like-for-like column because the C++ has no threading.",
+            "missed_pct = 100 * (records - mapq60) / records, using the registry's record "
+            "count rather than the PAF's, since unmapped reads are absent from a PAF.",
+            "wrong_q60 = numerator of the wrong_q60 check detail, present only where reads "
+            "carry truth in their headers.",
+            "peak_rss_gb = peak_rss_kb / 1048576.",
+            "External mappers are appended per benchmark from the cached corpus; they have no "
+            "metric and no phase split, so those cells are em-dashes.",
+        ),
+        presentation="booktabs tabular, grouped by dataset with a rule between groups; "
+                     "counts use LaTeX thin spaces as thousands separators.",
+        caveats=(
+            "External mappers were measured at --threads 32 and shmap-rs rows at -@1. The "
+            "threads column carries this; the numbers are not comparable down the column.",
+            "Wrong Q60 is unknowable for real reads and shown as an em-dash there, not as 0.",
+            "The C++ reference is a median of three runs; shmap-rs rows are a single run "
+            "(RESULTS.md 10 explains why, and that per-row variance reaches ~10%).",
+        ),
+        build=build_comparison,
+    ),
+    Artifact(
+        name="table_seed_heuristic",
+        kind="table",
+        caption="Efficiency of the seed heuristic. Realized potential is possible matches "
+                "divided by matches examined (work avoided); unrealized potential is matches "
+                "examined divided by matches inside the reported mapping (work still wasted).",
+        label="tab:seedheuristic",
+        sources=(
+            "raw-profiles.tar.gz :: global.counters {possible_matches, total_matches, "
+            "matches_in_reported_mappings, seeded_buckets, final_buckets, reads}, -@1 reports only",
+        ),
+        transform=(
+            "Per-read figures divide each whole-run counter by the reads counter.",
+            "realized = possible_matches / total_matches.",
+            "unrealized = total_matches / matches_in_reported_mappings.",
+        ),
+        presentation="booktabs tabular with grouped column headers over the three match "
+                     "columns, the two ratios, and the two bucket columns.",
+        caveats=(
+            "'examined' counts matches enumerated during seeding only. The per-block pruning "
+            "pass binary-searches to a block and then walks the hits inside it, and those are "
+            "never added to the counter, so realized potential is an upper bound on work avoided.",
+            "Counters are whole-run sums taken at -@1; they are thread-invariant because the "
+            "output is byte-identical across thread counts.",
+            "lost_on_seeding and lost_on_pruning are deliberately absent: both are inert in the "
+            "C++ this was ported from and ported as such, so they measure nothing.",
+        ),
+        build=build_seed_heuristic,
+    ),
+    Artifact(
+        name="fig_thread_scaling",
+        kind="figure",
+        caption="Whole-run speedup against thread count, Containment. The dashed line is "
+                "linear speedup.",
+        label="fig:threadscaling",
+        sources=("results.tsv :: benchmark, threads, wall_s, for impl=shmap-rs, metric=Containment",),
+        transform=(
+            "speedup = wall_s at -@1 / wall_s at -@N, per dataset.",
+            "Both axes are log2 so that linear speedup is a straight line and the departure "
+            "from it is the visible quantity.",
+        ),
+        presentation="pgfplots line plot, one series per dataset, distinguished by both colour "
+                     "and mark so it survives greyscale printing.",
+        caveats=(
+            "Whole-run, so it is bounded by the serial index share and is always lower than "
+            "the mapper's own scaling; RESULTS.md 3b separates them.",
+            "Containment only. The other metrics scale the same way and would triple the "
+            "series count for no additional information.",
+            "These curves sit below the speedup column of RESULTS.md 3, and the two do not "
+            "disagree: that column reports the best of the three metrics, which is Jaccard, "
+            "because Jaccard is slowest at -@1 and so has the most room to recover. B01 at "
+            "-@32 is 6.96x here and 8.28x there for exactly that reason.",
+        ),
+        build=build_thread_scaling,
+    ),
+    Artifact(
+        name="fig_memory_vs_threads",
+        kind="figure",
+        caption="Peak resident memory against thread count, Containment, with the C++ "
+                "reference as a horizontal line.",
+        label="fig:memorythreads",
+        sources=(
+            "results.tsv :: benchmark, threads, peak_rss_kb, for impl=shmap-rs, metric=Containment",
+            "results.tsv :: peak_rss_kb for impl=cpp-shmap",
+        ),
+        transform=("peak_rss_gb = peak_rss_kb / 1048576.",
+                   "The C++ is drawn as a constant line across the same x range: it is "
+                   "single-threaded, so its memory does not vary with this axis."),
+        presentation="pgfplots line plot, log2 x axis, linear y from zero so that the ratio "
+                     "between the two implementations is read off the axis honestly.",
+        caveats=(
+            "The memory advantage is a function of thread count, not a single number. "
+            "Quoting the -@1 ratio alone under-provisions a deep, highly parallel run.",
+        ),
+        build=build_memory_vs_threads,
+    ),
+    Artifact(
+        name="fig_stage_breakdown",
+        kind="figure",
+        caption="Where mapping time goes: stage shares of \\texttt{query\\_mapping}, "
+                "single-threaded.",
+        label="fig:stages",
+        sources=("raw-profiles.tar.gz :: global.timers_secs {query_mapping, match_seeds, "
+                 "match_rest, prepare, sketching, bucket_merge}, -@1 reports only",),
+        transform=("share = 100 * stage seconds / query_mapping seconds, per "
+                   "(dataset, metric).",
+                   "Stages are the top-level ones only; nested stages such as refine and "
+                   "collect_kmer_info are inside their parents and would double-count."),
+        presentation="pgfplots stacked bar chart, one bar per (dataset, metric).",
+        caveats=(
+            "Shares do not reach 100%: the listed stages are the top-level ones and the "
+            "remainder is unattributed time inside query_mapping.",
+            "CPU time summed across workers would exceed the wall at high thread counts, "
+            "which is why this is the -@1 report.",
+        ),
+        build=build_stage_breakdown,
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# emission
+# ---------------------------------------------------------------------------
+
+def input_digest(rs: dict) -> str:
+    """sha256 over the files an artifact can read, so a paper draft can be tied
+    to an exact measurement even if the result set is later moved or renamed."""
+    h = hashlib.sha256()
+    for name in ("results.tsv", "checks.tsv", "profiles.tsv", "manifest.json",
+                 "raw-profiles.tar.gz"):
+        p = rs["dir"] / name
+        if p.exists():
+            h.update(name.encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()[:16]
+
+
+def header(a: Artifact, ctx: Ctx, comment: str) -> list[str]:
+    """The same provenance on every artifact, in the file itself. A fragment
+    pasted into a draft six months from now still says where it came from."""
+    man = ctx.rs["manifest"]
+    return [
+        f"{comment} GENERATED by benchmarks/paper.py -- do not edit.",
+        f"{comment} artifact:   {a.name} ({a.kind})",
+        f"{comment} result set: {ctx.rs['dir'].name}",
+        f"{comment} commit:     {man.get('commit', '?')[:12]}",
+        f"{comment} host:       {man.get('host', '?')}",
+        f"{comment} measured:   {man.get('finished', '?')[:10]}",
+        f"{comment} inputs:     sha256:{ctx.digest}",
+        f"{comment} provenance: paper/generated/PROVENANCE.md#{a.name}",
+    ]
+
+
+def render(a: Artifact, ctx: Ctx) -> dict[str, str]:
+    """Returns {filename: content} for one artifact: the LaTeX and its data."""
+    body, cols, data = a.build(ctx)
+    tex = "\n".join([
+        *header(a, ctx, "%"),
+        "%",
+        r"\begin{" + ("table" if a.kind == "table" else "figure") + "}[tb]",
+        r"\centering",
+        body,
+        r"\caption{" + a.caption + "}",
+        r"\label{" + a.label + "}",
+        r"\end{" + ("table" if a.kind == "table" else "figure") + "}",
+        "",
+    ])
+    tsv_lines = [*header(a, ctx, "#"), "\t".join(cols)]
+    for row in data:
+        tsv_lines.append("\t".join("" if v is None else str(v) for v in row))
+    return {f"{a.name}.tex": tex, f"{a.name}.tsv": "\n".join(tsv_lines) + "\n"}
+
+
+def render_provenance(ctx: Ctx) -> str:
+    man = ctx.rs["manifest"]
+    out = [
+        "# Provenance of the generated paper artifacts",
+        "",
+        "GENERATED by `benchmarks/paper.py` — do not edit. Every entry below is built from the",
+        "`Artifact` declaration that also produced the file, so this document cannot describe a",
+        "transformation the code does not perform.",
+        "",
+        "| | |",
+        "|---|---|",
+        f"| result set | `{ctx.rs['dir'].name}` |",
+        f"| commit | `{man.get('commit', '?')[:12]}` |",
+        f"| host | `{man.get('host', '?')}` |",
+        f"| measured | {man.get('finished', '?')[:10]} |",
+        f"| suite / datasets | {man.get('suite_version', '?')} / {man.get('dataset_version', '?')} |",
+        f"| input digest | `sha256:{ctx.digest}` |",
+        "",
+        "Regenerate with `python3 benchmarks/paper.py`; verify with `--check`, which fails if any",
+        "artifact would change. Each artifact is emitted twice: a `.tex` fragment to `\\input`",
+        "into the paper, and a `.tsv` holding exactly the numbers the fragment draws.",
+        "",
+        "LaTeX requirements: `booktabs` for the tables, `pgfplots` (`\\pgfplotsset{compat=1.18}`)",
+        "for the figures.",
+        "",
+    ]
+    for a in ARTIFACTS:
+        out += [f"## {a.name}", "",
+                f"**{a.kind.capitalize()}** — {a.caption}", "",
+                f"Files: `{a.name}.tex`, `{a.name}.tsv`. LaTeX label: `{a.label}`.", "",
+                "**Taken from**", ""]
+        out += [f"- `{s}`" for s in a.sources]
+        out += ["", "**Transformed by**", ""]
+        out += [f"{i}. {s}" for i, s in enumerate(a.transform, 1)]
+        out += ["", "**Presented as**", "", a.presentation, ""]
+        if a.caveats:
+            out += ["**Read with**", ""]
+            out += [f"- {s}" for s in a.caveats]
+            out += [""]
+    out += [
+        "## Not generated",
+        "",
+        "Stated here because an absent figure is otherwise indistinguishable from one nobody",
+        "thought of.",
+        "",
+        "- **Per-read runtime against per-read match count.** The direct evidence for the",
+        "  logarithmic-scaling claim, and the one figure the algorithm's own argument most wants.",
+        "  It needs per-read timing and per-read match counts emitted together, which the `-x`",
+        "  reports do not do — they aggregate over the whole run. Approximating it from whole-run",
+        "  totals would produce a plot of five points that shows none of the shape.",
+        "- **Accuracy against sampling rate.** The measurements exist (RESULTS.md 8) but were made",
+        "  by a standalone sweep rather than by the suite, so they are not in any result set. They",
+        "  become generable when the sweep becomes a suite parameter set.",
+        "",
+    ]
+    return "\n".join(out)
+
+
+def build_all(rs: dict) -> dict[str, str]:
+    ctx = Ctx(
+        rs=rs,
+        registry=load_registry(),
+        counters=report._profiles(rs, "counters"),
+        timers=report._profiles(rs, "timers_secs"),
+        external=load_external(),
+        digest=input_digest(rs),
+    )
+    files: dict[str, str] = {}
+    for a in ARTIFACTS:
+        files.update(render(a, ctx))
+    files["PROVENANCE.md"] = render_provenance(ctx)
+    return files
+
+
+def load_external() -> list[dict]:
+    """The cached external-mapper corpus, if it has been built.
+
+    Optional by design: it takes hours and a missing corpus should cost a table
+    its external rows, not fail the run.
+    """
+    p = RESULTS / "reference-mappers" / "manifest.json"
+    if not p.exists():
+        return []
+    try:
+        entries = json.loads(p.read_text()).get("entries", [])
+    except (OSError, ValueError):
+        return []
+    out = []
+    for e in entries:
+        if e.get("status") != "cached" or not e.get("wall_s"):
+            continue
+        # The corpus records the command line but not the thread count as a
+        # field; recovering it from the command is better than omitting it,
+        # because the number is meaningless without it.
+        threads = None
+        cmd = e.get("cmd", "").split()
+        for flag in ("--threads", "-t", "-@"):
+            if flag in cmd:
+                try:
+                    threads = int(cmd[cmd.index(flag) + 1])
+                except (IndexError, ValueError):
+                    pass
+                break
+        out.append({**e, "threads": threads})
+    return sorted(out, key=lambda e: (e.get("benchmark", ""), e.get("mapper", "")))
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("result_set", nargs="?", help="default: the suite's current/")
+    ap.add_argument("--out", help=f"output directory (default: {OUT_DEFAULT})")
+    ap.add_argument("--check", action="store_true",
+                    help="exit 1 if any artifact would change (does not write)")
+    ap.add_argument("--list", action="store_true",
+                    help="print each artifact's sources and transformation, and stop")
+    a = ap.parse_args()
+
+    if a.list:
+        for art in ARTIFACTS:
+            print(f"{art.name}  ({art.kind})")
+            for s in art.sources:
+                print(f"    from      {s}")
+            for t in art.transform:
+                print(f"    transform {t}")
+            print(f"    presented {art.presentation}")
+            for c in art.caveats:
+                print(f"    caveat    {c}")
+            print()
+        return 0
+
+    if a.result_set:
+        rs = load_set(Path(a.result_set))
+    else:
+        d = RESULTS / f"suite-{load_suite()['suite_version']}" / "current"
+        if not d.is_dir():
+            print(f"no baseline at {d}; pass a result set explicitly", file=sys.stderr)
+            return 2
+        rs = load_set(d)
+
+    out = Path(a.out) if a.out else OUT_DEFAULT
+    files = build_all(rs)
+
+    if a.check:
+        stale = [n for n, body in sorted(files.items())
+                 if not (out / n).exists() or (out / n).read_text() != body]
+        if stale:
+            print(f"paper artifacts out of date in {out}: {', '.join(stale)}\n"
+                  f"regenerate with: python3 benchmarks/paper.py", file=sys.stderr)
+            return 1
+        print(f"{len(files)} paper artifacts are current with {rs['dir'].name}")
+        return 0
+
+    out.mkdir(parents=True, exist_ok=True)
+    for n, body in sorted(files.items()):
+        (out / n).write_text(body)
+    print(f"wrote {len(files)} paper artifacts to {out} from {rs['dir'].name}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

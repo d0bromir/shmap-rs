@@ -173,7 +173,7 @@ Output is **byte-identical across every thread count**, on every benchmark and m
 <!-- BEGIN GENERATED: thread-scaling -->
 ### B01 — Real HiFi 23.2 kb, 1.11x — the headline C++ comparison (`D1-HIFI23K`)
 
-| `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
+| `-@` | Containment | Jaccard | bucket_SH | best speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
 | 1 | 42.69 s | 55.70 s | 33.86 s | 1.00x |
 | 2 | 26.84 s | 33.37 s | 22.78 s | 1.67x |
@@ -185,7 +185,7 @@ Output is **byte-identical across every thread count**, on every benchmark and m
 
 ### B02 — Simulated 24 kb, 0.96x — long reads with ground truth (`D2-SIM24K`)
 
-| `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
+| `-@` | Containment | Jaccard | bucket_SH | best speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
 | 1 | 33.87 s | 47.88 s | 31.47 s | 1.00x |
 | 2 | 22.42 s | 30.64 s | 21.01 s | 1.56x |
@@ -197,7 +197,7 @@ Output is **byte-identical across every thread count**, on every benchmark and m
 
 ### B03 — Real HiFi 12.8 kb, 1x — the long-standing reference workload (`D3-HIFI1X`)
 
-| `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
+| `-@` | Containment | Jaccard | bucket_SH | best speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
 | 1 | 50.48 s | 64.11 s | 40.49 s | 1.00x |
 | 2 | 30.54 s | 38.05 s | 26.59 s | 1.68x |
@@ -209,7 +209,7 @@ Output is **byte-identical across every thread count**, on every benchmark and m
 
 ### B04 — Real HiFi 12.8 kb, 10x — depth, where mapping dominates indexing (`D4-HIFI10X`)
 
-| `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
+| `-@` | Containment | Jaccard | bucket_SH | best speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
 | 1 | 422.15 s | 575.75 s | 337.45 s | 1.00x |
 | 2 | 223.24 s | 301.98 s | 187.75 s | 1.91x |
@@ -221,7 +221,7 @@ Output is **byte-identical across every thread count**, on every benchmark and m
 
 ### B05 — Real ONT 23.8 kb, 0.70x — a different error profile (`D6-ONT24K`)
 
-| `-@` | Containment | Jaccard | bucket_SH | speedup vs `-@1` |
+| `-@` | Containment | Jaccard | bucket_SH | best speedup vs `-@1` |
 |---:|---:|---:|---:|---:|
 | 1 | 20.29 s | 23.26 s | 19.90 s | 1.00x |
 | 2 | 14.19 s | 16.59 s | 13.81 s | 1.44x |

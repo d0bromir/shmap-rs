@@ -562,6 +562,14 @@ def recheck(outdir: Path, suite: dict) -> int:
         preserved=["thread_determinism", "impl_agreement"],
         changed=[f"{k[0]} {k[1]}/{k[2]}" for k, *_ in changed]))
     man_p.write_text(json.dumps(man, indent=2) + "\n")
+
+    # A recheck rewrites checks.tsv, which the comparison table reads, so the
+    # artifacts beside the set would otherwise describe the checks it used to
+    # have. Same non-fatal treatment as in execute().
+    rc = sh([sys.executable, str(HERE / "paper.py"), str(outdir),
+             "--out", str(outdir / "paper")])
+    print((rc.stdout or rc.stderr).strip() or "paper artifacts: no output")
+
     print(f"{len(changed)} change(s); {man['failures']} failure(s) remain in {outdir}")
     return 1 if man["failures"] else 0
 
@@ -701,6 +709,23 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
         binaries={k: sh([v, "--version"]).stdout.strip() or v for k, v in binaries.items()},
     )
     (outdir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+    # The paper's tables and figures, built from the set that was just measured
+    # and written beside it, so a run is self-describing: the artifacts in
+    # outdir/paper/ can only describe outdir. Promoting a set to current/ and
+    # running paper.py with no argument is what updates the repo copy.
+    #
+    # Deliberately non-fatal. A four-hour measurement must not be discarded
+    # because a table generator raised on an unexpected column -- the result set
+    # is already written and the artifacts can be rebuilt from it at any time.
+    try:
+        rc = sh([sys.executable, str(HERE / "paper.py"), str(outdir),
+                 "--out", str(outdir / "paper")])
+        print((rc.stdout or rc.stderr).strip() or "paper artifacts: no output")
+    except Exception as e:                                      # noqa: BLE001
+        print(f"paper artifacts failed ({e}); rebuild with "
+              f"benchmarks/paper.py {outdir} --out {outdir}/paper")
+
     print(f"\n{len(rows)} invocations in {(time.time()-t0)/60:.1f} min; "
           f"{sum(1 for c in checks if not c['passed'])} check failures; wrote {outdir}")
     return 1 if failed else 0
