@@ -10,7 +10,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 |---|---|---|---|---|
 | Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | merged |
 | Q2 | Check: does the suite run shmap-rs and map-shmap with Jaccard, Containment, SH? | `q2-three-metrics` | #7 | merged |
-| Q3 | Detailed, significance-ordered list of changes vs the C++/paper | `q3-optimizations-list` | — | in review |
+| Q3 | Detailed, significance-ordered list of changes vs the C++/paper | `q3-optimizations-list` | #8 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -196,7 +196,7 @@ all. Not fixed here — it's inherited, unused by the documented benchmark flow,
 
 ## Q3 — Detailed, significance-ordered list of changes vs the C++/paper
 
-**Asked** 2026-08-02 · **Branch** `q3-optimizations-list` · **Status** in review
+**Asked** 2026-08-02 · **Branch** `q3-optimizations-list` · **PR** #8 · **Status** in review
 
 **Question.** *„тук ни трябва много подробно обяснение на това какво е сменено с всички базови
 дефиниции, как промените от оригиналния C++ shmap и статията са имплементирани, какво се
