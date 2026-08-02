@@ -7,7 +7,7 @@
 |---|---|
 | version | **1.3.1** |
 | commit | `e9aa9c98a2c7` |
-| host | `a2` (64-core AVX-512, 376 GB RAM, Ubuntu 24.04, idle) |
+| host | `a2` (64-core AVX-512, **4 sockets x 16 cores (NUMA)**, 376 GB RAM, Ubuntu 24.04, idle) |
 | measured | 2026-08-01 |
 | suite / datasets | 1.0 / v1 |
 | parameters | `-k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3` |
@@ -235,6 +235,45 @@ Output is **byte-identical across every thread count**, on every benchmark and m
 Whole-run scaling is best at depth simply because there is enough mapping work to bury the fixed
 index cost — indexing is ~9% of the wall at `-@ 32` on 10x, against ~50% for a 1x run. The mapper's
 own ceiling is a consistent ~7.7-11.4x, reached at 16-32 threads.
+
+**That ceiling is this host's socket topology, not a limit of the algorithm or the pipeline.** `a2`
+is 4 sockets of 16 cores each (`numactl --hardware`), and worker CPU-efficiency during mapping —
+`cpu_query_mapping` (summed across workers) divided by `threads x wall_mapping` — tracks the socket
+boundary almost exactly, on *every* benchmark:
+
+| `-@` | sockets spanned | B01 | B02 | B03 | B04 | B05 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 16 | 1 | 93.5% | 92.8% | 92.0% | 91.5% | 73.8% |
+| 32 | 2 | 66.2% | 62.6% | 61.3% | 60.7% | 48.8% |
+| 64 | 4 | 39.2% | 40.0% | 36.4% | 34.7% | 38.1% |
+
+Efficiency is a steady ~90%+ for as long as `-@` fits in one socket, then drops by roughly a third
+the moment it needs a second and by roughly two-thirds needing all four — the same shape on a
+39,608-read and a 2,419,796-read benchmark alike, which rules out anything dataset-specific. The
+reader and collector threads were checked directly and are not the cause: `collector_busy` stays
+flat (1.6-2.1 s) across every thread count on B01 even as its `max_pending_reorder_buffer` counter
+grows from 1 to 1,942, and the reader's own `query_reading` timer never grows either — both are
+symptoms of more out-of-order completion at higher parallelism, not bottlenecks in their own right.
+
+Two direct experiments confirm cross-socket memory traffic as the cause. `numactl --membind=0`
+(forcing every allocation onto socket 0, the worst case for the 48 workers on sockets 1-3) makes
+`-@ 64` slower than the unconstrained run (7.5-7.8 s vs 6.6-6.8 s, three repeats each) — the natural
+placement is already better than that floor, not worse. And 16 threads confined to one socket
+(`numactl --cpunodebind=0 --membind=0 -@ 16`, 5.9-6.0 s) matches or beats the natural, unconstrained
+`-@ 64` run (6.6-6.8 s) on the same B01 dataset — sixteen well-placed threads outrunning sixty-four
+poorly-placed ones. `--interleave=all` (spreading every allocation round-robin across all four
+sockets) did *not* help — it was marginally slower than natural at both 32 and 64 — so this is not
+simple single-node hotspotting fixable by moving the index; it is aggregate traffic across the
+inter-socket links once enough workers are generating it concurrently. See §11 for what a real fix
+looks like and why it hasn't been attempted here yet.
+
+**Ruled out: AVX-512 downclocking.** These CPUs are Cascade Lake (Xeon Gold 5218), which
+throttles package-wide under sustained multi-core AVX-512 use — a real effect, and the reason to
+check rather than assume it isn't the cause of a many-cores-busy regression. It isn't here:
+`objdump` on `target/release/shmap` finds zero AVX-512 (`zmm`/mask-register) instructions, since
+nothing in this build sets `target-cpu=native` or an explicit `target-feature`, so rustc defaults
+to the generic x86-64 baseline. The 56 `ymm` (AVX2) instructions present come from a vendored
+dependency and don't carry the same severe penalty.
 
 ---
 
@@ -1206,6 +1245,38 @@ a recommended setting.
 ## 11 What to try next
 
 The open threads, with what is already known about each so they are not re-derived.
+
+### NUMA-aware index replication — diagnosed, not yet built
+
+§3 measures why efficiency drops from ~92% to ~35-40% once `-@` crosses this host's socket
+boundaries (16 cores/socket, 4 sockets): two `numactl` experiments point at aggregate cross-socket
+memory traffic against the single, shared, read-mostly index, not at the reader/collector pipeline
+(both checked directly and ruled out) or at anything dataset-specific (the same curve appears on
+all five benchmarks).
+
+The natural next step is a copy of the sharded index per NUMA node, with each worker reading its
+own node's copy rather than one shared copy every socket reaches across the interconnect for. Cost:
+`N_nodes x` the current index size. At today's ~2.5 GB (`-@1`, RESULTS.md §1) that is ~10 GB on this
+4-socket host — still well under the C++'s constant 18.85 GB, so there is real room to spend before
+losing the memory advantage this port is built around. Not attempted here: it needs runtime NUMA
+topology detection and node-bound allocation, neither available in `std`, so it would need a new
+dependency (`libnuma` FFI, or a crate wrapping it) and testing across topologies this one remote
+host cannot provide alone — a single-socket or 2-socket host would need to confirm the replication
+doesn't regress the common case before this ships.
+
+**A library swap alone does not fix this.** `rayon`'s default global thread pool has no NUMA
+awareness — it does not replicate read-only data per node or pin workers to a memory domain, so
+routing the existing per-read parallelism through it would leave the measured bottleneck exactly
+where it is. Work-stealing could plausibly make locality *worse* in some cases, since a stolen task
+can execute on any core in the pool, including one on a different socket than wherever its data was
+last touched — the opposite of what this problem needs. If `rayon` simplifies the current hand-
+rolled channel/scope pipeline later, that is a maintainability argument, independent of this one.
+
+**Usable today, no code change.** On this specific 4-socket host, `-@16` pinned to one socket
+(`numactl --cpunodebind=0 --membind=0`) already matches or beats an unconstrained `-@64` — sixteen
+well-placed threads outrunning sixty-four poorly-placed ones (§3). Capping `-@` at one socket's core
+count, or pinning explicitly, is the immediate recommendation for multi-socket hosts until the
+index is replicated.
 
 ### Measurements the upstream evaluation makes that this suite does not
 
