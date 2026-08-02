@@ -22,9 +22,11 @@ awaiting the benchmark) · **merged** · **dropped** (with the reason in its sec
 **Question.** *„sketch.rs да се замени от библиотека, която вече е оптимизирана."* — replace our
 sketching code with an existing, already-optimised library instead of maintaining our own.
 
-**Answer.** Keep `sketch.rs`. The library exists and the hash is genuinely standard, but swapping it
-in would change every mapping *and* run 4.5x slower — and writing SIMD ourselves buys 1.33x on
-sketching, which is ~4% end to end and below the noise floor.
+**Answer.** Keep `sketch.rs`, unchanged. The library exists and the hash is genuinely standard, but
+swapping it in would change every mapping *and* run 4.5x slower. Writing SIMD ourselves does not pay
+either — the first pass looked like a 1.33x win, but that measured hashing only; a second pass added
+real k-mer emission, verified correctness bit-for-bit against the real code, and found it 0.79–0.96x
+— a wash to a regression, not a win.
 
 Three findings on the library question, each pinned by a test in
 [`tests/nthash_equivalence.rs`](tests/nthash_equivalence.rs):
@@ -73,14 +75,15 @@ method":
   FracMinHash implementation, but it hashes with MurmurHash3 and is not rolling: a different
   function *and* a slower one.
 
-### Then we tried SIMD ourselves
+### Then we tried SIMD ourselves — twice, because the first attempt was measuring the wrong thing
 
 The host has AVX-512, so the instruction SimdMinimizers lacked (`vpermq`, a table lookup in a
-register) is available. Four variants, all reproducing the scalar checksum exactly, hashing only,
-k = 25, 50 Mbase — [`profiling/sketch_simd_probe.rs`](profiling/sketch_simd_probe.rs) and
-[`profiling/sketch_lanes_probe.rs`](profiling/sketch_lanes_probe.rs):
+register) is available. First pass, hashing only — no k-mer records produced, just a checksum and a
+count of windows clearing the threshold —
+[`profiling/sketch_simd_probe.rs`](profiling/sketch_simd_probe.rs) and
+[`profiling/sketch_lanes_probe.rs`](profiling/sketch_lanes_probe.rs), k = 25, 50 Mbase:
 
-| variant | throughput |
+| variant | throughput (hashing only) |
 |---|---:|
 | scalar, as shipped | 727 Mbase/s |
 | multi-lane scalar (L = 2…16) | 382–645 Mbase/s — **all slower** |
@@ -90,22 +93,53 @@ k = 25, 50 Mbase — [`profiling/sketch_simd_probe.rs`](profiling/sketch_simd_pr
 
 **The loop is not latency-bound, it is load-bound.** Six L1 loads per base — two sequence bytes and
 four table entries. That is why adding independent lanes makes it *slower*: more lanes means
-proportionally more loads, and there was no stalled dependency chain to fill.
+proportionally more loads, and there was no stalled dependency chain to fill. That finding still
+holds — it is the *speedup* estimate built on top of it that did not.
 
-**The vector core is 4.1x faster, and feeding it is the whole problem.** With the input already
-transposed, AVX-512 hashes at 3011 Mbase/s. But a gather costs more than it saves (427), and a
-transpose that removes the gather costs more than the hashing it accelerates (587). The only
-arrangement that wins reads ASCII directly with eight ordinary scalar loads: **969 Mbase/s, 1.33x**.
+**The 969 Mbase/s / 1.33x figure was wrong, and it was wrong in the direction that matters.**
+"Hashing only" does not produce a `Kmer` — no position, no strand, nothing pushed anywhere — and
+that is exactly the cost a real sketcher cannot skip. So a second pass added it:
+[`tests/avx_emit_probe.rs`](tests/avx_emit_probe.rs) extracts each lane's `{position, hash,
+strand}` on the ~1-in-13 step where any of the 8 lanes clears the `-r 0.01` threshold, pushes a real
+`Kmer` into that lane's own buffer, and concatenates the eight buffers at the end. **Its output is
+verified bit-for-bit identical to the real `FracMinHash::sketch_slice_into`** — same positions, same
+hashes, same strand bits, on chunk sizes matching what `chunk_windows` actually hands a worker
+(2²¹ windows, the `-@64` floor; ~97 Mbase, the `-@8` size):
 
-**1.33x on sketching is ~4% end to end**, since §5 of [RESULTS.md](RESULTS.md) puts sketching at
-15–38% of `query_mapping` — under the ~10% per-row noise floor §10 documents. That does not pay for
-unsafe intrinsics in the hot path of a mapper whose output must stay byte-identical, plus runtime
-feature detection, a scalar fallback, tail handling and per-lane emission ordering. **Not shipped.**
+| chunk size | speedup, 8 repeats |
+|---|---|
+| ~2.1 M windows (`-@64` floor) | 0.84–1.08x — a wash, noisy at this size |
+| ~97 Mbase (`-@8` chunk) | **0.79–0.87x — consistently slower, never a win** |
 
-**The one direction that would pay** is making the transposed layout free rather than paying for
-it: the FASTA reader already walks every base, so if it emitted 2-bit codes in lane-major order,
-sketching could run near the 3011 Mbase/s core — ~4x. That is a change to the reader and the index
-build, not to `sketch.rs`, and it is a separate question.
+**The correctness-verified AVX-512 sketcher does not beat the scalar code it would replace, and
+loses outright at the chunk size that matters most.** `chunk_windows` (`src/index.rs`) only returns
+its `MIN_CHUNK` floor (2²¹ windows) at very high thread counts on this reference — most of the
+thread-count range indexes in chunks closer to the 97 Mbase size, where AVX-512 is reliably 13–21%
+slower. The extraction that a hash-only measurement has no reason to include — three
+`_mm512_storeu_si512` stores and a per-lane loop, paid on every step that selects at least one of 8
+lanes (~7.7% of steps at `-r 0.01`,
+by 1 − 0.99⁸) — costs more than the 4.1x-faster vector core saves.
+
+**A real thing was built and measured, and the honest answer reverses the earlier estimate: SIMD
+does not help `sketch.rs`, full stop.** Not "1.33x, not worth the complexity" — 0.8x, a regression,
+even setting complexity aside. `profiling/sketch_simd_probe.rs` and
+`profiling/sketch_lanes_probe.rs` are kept because the load-bound finding is still correct and
+useful context; their throughput numbers are hash-only and are superseded by
+`tests/avx_emit_probe.rs` for anything about real sketching speed.
+
+**The earlier "reader emits lane-major codes" follow-up is retracted.** It was reasoning from the
+hash-only number and assumed the transpose was the only cost standing between the code and the 4x
+vector core. It was not — the winning hash-only variant already needed no reader change (eight
+ordinary scalar loads against the existing ASCII buffer), and even that loses once it does real
+work. There is no cheap fix on the table; extracting a scattered, low-probability selection from a
+SIMD register is inherently what it costs.
+
+**One fact from this investigation is worth keeping for later, though it points nowhere yet.**
+Stubbing `sketch_slice_into` to a no-op (env-gated, never committed) and measuring real `-x`
+profiling on the actual reference (`REF-HS1`, `-@1/8/64`) shows sketch compute is 33–50% of
+indexing wall — not the small residue "indexing bottoms out near 3s... further gains need reading
+less" in §5 of RESULTS.md would suggest to a casual reading. That is real headroom in principle. It
+is just not headroom SIMD can reach, on this evidence.
 
 **Outcome.** No change to `sketch.rs`. The PR adds the test that pins the library finding and the
 two probes that pin the SIMD one, so both stay checkable and nobody re-derives them.
