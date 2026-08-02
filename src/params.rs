@@ -158,6 +158,31 @@ pub struct Params {
     /// given, otherwise `shmap.profile.json` in the working directory.
     #[arg(long = "profile-log")]
     pub profile_log: Option<String>,
+
+    /// Write one TSV row per read: its mapping time and the match and bucket
+    /// counts that produced it.
+    ///
+    /// The `-x` report aggregates over the whole run, which cannot show how
+    /// per-read cost scales with the number of matches a read has to consider
+    /// — the property the seed heuristic exists to bound. This emits the
+    /// per-read pairs that a scatter of time against matches needs.
+    ///
+    /// Costs nothing when unset: the row is formatted only for sampled reads,
+    /// and the timers and counters it reads are maintained on every path
+    /// already. Rows are written by the single collector in original read
+    /// order, so the file is deterministic across thread counts exactly as
+    /// the PAF is.
+    #[arg(long = "per-read-stats")]
+    pub per_read_stats: Option<String>,
+
+    /// Keep every Nth read for `--per-read-stats` (1 = all of them).
+    ///
+    /// A 10x whole-genome run is 2.4 M reads; at ~55 bytes a row that is a
+    /// 130 MB file to answer a question a few thousand points already answer.
+    /// Sampling is by read index rather than at random so the selection is
+    /// reproducible and independent of thread count.
+    #[arg(long = "per-read-stats-sample", default_value_t = 1)]
+    pub per_read_stats_sample: u64,
 }
 
 impl Params {
@@ -228,6 +253,11 @@ impl Params {
                 "The number of threads (-@) should be positive. You provided {}.",
                 self.threads
             );
+        }
+        // 0 would keep no reads at all while looking like it had been set to
+        // something meaningful, and `idx % 0` panics.
+        if self.per_read_stats_sample == 0 {
+            bail!("--per-read-stats-sample should be >= 1 (1 keeps every read). You provided 0.");
         }
         Ok(())
     }

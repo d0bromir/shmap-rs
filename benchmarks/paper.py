@@ -153,6 +153,7 @@ class Ctx:
     counters: dict                  # (bench, metric, threads) -> -x counters
     timers: dict                    # (bench, metric, threads) -> -x stage times
     external: list                  # cached external-mapper runs
+    per_read: dict                  # benchmark -> per-read rows, if collected
     digest: str                     # sha256 over the input files
 
     def rows(self, impl=None, threads=None) -> list[dict]:
@@ -401,6 +402,121 @@ def build_memory_vs_threads(c: Ctx) -> tuple[str, list[str], list[list]]:
     return tex, cols, data
 
 
+def _quantile(sorted_vals: list[float], q: float) -> float:
+    """Nearest-rank quantile. No interpolation and no numpy: bins hold hundreds
+    to thousands of reads, where the difference is far below the run-to-run
+    variation the band exists to show."""
+    if not sorted_vals:
+        return 0.0
+    i = min(len(sorted_vals) - 1, max(0, int(round(q * (len(sorted_vals) - 1)))))
+    return sorted_vals[i]
+
+
+def _fit(xs: list[float], ys: list[float]) -> tuple[float, float, float]:
+    """Ordinary least squares, returning (slope, intercept, r_squared).
+
+    Written out rather than pulled from a library because the benchmark host
+    has no scientific Python stack and adding one to draw a trend line would
+    be a poor trade.
+    """
+    n = len(xs)
+    if n < 3:
+        return 0.0, 0.0, 0.0
+    mx, my = sum(xs) / n, sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    if sxx == 0:
+        return 0.0, my, 0.0
+    slope = sxy / sxx
+    intercept = my - slope * mx
+    sst = sum((y - my) ** 2 for y in ys)
+    ssr = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(xs, ys))
+    r2 = 1.0 - ssr / sst if sst > 0 else 0.0
+    return slope, intercept, r2
+
+
+def build_time_vs_matches(c: Ctx) -> tuple[str, list[str], list[list]]:
+    """Per-read mapping time against the number of matches the read examined.
+
+    The direct test of the scaling claim: if per-read cost were linear in
+    matches this is a straight line on log-log and a sharp curve on log-linear;
+    if it is logarithmic it is a straight line on log-linear, which is how it
+    is drawn.
+    """
+    import math
+
+    cols = ["benchmark", "bin", "n_reads", "matches_median", "time_median_us",
+            "time_q1_us", "time_q3_us"]
+    data: list[list] = []
+    body: list[str] = []
+    fits: list[str] = []
+
+    for i, (bid, rows) in enumerate(sorted(c.per_read.items())):
+        colour, mark = SERIES_STYLE[i % len(SERIES_STYLE)]
+        pts = [(r["examined_matches"], r["query_mapping_s"]) for r in rows
+               if r["examined_matches"] > 0 and r["query_mapping_s"] > 0]
+        if len(pts) < 50:
+            continue
+        lo = math.log10(min(x for x, _ in pts))
+        hi = math.log10(max(x for x, _ in pts))
+        nbins = 18
+        width = (hi - lo) / nbins if hi > lo else 1.0
+        buckets: dict[int, list[tuple[float, float]]] = {}
+        for x, y in pts:
+            b = min(nbins - 1, int((math.log10(x) - lo) / width)) if width else 0
+            buckets.setdefault(b, []).append((x, y))
+
+        coords, fx, fy = [], [], []
+        band_hi, band_lo = [], []
+        for b in sorted(buckets):
+            vals = buckets[b]
+            # A bin holding a handful of reads is noise, not a data point.
+            if len(vals) < 25:
+                continue
+            xs = sorted(x for x, _ in vals)
+            ys = sorted(y for _, y in vals)
+            xm = _quantile(xs, 0.5)
+            ymed, yq1, yq3 = (_quantile(ys, q) * 1e6 for q in (0.5, 0.25, 0.75))
+            coords.append((xm, ymed))
+            band_hi.append((xm, yq3))
+            band_lo.append((xm, yq1))
+            fx.append(math.log10(xm))
+            fy.append(ymed)
+            data.append([bid, b, len(vals), round(xm, 1), round(ymed, 2),
+                         round(yq1, 2), round(yq3, 2)])
+        if not coords:
+            continue
+
+        # Interquartile band on the simulated set only: five overlapping bands
+        # is an unreadable figure, and B02 is the set with known truth.
+        if bid == "B02":
+            body.append("\\addplot[name path=hi,draw=none,forget plot] coordinates {"
+                        + " ".join(f"({x:.1f},{y:.2f})" for x, y in band_hi) + "};")
+            body.append("\\addplot[name path=lo,draw=none,forget plot] coordinates {"
+                        + " ".join(f"({x:.1f},{y:.2f})" for x, y in band_lo) + "};")
+            body.append(f"\\addplot[{colour}!15,forget plot] fill between[of=hi and lo];")
+        body.append(f"\\addplot[color={colour},mark={mark},thick] coordinates {{"
+                    + " ".join(f"({x:.1f},{y:.2f})" for x, y in coords) + "};")
+        body.append(f"\\addlegendentry{{{tex_escape(bid)}}}")
+
+        slope, _, r2 = _fit(fx, fy)
+        lin_slope, _, lin_r2 = _fit([10 ** v for v in fx], fy)
+        fits.append(f"{bid}: {slope:.1f} us per decade, R2={r2:.3f} "
+                    f"(linear-in-matches fit R2={lin_r2:.3f}, {lin_slope*1000:.3f} ns/match)")
+        data.append([bid, "fit", len(fx), None, round(slope, 3), round(r2, 4),
+                     round(lin_r2, 4)])
+
+    tex = _axis(body, xlabel="matches examined by the read",
+                ylabel="per-read mapping time ($\\mu$s)",
+                extra=["xmode=log", "log basis x=10", "ymin=0"],
+                legend="north west")
+    # `fillbetween` is not loaded by pgfplots itself, and the band silently
+    # vanishes without it -- worse than an error, so it is stated in the file.
+    tex = ("% requires: \\usepgfplotslibrary{fillbetween}\n"
+           + "\n".join(f"% fit {f}" for f in fits) + ("\n" if fits else "") + tex)
+    return tex, cols, data
+
+
 def build_stage_breakdown(c: Ctx) -> tuple[str, list[str], list[list]]:
     """Where mapping time goes, as shares of query_mapping, per metric."""
     stages = ["match_seeds", "match_rest", "prepare", "sketching", "bucket_merge"]
@@ -554,6 +670,56 @@ ARTIFACTS: tuple[Artifact, ...] = (
         build=build_memory_vs_threads,
     ),
     Artifact(
+        name="fig_time_vs_matches",
+        kind="figure",
+        caption="Per-read mapping time against the number of matches the read examined, "
+                "Containment. Points are per-bin medians over reads grouped into 18 "
+                "logarithmic bins; the shaded band is the interquartile range for the "
+                "simulated set.",
+        label="fig:timevsmatches",
+        sources=("per-read-<benchmark>-<metric>.tsv :: examined_matches, query_mapping_s, "
+                 "written by shmap --per-read-stats",),
+        transform=(
+            "Drop reads with zero examined matches or zero measured time; both are "
+            "degenerate rather than fast, and neither can be placed on a log axis.",
+            "Bin reads into 18 equal-width bins in log10(examined_matches); discard bins "
+            "holding fewer than 25 reads, which are noise rather than data points.",
+            "Plot the per-bin median time against the per-bin median match count; the band "
+            "is the 25th to 75th percentile of time within the bin.",
+            "Fit per-bin median time against log10(matches) by least squares, and against "
+            "matches directly for comparison. Both fits are recorded as comments at the top "
+            "of the .tex and as 'fit' rows in the .tsv.",
+        ),
+        presentation="pgfplots line plot on a log x axis and a linear y axis from zero, so a "
+                     "logarithmic relationship reads as a straight line. Needs "
+                     "\\usepgfplotslibrary{fillbetween} for the band.",
+        caveats=(
+            "This figure is descriptive and is NOT a test of the O(R*m*log M) bound. Read it "
+            "as what a read of a given match count costs, which is the quantity a user feels.",
+            "The two fits recorded in the .tex disagree with each other and neither settles "
+            "the question. Against examined matches, a linear fit beats a logarithmic one on "
+            "B02 (R2 0.958 vs 0.677) and B05 (0.949 vs 0.763), while B03 favours logarithmic "
+            "(0.897 vs 0.761). That is not evidence against the bound: the bound has three "
+            "factors -- blocks visited R, sketch size m, and log M -- which co-vary across "
+            "reads, so a single-variable fit attributes their combined growth to whichever "
+            "variable is on the axis. Normalising by m leaves linear ahead (R2 ~0.92 vs "
+            "~0.59); normalising by m*R puts logarithmic ahead but with a negative slope and "
+            "R2 only 0.52-0.73. Isolating the log term needs reads matched on R and m, which "
+            "this sampling was not designed for.",
+            "Medians, not a raw scatter. 60 000 points would dominate the PDF and hide the "
+            "relationship; the .tsv carries the binned values and the reads are on disk.",
+            "'examined matches' is the seeding count, so this measures how per-read cost "
+            "grows with the work seeding hands on -- not with every match the mapper touches. "
+            "The per-block pruning pass walks hits it never counts.",
+            "Per-read times are microseconds measured with a single clock read either side. "
+            "Individual reads are noisy at that scale, which is why nothing below a bin "
+            "median is plotted.",
+            "Collected by a separate invocation from the timing matrix, and possibly at a "
+            "later commit: manifest.json records per_read_stats_provenance when it was.",
+        ),
+        build=build_time_vs_matches,
+    ),
+    Artifact(
         name="fig_stage_breakdown",
         kind="figure",
         caption="Where mapping time goes: stage shares of \\texttt{query\\_mapping}, "
@@ -695,6 +861,7 @@ def build_all(rs: dict) -> dict[str, str]:
         counters=report._profiles(rs, "counters"),
         timers=report._profiles(rs, "timers_secs"),
         external=load_external(),
+        per_read=load_per_read(rs),
         digest=input_digest(rs),
     )
     files: dict[str, str] = {}
@@ -702,6 +869,38 @@ def build_all(rs: dict) -> dict[str, str]:
         files.update(render(a, ctx))
     files["PROVENANCE.md"] = render_provenance(ctx)
     return files
+
+
+def load_per_read(rs: dict) -> dict[str, list[dict]]:
+    """Per-read rows written by `--per-read-stats`, keyed by benchmark.
+
+    Optional in exactly the same way the external corpus is: a result set
+    measured before the instrumentation existed simply has none, and the
+    figure that needs them reports that instead of failing the run.
+    """
+    out: dict[str, list[dict]] = {}
+    for p in sorted(rs["dir"].glob("per-read-*.tsv")):
+        bid = p.name.split("-")[2]
+        rows = []
+        with p.open() as f:
+            head = f.readline().rstrip("\n").split("\t")
+            for line in f:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) != len(head):
+                    continue
+                r = dict(zip(head, parts))
+                try:
+                    rows.append({
+                        "examined_matches": float(r["examined_matches"]),
+                        "possible_matches": float(r["possible_matches"]),
+                        "query_mapping_s": float(r["query_mapping_s"]),
+                        "mapped": int(r["mapped"]),
+                    })
+                except (KeyError, ValueError):
+                    continue
+        if rows:
+            out[bid] = rows
+    return out
 
 
 def load_external() -> list[dict]:

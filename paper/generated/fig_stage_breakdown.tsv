@@ -4,7 +4,7 @@
 # commit:     e9aa9c98a2c7
 # host:       a2
 # measured:   2026-08-01
-# inputs:     sha256:1abb1d51719464e6
+# inputs:     sha256:9c43119fe38bc6c4
 # provenance: paper/generated/PROVENANCE.md#fig_stage_breakdown
 benchmark	metric	stage	share_pct	query_mapping_s
 B01	Containment	match_seeds	21.92	32.07

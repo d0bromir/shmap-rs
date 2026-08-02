@@ -250,6 +250,55 @@ fn apply_read_output(
     Ok(())
 }
 
+/// Column order of the `--per-read-stats` TSV. Kept beside the formatter so a
+/// new column cannot be added to one and forgotten in the other.
+pub const PER_READ_STATS_HEADER: &str = "query_id\tread_len\tkmers_sketched\tkmers_seeds\t\
+possible_matches\texamined_matches\tseed_matches\tseeded_buckets\trefined_buckets\t\
+final_buckets\tmatches_in_mapping\tmapped\tmapq\tquery_mapping_s";
+
+/// One row of `--per-read-stats`, from a single read's own counters and timers.
+///
+/// Every value here is already maintained on the normal mapping path — this
+/// reads them, it does not add measurement. `query_mapping` is the timer that
+/// wraps sketching through scoring, i.e. the per-read work whose scaling with
+/// match count is the question; it excludes indexing (once per run) and output.
+///
+/// Nine significant decimals on the time because a read maps in ~10^-4 s and
+/// the interesting variation is within an order of magnitude of that; fewer
+/// digits quantise the y axis of the scatter into visible bands.
+fn per_read_stats_row(query_id: &str, counters: &Counters, timers: &Timers) -> String {
+    let c = |name: &str| counters.count(name);
+    // A read that mapped has exactly one of mapq60/mapq0 set, both being
+    // per-read counters cleared at the top of `map_read`. An unmapped read has
+    // neither, and reports mapq -1 rather than 0 so it cannot be mistaken for
+    // a mapping the mapper was unsure about.
+    let mapped = c("mapped_reads");
+    let mapq = if mapped == 0 {
+        -1
+    } else if c("mapq60") > 0 {
+        60
+    } else {
+        0
+    };
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.9}",
+        query_id,
+        c("read_len"),
+        c("kmers_sketched"),
+        c("kmers_seeds"),
+        c("possible_matches"),
+        c("total_matches"),
+        c("seed_matches"),
+        c("seeded_buckets"),
+        c("refined_buckets"),
+        c("final_buckets"),
+        c("matches_in_reported_mappings"),
+        mapped,
+        mapq,
+        timers.secs("query_mapping"),
+    )
+}
+
 /// `NBP`/`OS`/`AP` are the C++ template bools `no_bucket_pruning`/
 /// `one_sweep`/`abs_pos`. Upstream only ever compiles the `<false, false,
 /// false>` instantiation (`mapper.cpp` comments out the other 7 `case`
@@ -324,6 +373,19 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             None
         };
         let mut paulout_is_first_row = true;
+        let mut stats_out = match &handler.params.per_read_stats {
+            Some(path) => {
+                eprintln!("Per-read stats to {path}");
+                let mut f = std::fs::File::create(path)?;
+                writeln!(f, "{PER_READ_STATS_HEADER}")?;
+                Some(f)
+            }
+            None => None,
+        };
+        // Copied out of `params` so the worker closures do not have to borrow
+        // it just to test a flag on every read.
+        let per_read_stats_on = handler.params.per_read_stats.is_some();
+        let per_read_stats_sample = handler.params.per_read_stats_sample.max(1);
         // Locked once and held for the whole collector loop (see
         // `apply_read_output`'s doc comment) instead of relocking/flushing
         // stdout on every single read.
@@ -350,6 +412,10 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             counters: Counters,
             timers: Timers,
             result: anyhow::Result<ReadOutput>,
+            /// Present only for reads sampled by `--per-read-stats`; `None`
+            /// on every read of a normal run, so this costs one moved
+            /// `Option` and no formatting.
+            stats_row: Option<String>,
         }
 
         // Bounded so a fast-reading thread can't buffer the whole input
@@ -398,6 +464,16 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         let Ok(job) = job else { break };
                         let result =
                             catch_read_panic(&mut worker, sketcher, params, &job.query_id, &job.seq, &mut buckets);
+                        // Formatted here, on the worker, rather than in the
+                        // collector: the counters and timers are this read's
+                        // own and are overwritten by the next `map_read`
+                        // call, and doing it here keeps the serial collector
+                        // free of per-read formatting.
+                        let stats_row = if per_read_stats_on && job.idx % per_read_stats_sample == 0 {
+                            Some(per_read_stats_row(&job.query_id, &worker.counters, &worker.timers))
+                        } else {
+                            None
+                        };
                         if profiler.enabled() {
                             thread_timers += &worker.timers;
                             thread_counters += &worker.counters;
@@ -409,6 +485,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                             counters: worker.counters.clone(),
                             timers: worker.timers.clone(),
                             result,
+                            stats_row,
                         };
                         if done_tx.send(done).is_err() {
                             break;
@@ -477,6 +554,18 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     handler.counters.inc1("reads");
                     handler.counters += &done.counters;
                     handler.timers += &done.timers;
+
+                    // Written from the collector, which runs strictly in
+                    // original read order, so the file is byte-identical
+                    // across thread counts for the same reason the PAF is.
+                    // Before the result match: a read that panicked still has
+                    // valid counters for the work it did, and dropping its row
+                    // would silently thin the sample.
+                    if let Some(row) = &done.stats_row
+                        && let Some(f) = stats_out.as_mut()
+                    {
+                        writeln!(f, "{row}")?;
+                    }
 
                     match done.result {
                         Ok(output) => {

@@ -11,7 +11,7 @@ transformation the code does not perform.
 | host | `a2` |
 | measured | 2026-08-01 |
 | suite / datasets | 1.0 / 1 |
-| input digest | `sha256:1abb1d51719464e6` |
+| input digest | `sha256:9c43119fe38bc6c4` |
 
 Regenerate with `python3 benchmarks/paper.py`; verify with `--check`, which fails if any
 artifact would change. Each artifact is emitted twice: a `.tex` fragment to `\input`
@@ -125,6 +125,36 @@ pgfplots line plot, log2 x axis, linear y from zero so that the ratio between th
 **Read with**
 
 - The memory advantage is a function of thread count, not a single number. Quoting the -@1 ratio alone under-provisions a deep, highly parallel run.
+
+## fig_time_vs_matches
+
+**Figure** — Per-read mapping time against the number of matches the read examined, Containment. Points are per-bin medians over reads grouped into 18 logarithmic bins; the shaded band is the interquartile range for the simulated set.
+
+Files: `fig_time_vs_matches.tex`, `fig_time_vs_matches.tsv`. LaTeX label: `fig:timevsmatches`.
+
+**Taken from**
+
+- `per-read-<benchmark>-<metric>.tsv :: examined_matches, query_mapping_s, written by shmap --per-read-stats`
+
+**Transformed by**
+
+1. Drop reads with zero examined matches or zero measured time; both are degenerate rather than fast, and neither can be placed on a log axis.
+2. Bin reads into 18 equal-width bins in log10(examined_matches); discard bins holding fewer than 25 reads, which are noise rather than data points.
+3. Plot the per-bin median time against the per-bin median match count; the band is the 25th to 75th percentile of time within the bin.
+4. Fit per-bin median time against log10(matches) by least squares, and against matches directly for comparison. Both fits are recorded as comments at the top of the .tex and as 'fit' rows in the .tsv.
+
+**Presented as**
+
+pgfplots line plot on a log x axis and a linear y axis from zero, so a logarithmic relationship reads as a straight line. Needs \usepgfplotslibrary{fillbetween} for the band.
+
+**Read with**
+
+- This figure is descriptive and is NOT a test of the O(R*m*log M) bound. Read it as what a read of a given match count costs, which is the quantity a user feels.
+- The two fits recorded in the .tex disagree with each other and neither settles the question. Against examined matches, a linear fit beats a logarithmic one on B02 (R2 0.958 vs 0.677) and B05 (0.949 vs 0.763), while B03 favours logarithmic (0.897 vs 0.761). That is not evidence against the bound: the bound has three factors -- blocks visited R, sketch size m, and log M -- which co-vary across reads, so a single-variable fit attributes their combined growth to whichever variable is on the axis. Normalising by m leaves linear ahead (R2 ~0.92 vs ~0.59); normalising by m*R puts logarithmic ahead but with a negative slope and R2 only 0.52-0.73. Isolating the log term needs reads matched on R and m, which this sampling was not designed for.
+- Medians, not a raw scatter. 60 000 points would dominate the PDF and hide the relationship; the .tsv carries the binned values and the reads are on disk.
+- 'examined matches' is the seeding count, so this measures how per-read cost grows with the work seeding hands on -- not with every match the mapper touches. The per-block pruning pass walks hits it never counts.
+- Per-read times are microseconds measured with a single clock read either side. Individual reads are noisy at that scale, which is why nothing below a bin median is plotted.
+- Collected by a separate invocation from the timing matrix, and possibly at a later commit: manifest.json records per_read_stats_provenance when it was.
 
 ## fig_stage_breakdown
 

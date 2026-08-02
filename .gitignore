@@ -3,3 +3,9 @@
 # Python bytecode from the benchmark tooling
 __pycache__/
 *.pyc
+
+# Typeset preview of the generated artifacts. A build output, not a source:
+# the .tex and .tsv it is made from are committed and checked by
+# `paper.py --check`, and a binary that changes on every run would churn the
+# history without adding anything reviewable. Rebuild with `make paper`.
+paper/generated/artifacts.pdf

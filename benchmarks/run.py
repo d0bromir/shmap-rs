@@ -569,6 +569,8 @@ def recheck(outdir: Path, suite: dict) -> int:
     rc = sh([sys.executable, str(HERE / "paper.py"), str(outdir),
              "--out", str(outdir / "paper")])
     print((rc.stdout or rc.stderr).strip() or "paper artifacts: no output")
+    rc = sh([sys.executable, str(HERE / "build_pdf.py"), "--dir", str(outdir / "paper")])
+    print((rc.stdout or rc.stderr).strip() or "artifacts PDF: no output")
 
     print(f"{len(changed)} change(s); {man['failures']} failure(s) remain in {outdir}")
     return 1 if man["failures"] else 0
@@ -621,6 +623,98 @@ def write_profiles_tsv(outdir: Path, rows: list[dict]) -> None:
             fo.write("\t".join(r) + "\n")
 
 
+def collect_per_read_stats(suite: dict, reg: dict, outdir: Path, binary: str, lock) -> list[str]:
+    """Per-read time and match counts, for the scaling scatter.
+
+    A separate invocation rather than a flag on a measured one, deliberately.
+    The instrumentation writes a row per read, and while that does not change
+    the mapping it does change the wall clock of the run that carries it --
+    which is the one number the benchmark exists to report. Contaminating a
+    timing row to save a couple of minutes would be a bad trade.
+
+    Off unless `[per_read_stats] enabled = true`; the benchmarks, metric,
+    thread count and sampling interval all come from suite.toml so this file
+    does not encode a policy about which datasets are worth sampling.
+    """
+    cfg = suite.get("per_read_stats", {})
+    if not cfg.get("enabled"):
+        return []
+    metric = cfg.get("metric", "Containment")
+    threads = int(cfg.get("threads", 1))
+    sample = int(cfg.get("sample", 1))
+    wanted = cfg.get("benchmarks") or [b["id"] for b in suite["benchmark"]]
+
+    written = []
+    for bid in wanted:
+        bench = next((b for b in suite["benchmark"] if b["id"] == bid), None)
+        if not bench or metric not in bench["metrics"]:
+            print(f"  per-read stats: skipping {bid} (no {metric} in this benchmark)")
+            continue
+        params = suite["params"][bench["params"]]
+        out = outdir / f"per-read-{bid}-{metric}.tsv"
+        cmd = [binary,
+               "-s", reg[bench["reference"]]["path"],
+               "-p", reg[bench["reads"]]["path"],
+               "-k", str(params["k"]), "-r", str(params["hashratio"]),
+               "-t", str(params["threshold"]), "-d", str(params["min_diff"]),
+               "-o", str(params["max_overlap"]),
+               "-m", metric, "-@", str(threads),
+               "--per-read-stats", str(out),
+               "--per-read-stats-sample", str(sample)]
+        lock.note(f"per-read stats {bid}/{metric}")
+        t0 = time.time()
+        # stdout is the PAF and is not wanted here: this run exists for the
+        # side file, and B04's PAF alone is ~600 MB.
+        r = sh(["bash", "-c", f"{shlex.join(cmd)} > /dev/null"])
+        if r.returncode != 0 or not out.exists():
+            print(f"  !! per-read stats {bid} failed rc={r.returncode}: {r.stderr[-200:]}")
+            continue
+        n = sum(1 for _ in out.open()) - 1
+        print(f"  per-read stats {bid:5} {metric:12} {n} rows in {time.time()-t0:.1f}s "
+              f"(every {sample} read{'s' if sample > 1 else ''})")
+        written.append(out.name)
+    return written
+
+
+def add_per_read_stats(outdir: Path, suite: dict, reg: dict, lock) -> int:
+    """Add per-read stats to a result set measured before the instrumentation.
+
+    The alternative was to fold the files silently into an existing set, which
+    would quietly break the one property the manifest is for: that every file
+    beside it came from the commit it names. These rows come from a *later*
+    binary, so the manifest records that separately, with the commit that
+    produced them, and the figure built from them says so.
+
+    Timing figures are not touched and no other file is rewritten.
+    """
+    man_p = outdir / "manifest.json"
+    if not man_p.exists():
+        print(f"no manifest at {man_p}", file=sys.stderr)
+        return 2
+    binary = str(REPO / "target" / "release" / "shmap")
+    if not Path(binary).exists():
+        print(f"no binary at {binary}; cargo build --release first", file=sys.stderr)
+        return 2
+
+    written = collect_per_read_stats(suite, reg, outdir, binary, lock)
+    if not written:
+        print("nothing written (is [per_read_stats] enabled in suite.toml?)")
+        return 1
+
+    man = json.loads(man_p.read_text())
+    man["per_read_stats"] = sorted(written)
+    man["per_read_stats_provenance"] = dict(
+        at=datetime.now(timezone.utc).isoformat(),
+        commit=sh(["git", "-C", str(REPO), "rev-parse", "HEAD"]).stdout.strip(),
+        binary=sh([binary, "--version"]).stdout.strip() or binary,
+        note="measured after the rest of this result set, by run.py --per-read-stats; "
+             "timing and memory rows in results.tsv are untouched",
+    )
+    man_p.write_text(json.dumps(man, indent=2) + "\n")
+    print(f"added {len(written)} per-read file(s) to {outdir}")
+    return 0
+
+
 def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
             outdir: Path, authorized_by: str, lock) -> int:
     outdir.mkdir(parents=True, exist_ok=True)
@@ -665,6 +759,9 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
         for stray in ("det_base.paf", "det_other.paf"):
             (raw / stray).unlink(missing_ok=True)
 
+    # After the measured matrix, so nothing above shares a run with it.
+    per_read_files = collect_per_read_stats(suite, reg, outdir, binaries["shmap-rs"], lock)
+
     # reduce reference-impl repeats by median
     import statistics
     reduced, bykey = [], {}
@@ -707,6 +804,7 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
         invocations=len(rows), failures=failed,
         datasets={d: reg[d] for d in sorted({j[k] for j in jobs for k in ("reference_id", "reads_id")})},
         binaries={k: sh([v, "--version"]).stdout.strip() or v for k, v in binaries.items()},
+        per_read_stats=sorted(per_read_files),
     )
     (outdir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
@@ -722,6 +820,12 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
         rc = sh([sys.executable, str(HERE / "paper.py"), str(outdir),
                  "--out", str(outdir / "paper")])
         print((rc.stdout or rc.stderr).strip() or "paper artifacts: no output")
+        # And typeset them, so the run ends with something a person can open
+        # rather than only fragments a LaTeX toolchain could. Exits 0 with an
+        # explanation when no engine is installed.
+        rc = sh([sys.executable, str(HERE / "build_pdf.py"),
+                 "--dir", str(outdir / "paper")])
+        print((rc.stdout or rc.stderr).strip() or "artifacts PDF: no output")
     except Exception as e:                                      # noqa: BLE001
         print(f"paper artifacts failed ({e}); rebuild with "
               f"benchmarks/paper.py {outdir} --out {outdir}/paper")
@@ -743,6 +847,9 @@ def main() -> int:
     g.add_argument("--recheck", metavar="DIR",
                    help="re-evaluate a finished result set's checks from its retained PAFs, "
                         "without re-measuring (use after correcting a threshold)")
+    g.add_argument("--per-read-stats", metavar="DIR",
+                   help="add per-read stats to an existing result set, without re-measuring "
+                        "anything else (for a set measured before the instrumentation existed)")
     ap.add_argument("--repo", default="d0bromir/shmap-rs")
     ap.add_argument("--no-wait", action="store_true", help="fail instead of queueing")
     ap.add_argument("--dry-run", action="store_true")
@@ -770,6 +877,10 @@ def main() -> int:
         with HostLock(wait=not args.no_wait) as lock:
             lock.note(f"recheck {args.recheck}")
             return recheck(Path(args.recheck), suite)
+
+    if args.per_read_stats:
+        with HostLock(wait=not args.no_wait) as lock:
+            return add_per_read_stats(Path(args.per_read_stats), suite, load_registry(), lock)
 
     impls = args.impls.split(",")
 

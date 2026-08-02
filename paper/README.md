@@ -7,12 +7,17 @@ Tables and figures for the paper, generated from a benchmark result set by
 python3 benchmarks/paper.py            # rebuild generated/ from results/suite-1.0/current/
 python3 benchmarks/paper.py --check    # fail if anything is out of date (CI runs this)
 python3 benchmarks/paper.py --list     # what each artifact is built from, without building
-make paper                             # same as the first, from the repo root
+python3 benchmarks/build_pdf.py        # typeset them all into generated/artifacts.pdf
+make paper                             # both of the above, from the repo root
 ```
 
 A benchmark run rebuilds them on its own: `run.py` writes a copy into the result set it just
-measured (`<result-set>/paper/`), so a run is self-describing. `generated/` here is the copy
-built from `current/`, and it updates when a set is promoted.
+measured (`<result-set>/paper/`) and typesets it there, so a run is self-describing and ends
+with something a person can open. `generated/` here is the copy built from `current/`, and it
+updates when a set is promoted.
+
+`artifacts.pdf` is a build output and is **not** committed: the `.tex` and `.tsv` it is made
+from are, and `paper.py --check` guards those. Rebuild it with `make paper`.
 
 ## Using them in the paper
 
@@ -28,8 +33,19 @@ included — so a draft `\input`s it and refers to it by the label already insid
 As Table~\ref{tab:comparison} shows, ...
 ```
 
-Neither package is installed on the benchmark host, so the fragments are emitted there but
-never compiled. Compile them wherever the paper is built.
+`fig_time_vs_matches` additionally needs `\usepgfplotslibrary{fillbetween}` for its
+interquartile band; the requirement is stated in a comment at the top of that fragment, because
+without the library the band silently disappears rather than erroring.
+
+## The LaTeX engine
+
+`build_pdf.py` uses whichever of tectonic, latexmk, pdflatex, xelatex or lualatex it finds, and
+also looks in `~/tools/tectonic/tectonic`. Tectonic is what the benchmark host has: it is a
+single binary needing no system TeX installation, and it fetches only the packages a document
+actually uses.
+
+A missing engine is **not** an error — the script explains what to install and exits 0, because
+a run that produced correct artifacts should not be reported as failed by a previewer.
 
 ## What is in here
 
@@ -39,7 +55,9 @@ never compiled. Compile them wherever the paper is built.
 | `table_seed_heuristic.tex` | matches per read, realized and unrealized potential, buckets per read |
 | `fig_thread_scaling.tex` | whole-run speedup against thread count, against a linear-speedup line |
 | `fig_memory_vs_threads.tex` | peak RSS against thread count, with the C++ as a flat reference |
+| `fig_time_vs_matches.tex` | per-read mapping time against matches examined, binned medians with an IQR band |
 | `fig_stage_breakdown.tex` | stage shares of `query_mapping`, stacked, per dataset and metric |
+| `artifacts.pdf` | all of the above typeset into one document (build output, not committed) |
 | `*.tsv` | exactly the numbers the matching `.tex` draws |
 | `PROVENANCE.md` | per artifact: inputs down to the column, transformation, presentation, caveats |
 

@@ -1234,12 +1234,24 @@ minimap2 is the tool everyone else's baseline is, and blend is the closest sensi
 the Makefile already has `eval_minimap` and `eval_blend` targets, so this is corpus-building time
 in `reference_mappers.py`, not new code.
 
-**Per-read time against per-read match count.** The algorithm's central claim is that runtime
-scales logarithmically with the number of matches, which is why it can afford to keep frequent
-k-mers. §5b shows the pruning is doing real work (35-220x of the possible matches never examined)
-but says nothing about the *shape* of the curve, because it reports whole-run totals. A scatter of
-per-read wall against per-read matches would be the direct evidence, and the counters it needs
-already exist per read.
+**Per-read time against per-read match count — instrumented, and the answer is not yet clean.**
+`--per-read-stats` now writes a row per read (time, matches, buckets, mapq), a run collects it
+when `[per_read_stats]` is enabled, and `paper/generated/fig_time_vs_matches` plots it. What the
+data does not yet do is settle the scaling claim.
+
+Fitting per-bin median time against the matches a read examined, a *linear* fit beats a
+logarithmic one on B02 (R² 0.958 against 0.677) and B05 (0.949 against 0.763), while B03 goes the
+other way (0.897 against 0.761). That is not evidence against the `O(R·m·log M)` bound, and it
+should not be quoted as if it were. The bound has three per-read factors — blocks visited `R`,
+sketch size `m`, and `log M` — and they co-vary, so a single-variable fit hands their combined
+growth to whichever variable is on the axis. Normalising by `m` leaves linear ahead (R² ~0.92
+against ~0.59); normalising by `m·R` puts logarithmic ahead but with a *negative* slope and R²
+of only 0.52–0.73, which says the normalisation over-corrects rather than that time falls with
+match count.
+
+Settling it needs reads matched on `R` and `m` so the `log M` term varies alone — a designed
+comparison rather than a sample of whatever the read set happened to contain. Worth doing before
+the claim appears in print, since the figure as it stands is descriptive and is captioned that way.
 
 **Sweeps of `-t`, `-d`, `-o` and `-k`.** §8 sweeps `-r` and `-M` thoroughly and the other four not
 at all, so nothing here says whether the operating point is a plateau or a peak — and §8's two

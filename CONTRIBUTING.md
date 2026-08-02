@@ -146,7 +146,21 @@ rebuilds the repo copy after a set is promoted.
 python3 benchmarks/paper.py             # regenerate paper/generated/
 python3 benchmarks/paper.py --check     # what CI runs
 python3 benchmarks/paper.py --list      # each artifact's inputs and transformation
+python3 benchmarks/build_pdf.py         # typeset them into generated/artifacts.pdf
+make paper                              # both
 ```
+
+`fig_time_vs_matches` needs per-read data, which a run collects only when `[per_read_stats]` is
+enabled in `suite.toml`. A result set measured before that existed can be given the data
+afterwards without re-measuring anything else:
+
+```bash
+cargo build --release
+python3 benchmarks/run.py --per-read-stats benchmarks/results/suite-1.0/current
+```
+
+That records the commit that produced the rows separately in the manifest, because they come
+from a later binary than the timing rows beside them.
 
 `paper/generated/PROVENANCE.md` is generated from the same `Artifact` declarations that build the
 files, so it cannot document a transformation the code does not perform. Adding an artifact means

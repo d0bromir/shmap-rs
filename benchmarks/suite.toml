@@ -188,6 +188,29 @@ min_fraction = 0.98
 description = "Fraction of the 12 core PAF columns matching the C++. Recorded always; only blocking if it drops versus the baseline."
 blocking = false
 
+# ---------------------------------------------------------------------------
+# Per-read instrumentation for the scaling scatter
+# ---------------------------------------------------------------------------
+
+[per_read_stats]
+# One extra invocation per listed benchmark, after the measured matrix, writing
+# per-read time and match counts. It is a separate run on purpose: the row
+# writing does not change the mapping, but it does change the wall clock of
+# whatever run carries it, and that is the number the suite exists to report.
+enabled = true
+metric = "Containment"
+threads = 1
+# Every 10th read by index. The scatter needs the shape of the relationship,
+# not every point: B04 alone would be 2.4 M rows and ~130 MB for a plot that a
+# few thousand points already resolve. Sampling by index rather than at random
+# keeps the selection reproducible and independent of thread count.
+sample = 10
+# B04 is excluded: it is the same reads as B03 at 10x depth, so it adds ~7
+# minutes of single-threaded mapping and no new relationship between per-read
+# match count and per-read time. B05 is included precisely because its reads
+# mostly fail to map, which is the cheap end of the curve.
+benchmarks = ["B01", "B02", "B03", "B05"]
+
 [checks.wrong_q60]
 description = "Simulated reads placed wrongly (mapeval criterion) while reporting mapq 60. Recorded always; only blocking if it rises versus the baseline."
 blocking = false

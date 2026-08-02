@@ -4,7 +4,7 @@
 # commit:     e9aa9c98a2c7
 # host:       a2
 # measured:   2026-08-01
-# inputs:     sha256:1abb1d51719464e6
+# inputs:     sha256:9c43119fe38bc6c4
 # provenance: paper/generated/PROVENANCE.md#table_seed_heuristic
 benchmark	metric	possible_per_read	examined_per_read	in_mapping_per_read	realized_potential	unrealized_potential	seeded_buckets_per_read	final_buckets_per_read
 B01	Containment	113462.5	2375.8	205.6	47.8	11.6	194.0	2.38
