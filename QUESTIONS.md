@@ -194,47 +194,59 @@ all. Not fixed here — it's inherited, unused by the documented benchmark flow,
 
 ---
 
-## Q3 — Detailed, significance-ordered list of changes vs the C++/paper
+## Q3 — Single-thread speed and memory: what changed vs the C++/paper, with deep motivation
 
 **Asked** 2026-08-02 · **Branch** `q3-optimizations-list` · **PR** #8 · **Status** in review
 
-**Question.** *„тук ни трябва много подробно обяснение на това какво е сменено с всички базови
-дефиниции, как промените от оригиналния C++ shmap и статията са имплементирани, какво се
-променя като изчисление и структура от данни и защо. Подредено по значимост. да направи списък
-от доп. оптимизации по сравнение с оригиланата статия за shmap"* — a very detailed explanation
-of what changed, with definitions, how each change is implemented relative to the C++ and the
-paper, what changes computationally and in data structures, and why — ordered by significance.
+**Question, as first asked.** *„тук ни трябва много подробно обяснение на това какво е сменено с
+всички базови дефиниции, как промените от оригиналния C++ shmap и статията са имплементирани,
+какво се променя като изчисление и структура от данни и защо. Подредено по значимост. да направи
+списък от доп. оптимизации по сравнение с оригиланата статия за shmap"* — a very detailed
+explanation of what changed, with definitions, how each change is implemented relative to the
+C++ and the paper, what changes computationally and in data structures, and why — ordered by
+significance.
 
-**Answer.** [`PORT_CHANGES.md`](PORT_CHANGES.md), new. 20 entries across five significance tiers:
-correctness fixes that change actual output (5), architecture absent from the C++ entirely (2),
-data-structure/algorithmic optimizations within the ported logic (6, one of them itself a
-three-generation evolution), new opt-in capabilities (4), and behavior kept exactly as the C++
-has it, with the reasoning for why (4).
+**Redirect.** The first draft of `PORT_CHANGES.md` covered every category of change (correctness
+fixes, the multithreading architecture, new CLI capabilities, and deliberately-kept quirks,
+alongside performance). Pesho clarified the actual scope: specifically the changes that improve
+single-thread speed and reduce memory usage, with deeper motivation than the first pass gave them.
+`PORT_CHANGES.md` was rewritten around that scope rather than kept as the broader survey — the
+earlier, broader version is still visible in this branch's git history if the fuller picture is
+ever wanted.
 
-**Headline findings, not previously written down anywhere in one place:**
+**Answer.** [`PORT_CHANGES.md`](PORT_CHANGES.md), rewritten. Two parts: memory (one data
+structure's three-generation evolution accounts for nearly all of it) and speed (about ten
+smaller, individually-measured techniques that compound). Ties both back to RESULTS.md's headline
+figures — 1.91–2.74x single-threaded speed, 6.90–7.43x less peak memory — and states plainly what's
+now out of scope (correctness fixes, the multithreading capability itself, new CLI features) and
+where each lives.
 
-- The C++ never clears its per-read `Counters` between reads, so two of its own live PAF tags
-  (`total_matches:i:`, `match_inefficiency:f:`) accumulate across a run instead of reporting one
-  read's own value — fixed in the port. The most significant finding here, since it's the only
-  one that corrupts a value a caller reads directly off the PAF line rather than a diagnostic.
-- Two further correctness fixes change actual mapping output: Jaccard's sliding-window scorer
-  used `prev(r)` instead of `r` (the C++'s own author left a `TODO` questioning it), and a
-  single-hit bucket match omitted the segment check its multi-hit sibling has twice, which
-  produced a `bucket_SH` coordinate 1.28 Mb past the end of chromosome 6 on real data.
-- The `Buckets` accumulator has evolved through three internal generations (a naive ~15 GB/worker
-  dense array → a hashmap → the current read-scaled dense array with a radix-sort fallback), each
-  transition driven by a measured, sometimes counterintuitive discovery — including a
-  more-threads-sometimes-slower bug in generation 1.
-- Two things were tried and are explicitly *not* in the codebase because they were measured and
-  didn't pay off: sharding the index on the conventionally-correct high hash bits (serialized the
-  whole build to one thread), and the `--rarity-weight`/`--rarity-tiebreak` research knobs for
-  repeat-region accuracy (RESULTS.md §8 already covers why raising sketch density wins instead).
+**Headline findings:**
 
-**Relationship to existing docs, to avoid duplication.** [`PROFILING.md`](PROFILING.md) already
-tracks every optimization chronologically with exact before/after numbers at the time each
-landed — `PORT_CHANGES.md` doesn't re-derive those; it cites them, reorganized by significance and
-framed specifically against the paper and the C++ rather than against the previous build, and adds
-the correctness and new-capability content a performance log has no reason to carry.
+- **Memory is almost entirely one story.** The bucket accumulator (`Buckets`) went from a
+  per-segment dense array sized by the *reference* (~15 GB per worker thread) through an
+  intermediate hashmap and radix-sort design, to the current array sized by the *read's own*
+  half-length (~4 MB, L3-resident) — three to four orders of magnitude smaller, because it scales
+  with how finely one read partitions the reference rather than with the coarsest partition the
+  algorithm ever allows. Generation 1's huge allocation was also a genuinely counterintuitive
+  *speed* bug: multithreaded whole-genome runs sometimes got slower with more threads, because a
+  worker finishing that allocation last started with zero reads left.
+- **One optimization is directly prescribed by the paper, not invented by the port.** The paper's
+  own Algorithm 4 names "Optimization 2: sort blocks by decreasing number of matches," reasoning
+  that it makes the acceptance threshold rise earlier. The C++ implements this with `std::sort`
+  (not stable); shmap-rs implements the same paper-prescribed ordering by sorting a packed 64-bit
+  key instead of the full record — reproducing stable-sort semantics with an unstable, faster sort,
+  and as a side effect becoming deterministic where the C++ isn't.
+- **Speed is an accumulation, not one dominant change** — `RefineCache`'s memoization of the
+  second-best search (44% of a hot function's calls eliminated, restricted to exactly the two
+  metrics where it's provably safe), the rolling-hash rotation tables plus bounds-check removal,
+  the two-pass parallel reference reader, mimalloc, and roughly six smaller techniques each worth
+  single-digit percentages.
+
+**Relationship to existing docs.** [`PROFILING.md`](PROFILING.md) already tracks every
+optimization chronologically with exact before/after numbers at the time each landed —
+`PORT_CHANGES.md` cites those rather than re-deriving them, reorganized around *why* each change
+exists rather than *when* it landed, and framed specifically against the paper and the C++.
 
 **Methodology.** Every `src/*.rs:line` citation was checked against the file on disk after
 writing (one was wrong on the first pass — a counter-reset citation that pointed at the wrong
