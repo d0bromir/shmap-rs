@@ -9,6 +9,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | # | Question | Branch | PR | Status |
 |---|---|---|---|---|
 | Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | merged |
+| Q2 | Check: does the suite run shmap-rs and map-shmap with Jaccard, Containment, SH? | `q2-three-metrics` | #7 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -143,6 +144,52 @@ is just not headroom SIMD can reach, on this evidence.
 
 **Outcome.** No change to `sketch.rs`. The PR adds the test that pins the library finding and the
 two probes that pin the SIMD one, so both stay checkable and nobody re-derives them.
+
+---
+
+## Q2 — Check: does the suite already run shmap-rs and map-shmap with three metrics?
+
+**Asked** 2026-08-02 · **Branch** `q2-three-metrics` · **PR** #7 · **Status** in review
+
+**Question.** *„да пуска shmap-rs и map-shmap с три различни параметъра: Jaccard, Containment, SH"*
+— check whether this is already satisfied: does the project run both shmap-rs and map-shmap (the
+paper's tool, C++, this repo's `cpp-shmap`) under all three metrics — Jaccard, Containment, and
+`bucket_SH` ("SH")?
+
+**Answer. Yes, already satisfied — no code change.** The current benchmark suite has run both
+implementations under all three metrics for every result set it has ever produced.
+
+**Evidence, checked rather than assumed:**
+
+1. **Both CLIs already accept all three.** shmap-rs's `-m` is a `clap::ValueEnum`
+   (`src/types.rs`) with exactly `Containment | Jaccard | bucket_SH | bucket_LCS`. The C++
+   binary's own `--help` prints `-m metric   Optimization metric: bucket_SH, bucket_LCS,
+   Containment, Jaccard` — the same four, and its `-v 2` parameter dump prints field names
+   (`tThres`, `min_diff`, `max_overlap`, `metric`) matching the paper's `θ`, `δ`, `ϕ` and its
+   Definition 7 exactly, confirming this binary *is* the paper's map-shmap under this repo's name
+   for it (`cpp-shmap`), not a different tool.
+
+2. **`suite.toml` already configures every benchmark this way.** All five `[[benchmark]]` blocks
+   (B01–B05) carry `metrics = ["Containment", "Jaccard", "bucket_SH"]` and
+   `impls = ["shmap-rs", "cpp-shmap"]` — exactly the three metrics asked about, for both tools.
+
+3. **The current result set already has the data**, checked directly against
+   `benchmarks/results/suite-1.0/current/results.tsv` rather than assumed from the config: all six
+   `(impl, metric)` combinations — `shmap-rs`/`cpp-shmap` × `Containment`/`Jaccard`/`bucket_SH` —
+   are present, each across all five benchmarks (B01–B05). This is what RESULTS.md §2 ("Versus the
+   C++") already reports.
+
+**One piece of dead code found while checking, not part of the answer.** The repo also carries a
+legacy `Makefile` `eval_*` pipeline, ported unchanged from the original C++ repo's own Makefile
+(see the file's header comment) and superseded by `benchmarks/run.py`/`suite.toml` for anything
+this project documents or gates on. Its `eval_shmap_on_datasets_on_metrics` target sweeps
+`METRIC=bucket_SH`, `bucket_LCS`, then `fixed_C` — `fixed_C` is not a value either binary's `-m`
+accepts (confirmed: both reject it with a clear error), and the target never touches `Jaccard` at
+all. Not fixed here — it's inherited, unused by the documented benchmark flow, and out of scope for
+"is this already satisfied"; flagged for Pesho in case it's still expected to work for something.
+
+**Outcome.** No `src/`, `suite.toml`, or `run.py` change. This PR documents the verification in
+`QUESTIONS.md` only.
 
 ---
 
