@@ -11,6 +11,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | merged |
 | Q2 | Check: does the suite run shmap-rs and map-shmap with Jaccard, Containment, SH? | `q2-three-metrics` | #7 | merged |
 | Q3 | Speed and memory vs the C++/paper, verified with C++ source snippets | `q3-optimizations-list` | #8 | merged |
+| Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | — | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -291,6 +292,87 @@ the Rust implementation with a real snippet, then the measured effect.
 
 **Outcome.** New file, `PORT_CHANGES.md`, plus a pointer added to `README.md`'s documentation
 table. No `src/` change.
+
+---
+
+## Q4 — Thread scaling caps at ~7x on 64 threads: diagnose, and is rayon the fix?
+
+**Asked** 2026-08-02 · **Branch** `q4-thread-scaling` · **Status** in review
+
+**Question.** *"scaling with threads doesn't look good. 7x for 64 threads. My colleague dpetrov
+suggests rayon library. In any case, scaling with threads needs real significant optimization"* —
+diagnose the poor thread scaling and fix it; a colleague suggested switching to `rayon`.
+
+**Answer.** The premise is right — B01/B02 land at 6-8x at `-@64` — but the cause isn't the
+threading library or the pipeline design. It's `a2`'s hardware: **4 sockets of 16 cores each,
+NUMA**. Worker CPU-efficiency during mapping is a rock-solid ~92% for as long as `-@` fits in one
+socket, then drops to ~63% crossing into a second and ~37% crossing into all four — the identical
+curve on every one of the five benchmarks, from a 39,608-read set to a 2,419,796-read one. `rayon`
+would not fix this: its default thread pool has no NUMA awareness, and its work-stealing scheduler
+could plausibly make locality *worse*, not better. Full diagnosis and the follow-up plan are now
+in [RESULTS.md §3](RESULTS.md#3-thread-scaling) and [§11](RESULTS.md#11-what-to-try-next).
+
+**How this was diagnosed, in order:**
+
+1. **Ruled out the pipeline first, with instrumentation already in the codebase.** The collector's
+   `max_pending_reorder_buffer` counter (recorded per run, previously unused for this) grows from
+   1 to 1,942 between `-@1` and `-@64` on B01 — more out-of-order completion at higher parallelism,
+   exactly as expected — but `collector_busy` stays flat at 1.6-2.1 s across every thread count, so
+   the collector isn't struggling with it. The reader's own `query_reading` timer doesn't grow
+   either. Neither is the bottleneck.
+
+2. **Found the real signal in worker efficiency, not wall time.** `cpu_query_mapping` (summed
+   across workers) divided by `threads x wall_mapping` — already computable from `profiles.tsv`,
+   built for the paper artifacts in an earlier question — is ~92% at `-@16`, ~63% at `-@32`, ~37%
+   at `-@64`, on *every* benchmark. `lscpu`/`numactl --hardware` showed why: 16, 32 and 64 are
+   exactly 1, 2 and 4 sockets on this host.
+
+3. **Confirmed with direct `numactl` experiments**, host verified idle first (load average ~1 on
+   64 cores). `numactl --membind=0` (forcing all memory onto socket 0, worst case for the 48
+   workers on the other three) makes `-@64` *slower* than the unconstrained run — the natural
+   placement already beats that floor. `numactl --cpunodebind=0 --membind=0 -@16` (16 threads
+   confined to one socket) matches or beats an unconstrained `-@64` on the same dataset — sixteen
+   well-placed threads outrunning sixty-four poorly-placed ones. `--interleave=all` did *not* help
+   (slightly worse than natural at 32 and 64), which rules out simple single-node hotspotting as
+   the whole story — it's aggregate cross-socket traffic once enough workers generate it at once,
+   not a placement problem fixable by moving the index to one "right" node.
+
+4. **Checked and ruled out AVX-512 downclocking** — raised mid-investigation: these CPUs are
+   Cascade Lake, which throttles package-wide under sustained multi-core AVX-512 use, and that
+   *would* produce a many-cores-busy regression that looked like this. `objdump` on
+   `target/release/shmap` finds zero AVX-512 instructions — nothing in the build sets
+   `target-cpu=native`, so rustc emits the generic x86-64 baseline. Not the cause here, but now
+   recorded as project guidance for future SIMD work on this host (it *was* a live risk in Q1's
+   probes, which explicitly used `target-cpu=native`).
+
+**On rayon, directly.** Not recommended for this problem. `rayon::ThreadPoolBuilder`'s default
+global pool has no concept of NUMA nodes — it doesn't replicate the shared index per socket or pin
+workers to a memory domain, so porting the existing per-read parallelism to `rayon::par_iter`
+would leave the measured bottleneck exactly where it is. Work-stealing is a genuine risk of making
+it *worse*: a stolen task can run on any core in the pool, including a different socket than
+wherever its data was last touched, which is the opposite of what a NUMA-bound workload needs. If
+`rayon` simplifies the current hand-rolled channel/`thread::scope` pipeline later, that's a
+maintainability argument on its own merits — independent of, and not a substitute for, fixing the
+memory placement.
+
+**The real fix, scoped but not built.** A copy of the sharded index per NUMA node, each worker
+reading its own node's copy instead of one shared copy every socket reaches across the
+interconnect for. Cost: `N_nodes x` the current index size — ~10 GB on this 4-socket host at
+today's ~2.5 GB single-copy size, still well under the C++'s constant 18.85 GB. Not attempted in
+this PR: it needs runtime NUMA topology detection and node-bound allocation (neither in `std`, so
+a new dependency), and testing across topologies this one remote host can't provide alone — a
+single- or 2-socket host needs to confirm it before it ships, or the common case regresses to
+carry a benefit only multi-socket hosts see.
+
+**Usable today, no code change.** On this host, capping `-@` at 16 (one socket) or running under
+`numactl --cpunodebind=0 --membind=0` outperforms an unconstrained `-@64` — immediately actionable,
+zero risk, stated in RESULTS.md §11.
+
+**Outcome.** `RESULTS.md` §3 gained the full diagnosis with the efficiency table and both
+`numactl` experiments; §11 gained the scoped NUMA-replication follow-up and the rayon rule-out;
+the host provenance line now states the socket topology instead of just "64-core". No `src/`
+change — the fix is real engineering that shouldn't be rushed into the PR that diagnosed the
+problem.
 
 ---
 
