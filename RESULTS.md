@@ -30,6 +30,7 @@ Contents, in fixed order:
 [3c Memory vs threads](#3c-memory-vs-threads) ·
 [4 Coverage scaling](#4-coverage-scaling) ·
 [5 Stage breakdown](#5-stage-breakdown) ·
+[5b Seed heuristic efficiency](#5b-seed-heuristic-efficiency) ·
 [6 Datasets](#6-datasets) ·
 [7 Correctness](#7-correctness) ·
 [8 Concordance with other mappers](#8-concordance-with-other-mappers) ·
@@ -461,6 +462,82 @@ less*, not more parallelism.
 
 ---
 
+## 5b Seed heuristic efficiency
+
+The stage breakdown above says where the time goes. It cannot say whether the *pruning* is doing
+anything — a seed heuristic that rejected no block at all would produce the same stage shares, just
+larger. This section measures the pruning directly, from the same `-x` counters as §5.
+
+Two ratios, in the sense the algorithm's own analysis uses them:
+
+| | |
+|---|---|
+| **realized potential** | possible matches ÷ matches examined — work the heuristic avoided |
+| **unrealized potential** | matches examined ÷ matches in the reported mapping — work still wasted |
+
+"Possible" is every match of every sketched read k-mer against the index. "Examined" is what
+seeding enumerated: the matches of the minimal seed set, before block pruning.
+
+**Read `examined` as a lower bound, not a total.** The later per-block pass
+(`src/shmap/pruning.rs:53`) binary-searches the hit array to the block's first hit and then walks
+the hits inside that block, and those are counted into the bucket but never added to the
+`total_matches` counter. So the ratio below overstates work avoided by however much that pass
+touches — it is the right figure for "how much did seeding skip", and an optimistic one for "how
+much match-touching did the whole mapper skip". Both are metric-independent for the same reason:
+the counter is incremented before any metric-specific pruning happens, which is why every metric
+in a benchmark reports the same two columns.
+
+<!-- BEGIN GENERATED: seed-heuristic -->
+| benchmark | metric | possible/read | examined/read | in mapping/read | realized | unrealized | seeded buckets/read | final buckets/read |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| B01 | Containment | 113 462 | 2 375 | 205 | **47.8x** | 11.6x | 194.0 | 2.38 |
+| B01 | Jaccard | 113 462 | 2 375 | 202 | **47.8x** | 11.7x | 194.0 | 2.31 |
+| B01 | bucket_SH | 113 462 | 2 375 | 207 | **47.8x** | 11.4x | 194.0 | 2.28 |
+| | | | | | | | | |
+| B02 | Containment | 113 804 | 2 906 | 208 | **39.2x** | 13.9x | 206.2 | 2.29 |
+| B02 | Jaccard | 113 804 | 2 906 | 208 | **39.2x** | 13.9x | 206.2 | 2.29 |
+| B02 | bucket_SH | 113 804 | 2 906 | 210 | **39.2x** | 13.8x | 206.2 | 2.26 |
+| | | | | | | | | |
+| B03 | Containment | 70 178 | 1 886 | 117 | **37.2x** | 16.1x | 251.8 | 2.35 |
+| B03 | Jaccard | 70 178 | 1 886 | 117 | **37.2x** | 16.1x | 251.8 | 2.34 |
+| B03 | bucket_SH | 70 178 | 1 886 | 118 | **37.2x** | 15.9x | 251.8 | 2.24 |
+| | | | | | | | | |
+| B04 | Containment | 69 462 | 1 937 | 116 | **35.8x** | 16.6x | 250.3 | 2.35 |
+| B04 | Jaccard | 69 462 | 1 937 | 116 | **35.8x** | 16.7x | 250.3 | 2.34 |
+| B04 | bucket_SH | 69 462 | 1 937 | 117 | **35.8x** | 16.4x | 250.3 | 2.25 |
+| | | | | | | | | |
+| B05 | Containment | 67 358 | 306 | 51 | **219.6x** | 6.0x | 84.8 | 0.99 |
+| B05 | Jaccard | 67 358 | 306 | 9 | **219.6x** | 33.1x | 84.8 | 0.17 |
+| B05 | bucket_SH | 67 358 | 306 | 53 | **219.6x** | 5.7x | 84.8 | 1.00 |
+| | | | | | | | | |
+<!-- END GENERATED: seed-heuristic -->
+
+**The heuristic examines 2-3% of the matches that exist**, and on ONT 0.5%. That is the whole
+reason no k-mer needs blacklisting: `-M` exists (§8 sweeps it) but the default keeps every k-mer,
+frequent ones included, because frequency costs index space rather than mapping time.
+
+**Realized potential rises when reads fail to map.** B05's 219.6x is not the heuristic working
+better on ONT — it is 57% of reads never reaching a candidate block, so their matches are counted
+as possible and never examined. Read the ONT row as a statement about mapping rate, not efficiency.
+
+**Unrealized potential is the honest headroom figure**, and it is 5.7-16.7x: for every match that
+ends up inside a reported mapping, 6 to 17 were enumerated and thrown away. It tracks read length
+rather than metric — 11.4-11.7x on 23.2 kb reads against 15.9-16.7x on 12.8 kb ones — because a
+longer read partitions the reference into fewer, wider buckets (§5). Jaccard on B05 reads 33.1x for
+the same reason its mapping rate is 6.5%: the denominator is small, not the numerator large.
+
+**Two counters the upstream algorithm reports are not measurable here, and are omitted rather than
+printed as zeros.** `lost_on_seeding` and `lost_on_pruning` are meant to count reads whose true
+best mapping the heuristic discarded — the evidence that pruning is *safe*. In the C++ revision this
+port was made from, both are inert: `lost_on_seeding` is a hardcoded `0`, and `lost_on_pruning` is
+threaded through `match_rest` as an out-parameter that nothing ever writes, so its caller reports a
+constant 1 per read. shmap-rs ports both as the same inert bumps (`src/shmap/scoring.rs:393`,
+`src/shmap/mod.rs:713`), which is why the archived profiles carry `lost_on_pruning` exactly equal to
+the read count. Measuring exactness properly needs an unpruned reference run to compare against —
+see §11.
+
+---
+
 ## 6 Datasets
 
 <!-- BEGIN GENERATED: datasets -->
@@ -582,6 +659,9 @@ blocking one stops a merge.
 | validate_paf | B05 | Containment | pass | all structural and score invariants hold |
 | validate_paf | B05 | Jaccard | pass | all structural and score invariants hold |
 | validate_paf | B05 | bucket_SH | pass | all structural and score invariants hold |
+| wrong_q60 | B02 | Containment | pass | 0/117532 = 0.000000 |
+| wrong_q60 | B02 | Jaccard | pass | 6/119065 = 0.000050 |
+| wrong_q60 | B02 | bucket_SH | pass | 1/116800 = 0.000009 |
 <!-- END GENERATED: checks -->
 
 Ground truth is the only entry above that measures *accuracy*; the rest measure self-consistency
@@ -591,6 +671,22 @@ refinement and so reports the coarse bucket extent — mean target span 30 941 b
 lands within one read length of truth therefore misses slightly more often for it. The absolute
 floor is deliberately loose; drift is caught by `compare.py`, which blocks *any* drop against the
 baseline.
+
+**`wrong_q60` is accuracy split by what the mapper claimed about it.** A read placed wrongly at
+mapq 0 is a declared ambiguity, and every downstream filter removes it; the same read placed
+wrongly at mapq 60 is a falsehood no filter can catch. Ground truth counts both the same way, so
+a change that merely moves errors from mapq 0 to mapq 60 leaves it flat while making the output
+strictly worse for a caller — which is not hypothetical here: §8 records three separate tuning
+attempts (`-M`, `--rarity-weight`, and the mapq-gated dense substitution) that each raised
+confidence without raising correctness. The check is therefore recorded rather than gated on a
+threshold, and `compare.py` blocks on any *increase* against the baseline.
+
+**It is not zero for every metric, and the difference is worth stating.** Under Containment all
+1 016 misplacements on B02 carry mapq 0 — the claim §8 makes in its adjudication. Under Jaccard 6
+of 1 276 reach mapq 60, and under `bucket_SH` 1 of 1 581. So "shmap-rs is never confidently wrong"
+holds exactly for the default metric; for the other two it is 0.005% and 0.001% of confident
+mappings, which is small but not the same statement. The C++ measured on the same reads gives 0, 6
+and 4, so this is a property of the algorithm rather than of either implementation.
 
 The test suite runs 53 tests in both release and debug. Running debug matters: it activates the
 `debug_assert`s that pin the risky designs — that `best_fixed_length` restores `diff_hist` exactly
@@ -1110,6 +1206,70 @@ a recommended setting.
 ## 11 What to try next
 
 The open threads, with what is already known about each so they are not re-derived.
+
+### Measurements the upstream evaluation makes that this suite does not
+
+Checked against the algorithm's own (unpublished) evaluation plan on 2026-08-02. §5b closed the
+seed-heuristic gap and `wrong_q60` closed the confident-error one; these are what remain, ordered
+by what they would actually settle. None of them is blocked on anything but machine time.
+
+**A chromosome-Y-only benchmark.** Every dataset here is whole-genome, where satellite and rDNA
+are 6.3% of the reads (§8) and the mapper's hardest regime is therefore a rounding error in the
+totals. chrY is the opposite: near-continuously repetitive, and the standard stress case for
+long-read mappers. §8 shows the interesting behaviour — errors 63x denser inside repeats, all of
+them labelled mapq 0 — measured on a handful of reads. A chrY set would put that regime in the
+majority instead of the tail, and it is cheap: one `samtools faidx` for the reference and one
+simulator run.
+
+**Reads simulated from a *different* genome and lifted to the reference.** §10 names this as the
+weakest assumption in the whole file: B02 is simulated from the very sequence it is then mapped
+against, so it carries no heterozygosity, no structural variation and no cross-individual
+divergence. Simulating from HG002 and lifting the truth coordinates to CHM13 (`liftOver`) gives
+ground truth that survives those, which is the only way to get an accuracy number that means
+anything about real data. This is the single highest-value addition here, and the reason §8's
+sampling-rate result has to be quoted as a direction rather than a magnitude.
+
+**minimap2 and blend in the concordance corpus.** §8 joins against mapquik and Winnowmap2 only.
+minimap2 is the tool everyone else's baseline is, and blend is the closest sensitivity comparison;
+the Makefile already has `eval_minimap` and `eval_blend` targets, so this is corpus-building time
+in `reference_mappers.py`, not new code.
+
+**Per-read time against per-read match count.** The algorithm's central claim is that runtime
+scales logarithmically with the number of matches, which is why it can afford to keep frequent
+k-mers. §5b shows the pruning is doing real work (35-220x of the possible matches never examined)
+but says nothing about the *shape* of the curve, because it reports whole-run totals. A scatter of
+per-read wall against per-read matches would be the direct evidence, and the counters it needs
+already exist per read.
+
+**Sweeps of `-t`, `-d`, `-o` and `-k`.** §8 sweeps `-r` and `-M` thoroughly and the other four not
+at all, so nothing here says whether the operating point is a plateau or a peak — and §8's two
+rejected ideas both turned out to hinge on a threshold interacting with a score. `-t` is the one
+that matters most, since it sets how hard the seed heuristic can prune.
+
+**An ablation of the two exact optimizations.** Dynamically raising the similarity threshold as
+better mappings are found, and visiting blocks in decreasing match order, are both described as
+speedups that preserve the result exactly. Neither has a measured cost here. They would need
+flags to disable them, which do not currently exist.
+
+**A real exactness measurement, to replace the inert counters.** §5b explains why `lost_on_seeding`
+and `lost_on_pruning` cannot be reported: both are hardcoded upstream and ported as such. The
+quantity they were meant to capture — reads whose true best mapping the pruning discarded — is
+measurable by running with pruning disabled and diffing, on a small read set where the quadratic
+cost is affordable. That is the only direct evidence that the heuristic is admissible in practice
+rather than only on paper.
+
+**Wall against CPU-seconds.** Everything here is wall clock. The upstream evaluation reports user
+CPU time (`time -f %U`), which is the fairer figure for a single-threaded comparison and the only
+honest one for a threaded run. §2's `-@4` column is four cores against the C++'s one, and the
+CPU-second ratio (1.53-1.69x, computed by hand on 2026-08-02) is not recorded anywhere in the
+result set.
+
+**A parameter-set discrepancy to resolve first.** The suite runs `-k 25 -r 0.01 -t 0.4 -d 0.075
+-o 0.3` and §8 calls these "the paper parameters". The draft's own settings section gives `k = 25,
+r = 0.05, t = 0.5, o = 0.7, d = 0.15` — the same k and four different values, with a sampling rate
+5x denser. Since §8's headline finding is precisely that accuracy is bounded by the sampling rate,
+which set is authoritative changes what these tables are a measurement *of*. Worth settling with
+the author before any of the above is run.
 
 ### Selective sketch density in repeats — answered, and worth building in
 

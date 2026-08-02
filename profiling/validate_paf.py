@@ -33,6 +33,11 @@ n = 0
 fail = {}
 truth_ok = truth_bad = truth_absent = 0
 truth_ov_ok = truth_ov_bad = 0
+# Wrong *while claiming confidence*. A mapper that places a read badly and says
+# mapq 0 has reported an ambiguity; one that says mapq 60 has told the caller a
+# falsehood, and no downstream filter can recover from it. The upstream
+# algorithm's evaluation reports this as its own column for that reason.
+q60_ok = q60_bad = 0
 mapq = {}
 spans = []
 
@@ -94,6 +99,8 @@ for i, line in enumerate(open(paf), 1):
         if tname != gchrom:
             truth_bad += 1
             truth_ov_bad += 1
+            if mq == 60:
+                q60_bad += 1
         else:
             # Two criteria, reported side by side because they answer different
             # questions and only one is comparable to the literature.
@@ -119,8 +126,12 @@ for i, line in enumerate(open(paf), 1):
             union = max(te, gend) - min(ts, gstart)
             if inter > 0 and union > 0 and inter / union > MIN_OVERLAP:
                 truth_ov_ok += 1
+                if mq == 60:
+                    q60_ok += 1
             else:
                 truth_ov_bad += 1
+                if mq == 60:
+                    q60_bad += 1
     else:
         truth_absent += 1
 
@@ -138,6 +149,13 @@ if want_truth:
         if ov_tot:
             print(f"ground truth (mapeval overlap > {MIN_OVERLAP}): {truth_ov_ok}/{ov_tot} "
                   f"({truth_ov_ok/ov_tot*100:.2f}%), {truth_ov_bad} wrong")
+        # Scored on the mapeval criterion, so it is comparable to published
+        # "wrong Q60" columns. A zero here is the claim that every placement
+        # error the mapper makes, it also labels as uncertain.
+        q60_tot = q60_ok + q60_bad
+        if q60_tot:
+            print(f"wrong at mapq 60: {q60_bad}/{q60_tot} "
+                  f"({q60_bad/q60_tot*100:.4f}% of confident mappings)")
     if truth_absent:
         print(f"  ({truth_absent} records had no ground-truth header)")
 if fail:

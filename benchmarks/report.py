@@ -284,8 +284,12 @@ def block_checks(rs: dict) -> str:
     return "\n".join(out) + "\n"
 
 
-def _profiles(rs: dict) -> dict[tuple, dict]:
-    """(benchmark, metric, threads) -> timers_secs, from the run's own `-x` reports.
+def _profiles(rs: dict, section: str = "timers_secs") -> dict[tuple, dict]:
+    """(benchmark, metric, threads) -> one section of the run's own `-x` reports.
+
+    `section` selects `timers_secs` (stage times) or `counters` (the per-read
+    work counters §5b reports). Both live in the same JSON, so the two tables
+    cannot come from different runs.
 
     Read from `raw-profiles.tar.gz` if present, else the loose `raw/` directory.
     This is what keeps the profiling tables in step with the benchmark tables:
@@ -311,7 +315,7 @@ def _profiles(rs: dict) -> dict[tuple, dict]:
             j = json.loads(data)
         except (ValueError, json.JSONDecodeError):
             return
-        t = j.get("global", {}).get("timers_secs")
+        t = j.get("global", {}).get(section)
         if t:
             out[(parts[0], parts[1], threads)] = t
 
@@ -532,6 +536,53 @@ def block_stage_breakdown(rs: dict) -> str:
     return "\n".join(out)
 
 
+def block_seed_heuristic(rs: dict) -> str:
+    """How much match-examining work the seed heuristic avoids.
+
+    This is the algorithm's central claim — that pruning lets it keep every
+    k-mer, frequent ones included, instead of discarding seeds the way every
+    other mapper does. Stage timings (§5) say where the time goes; they cannot
+    say whether the pruning is doing anything, because a heuristic that pruned
+    nothing would show the same stage shares.
+
+    `realized potential` is possible matches divided by matches actually
+    examined: work avoided. `unrealized potential` is matches examined divided
+    by matches in the reported mapping: work still wasted, and the headroom a
+    sharper heuristic would attack.
+
+    Single-threaded, since these are whole-run sums and the counters are
+    thread-invariant (the output is byte-identical across thread counts).
+    """
+    rows = rs["rows"]
+    ctr = _profiles(rs, "counters")
+    if not ctr:
+        return "_This result set carries no `-x` counters; re-run to populate._\n"
+    out = ["| benchmark | metric | possible/read | examined/read | in mapping/read "
+           "| realized | unrealized | seeded buckets/read | final buckets/read |",
+           "|---|---|---:|---:|---:|---:|---:|---:|---:|"]
+    any_row = False
+    for bid in benchmarks_in(rows):
+        for metric in metrics_in(rows, bid):
+            c = ctr.get((bid, metric, 1))
+            if not c:
+                continue
+            reads = c.get("reads", 0)
+            poss, seen = c.get("possible_matches", 0), c.get("total_matches", 0)
+            used = c.get("matches_in_reported_mappings", 0)
+            if not (reads and seen and used):
+                continue
+            out.append(
+                f"| {bid} | {metric} | {num(poss / reads)} | {num(seen / reads)} | "
+                f"{num(used / reads)} | **{poss / seen:.1f}x** | {seen / used:.1f}x | "
+                f"{c.get('seeded_buckets', 0) / reads:.1f} | "
+                f"{c.get('final_buckets', 0) / reads:.2f} |")
+            any_row = True
+        out.append("| | | | | | | | | |")
+    if not any_row:
+        return "_This result set carries no match counters; re-run to populate._\n"
+    return "\n".join(out) + "\n"
+
+
 def block_concordance(rs: dict) -> str:
     """From the concordance_<mapper> check rows, which run.py records by joining
     against the cached external PAFs."""
@@ -579,6 +630,7 @@ BUILDERS = {
     "checks": lambda rs, reg: block_checks(rs),
     "concordance": lambda rs, reg: block_concordance(rs),
     "stage-breakdown": lambda rs, reg: block_stage_breakdown(rs),
+    "seed-heuristic": lambda rs, reg: block_seed_heuristic(rs),
     "readme-summary": lambda rs, reg: block_readme_summary(rs),
     "readme-pitch": lambda rs, reg: block_readme_pitch(rs),
     "phase-split": lambda rs, reg: block_phase_split(rs),

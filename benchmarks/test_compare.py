@@ -32,7 +32,7 @@ COLS = ["benchmark", "impl", "metric", "threads", "repeat", "reference_id", "rea
 
 def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_version=1,
              host="a2", commit="a" * 40, fail_check=None, agreement=0.9792,
-             rc=0, drop_config=None, rss_scale=1.0, ground_truth=0.992064,
+             rc=0, drop_config=None, rss_scale=1.0, ground_truth=0.992064, wrong_q60=0,
              concordance=0.9633, ref_wall_scale=1.0, ref_binary="shmap 1.0.0-cpp",
              map_scale=1.0, index_frac=0.5, rss_outlier=1.0):
     d.mkdir(parents=True, exist_ok=True)
@@ -83,6 +83,11 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
                     check="ground_truth", benchmark=b, metric=m,
                     passed=(fail_check != "ground_truth" and ground_truth >= 0.98),
                     detail=f"{ok}/125000 = {ground_truth:.6f} (need 0.98)"))
+                # Never blocking on its own value, so `passed` stays True and
+                # the verdict has to come from the comparison against baseline.
+                checks.append(dict(
+                    check="wrong_q60", benchmark=b, metric=m, passed=True,
+                    detail=f"{wrong_q60}/117532 = {wrong_q60 / 117532:.6f}"))
 
     with open(d / "results.tsv", "w") as f:
         f.write("\t".join(COLS) + "\n")
@@ -159,6 +164,14 @@ def main() -> int:
     case("ground truth below floor", BLOCK, dict(ground_truth=0.970000))
     case("ground truth drift, override", REVIEW, dict(ground_truth=0.991000),
          extra=("--allow-output-change",))
+
+    # Confident-but-wrong placements. The middle case is the one that matters:
+    # accuracy unchanged, but errors moved from mapq 0 to mapq 60. ground_truth
+    # cannot see that, and it is strictly worse for a caller.
+    case("wrong_q60 rose", BLOCK, dict(wrong_q60=3), expect_in="wrong_q60")
+    case("wrong_q60 rose, accuracy flat", BLOCK,
+         dict(wrong_q60=3, ground_truth=0.992064), expect_in="wrong_q60")
+    case("wrong_q60 fell", ACCEPT, dict(wrong_q60=0))
 
     # --- the override for an argued correctness fix -----------------------
     case("fewer mapped, override", REVIEW, dict(mapped_delta=-100),

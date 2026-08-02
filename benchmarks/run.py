@@ -408,6 +408,18 @@ def run_checks(bench: dict, metric: str, rows: list[dict], outdir: Path, suite: 
         res.append(dict(check="ground_truth", benchmark=bench["id"], metric=metric,
                         passed=frac >= need, detail=f"{ok}/{tot} = {frac:.6f} (need {need})"))
 
+        # Same PAF, same subprocess output: reads placed wrongly while claiming
+        # mapq 60. Recorded rather than gated — see [checks.wrong_q60] in
+        # suite.toml for why an absolute threshold cannot work here.
+        wq = re.search(r"wrong at mapq 60: (\d+)/(\d+)",
+                       next((l for l in v.stdout.splitlines()
+                             if l.startswith("wrong at mapq 60")), ""))
+        if wq:
+            nbad, nq60 = int(wq.group(1)), int(wq.group(2))
+            res.append(dict(check="wrong_q60", benchmark=bench["id"], metric=metric,
+                            passed=True,
+                            detail=f"{nbad}/{nq60} = {nbad / nq60 if nq60 else 0.0:.6f}"))
+
     # Concordance against the cached external mappers. These are never run
     # here — reference_mappers.py built their PAFs once, and this is a join.
     # A missing cache entry is reported, not fatal: the corpus is optional and
@@ -474,7 +486,7 @@ def recheck(outdir: Path, suite: dict) -> int:
     # cached external one, so rebuilding the corpus (a new mapper version, or a
     # corrected reference) can be reflected without re-measuring anything.
     # Matched by prefix because the checks are named concordance_<mapper>.
-    REDOABLE = {"validate_paf", "ground_truth"}
+    REDOABLE = {"validate_paf", "ground_truth", "wrong_q60"}
     REDOABLE_PREFIXES = ("concordance_",)
 
     def redoable(name: str) -> bool:
@@ -524,10 +536,13 @@ def recheck(outdir: Path, suite: dict) -> int:
     if not changed:
         print("  no check outcome changed")
 
-    # A flat, greppable, git-diffable view of the -x reports. The tarball keeps
-    # full fidelity, but nobody reads 105 JSON dumps inside a .gz — and data
-    # committed to be read should be readable without unpacking it first.
-    write_profiles_tsv(outdir, reduced)
+    # Rebuilt from the same retained JSON, so a recheck also picks up a change
+    # to PROFILE_COUNTERS without re-measuring. `rows` is what results.tsv
+    # holds — already median-reduced — so this reproduces the file byte for
+    # byte when the extraction has not changed. (It read an undefined `reduced`
+    # until 2026-08-02, copied from `execute`, which made --recheck crash after
+    # printing its verdict and before writing checks.tsv.)
+    write_profiles_tsv(outdir, rows)
 
     with open(outdir / "checks.tsv", "w") as fo:
         fo.write("check\tbenchmark\tmetric\tpassed\tdetail\n")

@@ -74,3 +74,6 @@ thread_determinism	B05	bucket_SH	True	identical across all thread counts
 validate_paf	B05	bucket_SH	True	all structural and score invariants hold
 concordance_winnowmap2	B05	bucket_SH	True	good=0.4794 recall=0.4903 agreement=0.9776 ref=83853
 impl_agreement	B05	bucket_SH	True	40368/41115 = 0.9818
+wrong_q60	B02	Containment	True	0/117532 = 0.000000
+wrong_q60	B02	Jaccard	True	6/119065 = 0.000050
+wrong_q60	B02	bucket_SH	True	1/116800 = 0.000009

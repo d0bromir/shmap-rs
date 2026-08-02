@@ -188,6 +188,21 @@ min_fraction = 0.98
 description = "Fraction of the 12 core PAF columns matching the C++. Recorded always; only blocking if it drops versus the baseline."
 blocking = false
 
+[checks.wrong_q60]
+description = "Simulated reads placed wrongly (mapeval criterion) while reporting mapq 60. Recorded always; only blocking if it rises versus the baseline."
+blocking = false
+# Not gated on an absolute floor, deliberately. The count is tiny and
+# metric-dependent — 0 for Containment, 6 for Jaccard, 1 for bucket_SH on B02 —
+# so any fixed threshold is either vacuous or a coin flip. What matters is the
+# direction: a change that starts labelling wrong placements as confident is a
+# regression however small the count, and compare.py blocks on the increase.
+#
+# This is the quantity a caller actually cares about. A wrong placement at
+# mapq 0 is a declared ambiguity that any downstream filter removes; a wrong
+# placement at mapq 60 is a falsehood that none of them can. Accuracy alone
+# does not distinguish the two, which is why it is recorded separately rather
+# than folded into ground_truth.
+
 # ---------------------------------------------------------------------------
 # Regression thresholds applied by compare.py
 # ---------------------------------------------------------------------------

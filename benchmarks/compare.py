@@ -140,6 +140,23 @@ def ground_truth_of(checks: list[dict]) -> dict[tuple, float]:
     return out
 
 
+def wrong_q60_of(checks: list[dict]) -> dict[tuple, int]:
+    """wrong_q60 details look like `6/119065 = 0.000050`.
+
+    The absolute count is what is compared, not the fraction: the denominator
+    is the mapq-60 population, which moves on its own, so a rate can fall while
+    the number of reads told a falsehood rises.
+    """
+    out = {}
+    for c in checks:
+        if c["check"] != "wrong_q60":
+            continue
+        mo = re.match(r"\s*(\d+)/", c["detail"])
+        if mo:
+            out[(c["benchmark"], c["metric"])] = int(mo.group(1))
+    return out
+
+
 # --------------------------------------------------------------------------
 # comparability
 # --------------------------------------------------------------------------
@@ -238,6 +255,21 @@ def compare(base: dict, cand: dict, thr: dict, allow_output_change: bool) -> dic
             add(acc_level, "accuracy", f"ground_truth {k[0]}/{k[1]}",
                 f"{bv:.6f} -> {cv:.6f} — reads moved away from their true positions"
                 + ("; downgraded by --allow-output-change" if allow_output_change else ""))
+    # Confident-but-wrong placements, same treatment and for a stronger reason:
+    # accuracy can hold steady while errors migrate from mapq 0 to mapq 60, and
+    # that trade is strictly bad for a caller even though ground_truth above
+    # would not move. §8 records three separate tuning attempts (`-M`,
+    # --rarity-weight, the mapq-gated dense substitution) that all raised
+    # confidence without raising correctness, so this is a live failure mode,
+    # not a hypothetical one.
+    bw, cw = wrong_q60_of(base["checks"]), wrong_q60_of(cand["checks"])
+    for k, cv in sorted(cw.items()):
+        bv = bw.get(k)
+        if bv is not None and cv > bv:
+            add(acc_level, "accuracy", f"wrong_q60 {k[0]}/{k[1]}",
+                f"{bv} -> {cv} — more wrong placements now claim mapq 60"
+                + ("; downgraded by --allow-output-change" if allow_output_change else ""))
+
     for field, key_name in (("mapped", "mapped_regression_block"),
                             ("mapq60", "mapq60_regression_block")):
         tol = thr.get(key_name, 0)
