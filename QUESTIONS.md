@@ -8,10 +8,59 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 
 | # | Question | Branch | PR | Status |
 |---|---|---|---|---|
-| — | *none yet* | | | |
+| Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | — | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
+
+---
+
+## Q1 — Replace `sketch.rs` with an already-optimised library
+
+**Asked** 2026-08-02 · **Branch** `q1-sketch-library` · **Status** in review
+
+**Question.** *„sketch.rs да се замени от библиотека, която вече е оптимизирана."* — replace our
+sketching code with an existing, already-optimised library instead of maintaining our own.
+
+**Answer.** The library exists and the hash is genuinely standard, but swapping it in would change
+every mapping *and* run 4.5x slower. Recommendation: keep `sketch.rs`.
+
+Three findings, each pinned by a test in [`tests/nthash_equivalence.rs`](tests/nthash_equivalence.rs):
+
+1. **Our hash *is* ntHash.** The four base constants and the rolling scheme are identical to the
+   `nthash` crate's, verified window by window against `ntf64`/`ntr64` at k = 15, 21, 25, 31. So
+   the premise of the question is right: this is a standard function, not a bespoke one.
+
+2. **No library exposes what we need.** We canonicalise as `h_fw ^ h_rc` and take the strand from
+   `h_fw > h_rc`, so both hashes are needed per window. `nthash` keeps them private and yields only
+   `min(h_fw, h_rc)`; `seq-hash` (the SIMD one) is a *different* function — 32-bit hashes with a
+   rotate-by-7 scheme, not 64-bit rotate-by-1. Substituting `min` for `xor` changes which k-mers are
+   sketched, so every mapping changes and the merge gate blocks it. `min` also clears a threshold
+   about twice as often as `xor`, so a naive swap silently doubles sketch density too.
+
+3. **The crate is 4.5x slower.** At `-r 0.01`, k = 25, on 20 Mbase, matched so both sides select the
+   same number of k-mers and push them into a pre-reserved buffer:
+
+   | | throughput |
+   |---|---:|
+   | `sketch.rs` | **731 Mbase/s** |
+   | `nthash` crate | 164 Mbase/s |
+
+   The gap is the optimisation already in `sketch.rs`: the fixed rotates are pre-baked into the
+   lookup tables and the hot loop walks incoming and outgoing bases as zipped slice iterators, so
+   there are no bounds checks and no sign extensions per base. The crate's iterator does the rotates
+   per step. Getting the comparison fair mattered more than running it — at `h_frac = 1.0` against a
+   checksum fold, the crate looks 2x *faster*, because that measures our `Vec` growth rather than
+   anyone's hashing.
+
+**Outcome.** No change to `sketch.rs`. The PR adds only the test that documents this, so the claim
+stays checkable and nobody re-derives it.
+
+**Follow-up, not done here.** If sketching needs to be faster, the remaining headroom is SIMD: 8
+lanes of 64-bit ntHash computed in parallel. No crate offers that with both hashes exposed
+(`seq-hash` is SIMD but 32-bit), so it would be our code, not a library — a different question from
+this one, and worth asking separately since §5 of [RESULTS.md](RESULTS.md) puts sketching at
+15–38% of `query_mapping`.
 
 ---
 
