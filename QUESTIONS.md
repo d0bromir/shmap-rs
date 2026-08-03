@@ -14,7 +14,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | #9 | merged |
 | Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | #12 | dropped |
 | Q6 | Indexing time vs mapping time, per tool, for third-party comparisons | `q6-index-vs-mapping-time` | #14 | merged |
-| Q7 | Optimize the refinement step (it differs for Containment/Jaccard) | `q7-refinement-jaccard-bound` | (open) | in review |
+| Q7 | Optimize the refinement step (it differs for Containment/Jaccard) | `q7-refinement-jaccard-bound` | #16 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -573,7 +573,7 @@ future re-measurement, not the binary.
 
 ## Q7 — Optimize the refinement step (it differs for Containment/Jaccard)
 
-**Asked** 2026-08-03 · **Branch** `q7-refinement-jaccard-bound` · **PR** (open) · **Status** in
+**Asked** 2026-08-03 · **Branch** `q7-refinement-jaccard-bound` · **PR** #16 · **Status** in
 review
 
 **Question.** *"try to optimize the refinement step. it is different for C and J"* — Containment
