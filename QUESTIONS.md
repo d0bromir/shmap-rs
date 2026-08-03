@@ -12,7 +12,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q2 | Check: does the suite run shmap-rs and map-shmap with Jaccard, Containment, SH? | `q2-three-metrics` | #7 | merged |
 | Q3 | Speed and memory vs the C++/paper, verified with C++ source snippets | `q3-optimizations-list` | #8 | merged |
 | Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | #9 | merged |
-| Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | (open) | in review |
+| Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | #12 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -426,7 +426,7 @@ problem.
 ## Q5 — Build the NUMA-aware index replication Q4 scoped but didn't ship
 
 **Asked** 2026-08-03, follow-up directive after Q4 · **Branch** `fix-numa-index-replication` ·
-**PR** (open) · **Status** in review
+**PR** #12 · **Status** in review
 
 **Question.** *"Now fix the problem with the poor threading performance"* — build the fix Q4
 diagnosed and scoped but explicitly didn't attempt: the memory-bandwidth contention on the shared
