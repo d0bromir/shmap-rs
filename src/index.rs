@@ -100,7 +100,7 @@ fn shard_of(h: Hash) -> usize {
 
 /// One hash shard: the same pair of maps the index used to hold globally,
 /// restricted to the hashes that [`shard_of`] assigns here.
-#[derive(Default, PartialEq, Eq, Debug)]
+#[derive(Default, Clone, PartialEq, Eq, Debug)]
 pub struct Shard {
     /// K-mers with exactly one hit in the reference.
     pub h2single: FxHashMap<Hash, Hit>,
@@ -109,6 +109,7 @@ pub struct Shard {
     pub h2multi: FxHashMap<Hash, Vec<Hit>>,
 }
 
+#[derive(Clone)]
 pub struct SketchIndex {
     pub segments: Vec<RefSegment>,
     /// The hash → hit(s) map, split into [`N_SHARDS`] independent pieces so

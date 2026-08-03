@@ -11,7 +11,8 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | merged |
 | Q2 | Check: does the suite run shmap-rs and map-shmap with Jaccard, Containment, SH? | `q2-three-metrics` | #7 | merged |
 | Q3 | Speed and memory vs the C++/paper, verified with C++ source snippets | `q3-optimizations-list` | #8 | merged |
-| Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | #9 | in review |
+| Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | #9 | merged |
+| Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | (open) | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -419,6 +420,58 @@ zero risk, stated in RESULTS.md §11.
 the host provenance line now states the socket topology instead of just "64-core". No `src/`
 change — the fix is real engineering that shouldn't be rushed into the PR that diagnosed the
 problem.
+
+---
+
+## Q5 — Build the NUMA-aware index replication Q4 scoped but didn't ship
+
+**Asked** 2026-08-03, follow-up directive after Q4 · **Branch** `fix-numa-index-replication` ·
+**PR** (open) · **Status** in review
+
+**Question.** *"Now fix the problem with the poor threading performance"* — build the fix Q4
+diagnosed and scoped but explicitly didn't attempt: the memory-bandwidth contention on the shared
+reference index that inflates per-read CPU cost continuously from `-@2` on, sharply once a run
+needs a second socket.
+
+**Answer / change.** One full copy of `SketchIndex` per NUMA node instead of one shared copy every
+socket reaches across the interconnect for, with every mapping worker pinned to the same node as
+the copy it reads.
+
+- **[`src/numa.rs`](src/numa.rs)** (new): reads real topology from
+  `/sys/devices/system/node` (node ids, each node's cpu list), plans how many of `-@`'s worker
+  threads to place on each node (most-even split, using only as many nodes as there are threads to
+  place), and expands that into one `(replica, cpu)` slot per worker. Detection failing, a
+  single-node host, or `-@1` all produce an empty plan — the uniform signal every caller treats as
+  "skip replication, use the single shared index exactly as before this existed." 13 unit tests
+  cover the parsing and placement logic directly (including synthetic 1/2/4-node topologies this
+  host can't literally provide), so the "needs a single- or 2-socket host to confirm" caveat Q4
+  left open is resolved by construction rather than by borrowed hardware: those code paths are
+  exercised and cannot regress what they've never touched.
+- **[`src/shmap/mod.rs`](src/shmap/mod.rs)**: `map_reads` builds one `SketchIndex::clone()` per
+  node the plan actually uses — each clone done by a thread pinned to that node first, so its
+  allocations land there under Linux's default local-allocation memory policy — then pins each
+  worker thread to its assigned core and points it at its own node's replica instead of the one
+  `self.tidx` every worker used to share.
+- **`SketchIndex`/`Shard`/`RefSegment`** gained `#[derive(Clone)]` (`src/index.rs`,
+  `src/sketch.rs`) — all plain owned data (`Vec`, `String`, `FxHashMap` of `Copy` types), nothing
+  that made cloning unsafe or surprising.
+- **`--no-numa`** (`src/params.rs`): forces the old single-shared-index behavior, for comparison or
+  as an escape hatch if placement ever misbehaves on unusual hardware.
+- Placement uses [`core_affinity`](https://docs.rs/core_affinity), not a raw `libc`/`mbind` call —
+  it wraps the necessary unsafe FFI behind a safe, tested API, so this crate's existing "no
+  `unsafe` code anywhere" property (leaned on directly by the panic-isolation design in
+  `shmap/mod.rs`'s module doc comment) stays literally true.
+
+**Verified.** `-@1`, `-@64` with replication, and `-@64` with `--no-numa` all produce byte-identical
+PAF output on the real B01 dataset (149,194 reads against the full T2T-CHM13 genome), diffed with
+the project's own `strip_time_tag` (the volatile per-read wall-clock tag is the only field expected
+to vary run to run) — determinism is unaffected by which copy of the index a worker reads. `cargo
+fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --release`, `cargo test`
+(debug, `debug_assert!`s included), and all four `benchmarks/*.py` cheap-tier checks pass with zero
+changes needed. The 3-metric benchmark suite is running to produce the numbers RESULTS.md §3/§11
+need updated with — see the PR for the verdict once it lands.
+
+**Outcome.** Pending the benchmark verdict.
 
 ---
 

@@ -13,6 +13,7 @@ pub type SketchT = Vec<Kmer>;
 /// (`seq`), but that field is only ever read by the fully-commented-out
 /// SAM/edlib alignment code — carrying it here would roughly double index
 /// memory for a feature that's dead code upstream, so it's dropped.
+#[derive(Clone)]
 pub struct RefSegment {
     pub kmers: SketchT,
     pub name: String,

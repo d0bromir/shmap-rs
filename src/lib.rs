@@ -9,6 +9,7 @@ pub mod index;
 pub mod io;
 pub mod mapper;
 pub mod mapping;
+pub mod numa;
 pub mod params;
 pub mod profiling;
 pub mod refine;

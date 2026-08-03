@@ -57,6 +57,21 @@
 //! arrive in submission order, so the reorder buffer is a no-op and
 //! behavior is identical to before — one fewer code path to keep in sync.
 //!
+//! ## NUMA-aware index placement (`-@`, multi-socket hosts)
+//!
+//! Diagnosed in Q4 (`QUESTIONS.md`, `RESULTS.md` §3/§11): every worker
+//! above read the *same* shared [`crate::index::SketchIndex`], so on a
+//! multi-socket host most of them did every lookup across the cross-socket
+//! interconnect — real, measurable per-read cost inflation from a second
+//! *thread* on, sharply worse once a run needed a second *socket*. See
+//! [`crate::numa`] for the fix: one full copy of the index per NUMA node,
+//! each built by a thread pinned to that node, with every worker pinned to
+//! the same node as the copy it reads. On a single-node host, `-@1`, or
+//! with `--no-numa`, [`crate::numa::plan_workers`] returns an empty plan
+//! and every worker falls back to the one shared `tidx` exactly as before
+//! this existed — so this cannot regress hardware it was never measured
+//! on.
+//!
 //! Each worker catches panics from its own `map_read` call ([`catch_read_panic`])
 //! rather than letting one bad read kill the thread. Without this, a dead
 //! worker stops draining the bounded job channel, the reader thread blocks
@@ -400,6 +415,40 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         let params = &handler.params;
         let sketcher = &handler.sketcher;
 
+        // NUMA-aware index placement — see the module doc comment and
+        // `crate::numa`. `numa_plan`/`numa_slots` are empty (meaning: every
+        // worker below uses the single shared `tidx` directly, unpinned,
+        // exactly as before this existed) whenever there is nothing to
+        // gain: a single NUMA node, `-@1`, or `--no-numa`. `numa_replicas`
+        // is one full clone of `tidx` per node `numa_plan` actually uses,
+        // each built by a thread pinned to that node so the clone's own
+        // allocations land there under Linux's default local-allocation
+        // memory policy.
+        let numa_topology = if params.no_numa {
+            Vec::new()
+        } else {
+            crate::numa::detect_topology()
+        };
+        let numa_plan = crate::numa::plan_workers(n_threads, &numa_topology);
+        let numa_slots = crate::numa::worker_slots(&numa_plan);
+        let numa_replicas: Vec<crate::index::SketchIndex> = if numa_plan.is_empty() {
+            Vec::new()
+        } else {
+            std::thread::scope(|replica_scope| {
+                let handles: Vec<_> = numa_plan
+                    .iter()
+                    .map(|(node, _count)| {
+                        let pin_cpu = node.cpus[0];
+                        replica_scope.spawn(move || {
+                            crate::numa::pin_current_thread(pin_cpu);
+                            tidx.clone()
+                        })
+                    })
+                    .collect();
+                handles.into_iter().map(|h| h.join().unwrap()).collect()
+            })
+        };
+
         struct Job {
             idx: u64,
             query_id: String,
@@ -432,7 +481,15 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             for worker_idx in 0..n_threads {
                 let job_rx = &job_rx;
                 let done_tx = done_tx.clone();
+                let worker_tidx = numa_slots
+                    .get(worker_idx)
+                    .map(|slot| &numa_replicas[slot.replica])
+                    .unwrap_or(tidx);
+                let pin_cpu = numa_slots.get(worker_idx).map(|slot| slot.cpu);
                 scope.spawn(move || {
+                    if let Some(cpu) = pin_cpu {
+                        crate::numa::pin_current_thread(cpu);
+                    }
                     // This thread's own cumulative timers/counters, distinct
                     // from `worker.timers`/`worker.counters` (which
                     // `map_read` clears and reinitializes every call) —
@@ -454,8 +511,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     if profiler.enabled() {
                         thread_timers.start("worker_setup");
                     }
-                    let mut worker: SHMapper<'_, NBP, OS, AP> = SHMapper::new(tidx);
-                    let mut buckets: Buckets<'_, AP> = Buckets::new(tidx);
+                    let mut worker: SHMapper<'_, NBP, OS, AP> = SHMapper::new(worker_tidx);
+                    let mut buckets: Buckets<'_, AP> = Buckets::new(worker_tidx);
                     if profiler.enabled() {
                         thread_timers.stop("worker_setup");
                     }

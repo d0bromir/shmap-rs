@@ -146,6 +146,17 @@ pub struct Params {
     #[arg(short = '@', long = "threads", default_value_t = 1)]
     pub threads: usize,
 
+    /// Disables NUMA-aware index replication (on by default when the host
+    /// has more than one NUMA node and `-@` uses more than one thread).
+    /// Diagnosed in Q4 (QUESTIONS.md): every worker reading one shared
+    /// index causes real, measurable per-read cost inflation from a
+    /// second thread on, worst crossing sockets. The fix is one index
+    /// copy per node, each worker pinned to its own node's copy; this
+    /// flag is the escape hatch back to the single-shared-index behavior,
+    /// for comparison or if placement ever misbehaves on unusual hardware.
+    #[arg(long = "no-numa")]
+    pub no_numa: bool,
+
     /// Enables profiling instrumentation: per-stage timings, a per-thread
     /// breakdown, and memory-usage sampling, written once (as JSON) to
     /// `--profile-log` at the end of the run. Off by default so normal runs
