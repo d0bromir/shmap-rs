@@ -317,51 +317,51 @@ effect of a mapper change on deep ones. `compare.py` judges mapping time separat
 reason: a 12% mapper regression behind a dominant index moves the total by ~1%, which would pass
 unnoticed under a 3% review line.
 
-Containment, subject only — the C++ emits no phase breakdown, so its comparison stays total-vs-total.
+Containment. shmap-rs's split comes from its own `-x`/`--profile-log` report; the C++ emits no such report, so its row instead comes from Pesho's two-run method (`run.py`'s `measure`): a second run against a single read isolates indexing (which does not depend on the read set), and mapping is recovered by subtracting that from the real run's wall time. Both columns mean the same thing either way, so shmap-rs and the C++ are directly comparable here. The C++ is single-threaded, so it has only one row per benchmark.
 
 <!-- BEGIN GENERATED: phase-split -->
-| benchmark | `-@` | index | mapping | total | index share | mapping speedup |
-|---|---:|---:|---:|---:|---:|---:|
-| B01 | 1 | 7.80 s | 34.41 s | 42.69 s | 18% | 1.00x |
-| B01 | 2 | 6.88 s | 19.06 s | 26.84 s | 26% | 1.81x |
-| B01 | 4 | 5.04 s | 10.24 s | 16.27 s | 31% | 3.36x |
-| B01 | 8 | 4.34 s | 5.33 s | 10.69 s | 41% | 6.46x |
-| B01 | 16 | 3.74 s | 2.74 s | 7.28 s | 51% | 12.57x |
-| B01 | 32 | 3.14 s | 2.28 s | 6.13 s | 51% | 15.09x |
-| B01 | 64 | 3.56 s | 2.50 s | 6.95 s | 51% | 13.74x |
-| | | | | | | |
-| B02 | 1 | 7.54 s | 25.89 s | 33.87 s | 22% | 1.00x |
-| B02 | 2 | 6.29 s | 15.26 s | 22.42 s | 28% | 1.70x |
-| B02 | 4 | 4.52 s | 8.17 s | 13.70 s | 33% | 3.17x |
-| B02 | 8 | 3.61 s | 4.24 s | 8.88 s | 41% | 6.11x |
-| B02 | 16 | 3.36 s | 2.21 s | 6.31 s | 53% | 11.74x |
-| B02 | 32 | 3.38 s | 2.05 s | 6.11 s | 55% | 12.63x |
-| B02 | 64 | 3.88 s | 1.94 s | 6.53 s | 59% | 13.34x |
-| | | | | | | |
-| B03 | 1 | 7.62 s | 42.48 s | 50.48 s | 15% | 1.00x |
-| B03 | 2 | 6.33 s | 23.43 s | 30.54 s | 21% | 1.81x |
-| B03 | 4 | 4.14 s | 12.24 s | 17.23 s | 24% | 3.47x |
-| B03 | 8 | 3.44 s | 6.53 s | 10.71 s | 32% | 6.51x |
-| B03 | 16 | 3.27 s | 3.37 s | 7.30 s | 45% | 12.60x |
-| B03 | 32 | 4.33 s | 2.95 s | 8.12 s | 53% | 14.41x |
-| B03 | 64 | 3.42 s | 3.10 s | 7.33 s | 47% | 13.70x |
-| | | | | | | |
-| B04 | 1 | 7.62 s | 414.15 s | 422.15 s | 2% | 1.00x |
-| B04 | 2 | 6.61 s | 216.04 s | 223.24 s | 3% | 1.92x |
-| B04 | 4 | 3.91 s | 123.24 s | 127.88 s | 3% | 3.36x |
-| B04 | 8 | 3.60 s | 62.26 s | 66.79 s | 5% | 6.65x |
-| B04 | 16 | 3.34 s | 32.39 s | 36.59 s | 9% | 12.79x |
-| B04 | 32 | 3.66 s | 27.02 s | 31.58 s | 12% | 15.33x |
-| B04 | 64 | 3.17 s | 30.01 s | 33.96 s | 9% | 13.80x |
-| | | | | | | |
-| B05 | 1 | 7.31 s | 12.46 s | 20.29 s | 36% | 1.00x |
-| B05 | 2 | 6.30 s | 7.08 s | 14.19 s | 44% | 1.76x |
-| B05 | 4 | 4.36 s | 3.81 s | 9.07 s | 48% | 3.27x |
-| B05 | 8 | 3.50 s | 2.05 s | 6.31 s | 55% | 6.09x |
-| B05 | 16 | 3.11 s | 1.37 s | 5.30 s | 59% | 9.09x |
-| B05 | 32 | 3.60 s | 1.70 s | 6.08 s | 59% | 7.33x |
-| B05 | 64 | 3.78 s | 1.55 s | 6.15 s | 62% | 8.02x |
-| | | | | | | |
+| benchmark | impl | `-@` | index | mapping | total | index share | mapping speedup |
+|---|---|---:|---:|---:|---:|---:|---:|
+| B01 | shmap-rs | 1 | 7.80 s | 34.41 s | 42.69 s | 18% | 1.00x |
+| B01 | shmap-rs | 2 | 6.88 s | 19.06 s | 26.84 s | 26% | 1.81x |
+| B01 | shmap-rs | 4 | 5.04 s | 10.24 s | 16.27 s | 31% | 3.36x |
+| B01 | shmap-rs | 8 | 4.34 s | 5.33 s | 10.69 s | 41% | 6.46x |
+| B01 | shmap-rs | 16 | 3.74 s | 2.74 s | 7.28 s | 51% | 12.57x |
+| B01 | shmap-rs | 32 | 3.14 s | 2.28 s | 6.13 s | 51% | 15.09x |
+| B01 | shmap-rs | 64 | 3.56 s | 2.50 s | 6.95 s | 51% | 13.74x |
+| | | | | | | | |
+| B02 | shmap-rs | 1 | 7.54 s | 25.89 s | 33.87 s | 22% | 1.00x |
+| B02 | shmap-rs | 2 | 6.29 s | 15.26 s | 22.42 s | 28% | 1.70x |
+| B02 | shmap-rs | 4 | 4.52 s | 8.17 s | 13.70 s | 33% | 3.17x |
+| B02 | shmap-rs | 8 | 3.61 s | 4.24 s | 8.88 s | 41% | 6.11x |
+| B02 | shmap-rs | 16 | 3.36 s | 2.21 s | 6.31 s | 53% | 11.74x |
+| B02 | shmap-rs | 32 | 3.38 s | 2.05 s | 6.11 s | 55% | 12.63x |
+| B02 | shmap-rs | 64 | 3.88 s | 1.94 s | 6.53 s | 59% | 13.34x |
+| | | | | | | | |
+| B03 | shmap-rs | 1 | 7.62 s | 42.48 s | 50.48 s | 15% | 1.00x |
+| B03 | shmap-rs | 2 | 6.33 s | 23.43 s | 30.54 s | 21% | 1.81x |
+| B03 | shmap-rs | 4 | 4.14 s | 12.24 s | 17.23 s | 24% | 3.47x |
+| B03 | shmap-rs | 8 | 3.44 s | 6.53 s | 10.71 s | 32% | 6.51x |
+| B03 | shmap-rs | 16 | 3.27 s | 3.37 s | 7.30 s | 45% | 12.60x |
+| B03 | shmap-rs | 32 | 4.33 s | 2.95 s | 8.12 s | 53% | 14.41x |
+| B03 | shmap-rs | 64 | 3.42 s | 3.10 s | 7.33 s | 47% | 13.70x |
+| | | | | | | | |
+| B04 | shmap-rs | 1 | 7.62 s | 414.15 s | 422.15 s | 2% | 1.00x |
+| B04 | shmap-rs | 2 | 6.61 s | 216.04 s | 223.24 s | 3% | 1.92x |
+| B04 | shmap-rs | 4 | 3.91 s | 123.24 s | 127.88 s | 3% | 3.36x |
+| B04 | shmap-rs | 8 | 3.60 s | 62.26 s | 66.79 s | 5% | 6.65x |
+| B04 | shmap-rs | 16 | 3.34 s | 32.39 s | 36.59 s | 9% | 12.79x |
+| B04 | shmap-rs | 32 | 3.66 s | 27.02 s | 31.58 s | 12% | 15.33x |
+| B04 | shmap-rs | 64 | 3.17 s | 30.01 s | 33.96 s | 9% | 13.80x |
+| | | | | | | | |
+| B05 | shmap-rs | 1 | 7.31 s | 12.46 s | 20.29 s | 36% | 1.00x |
+| B05 | shmap-rs | 2 | 6.30 s | 7.08 s | 14.19 s | 44% | 1.76x |
+| B05 | shmap-rs | 4 | 4.36 s | 3.81 s | 9.07 s | 48% | 3.27x |
+| B05 | shmap-rs | 8 | 3.50 s | 2.05 s | 6.31 s | 55% | 6.09x |
+| B05 | shmap-rs | 16 | 3.11 s | 1.37 s | 5.30 s | 59% | 9.09x |
+| B05 | shmap-rs | 32 | 3.60 s | 1.70 s | 6.08 s | 59% | 7.33x |
+| B05 | shmap-rs | 64 | 3.78 s | 1.55 s | 6.15 s | 62% | 8.02x |
+| | | | | | | | |
 <!-- END GENERATED: phase-split -->
 
 The `mapping speedup` column is the honest parallel-scaling number: mapping time at `-@1` divided by

@@ -320,6 +320,33 @@ def check_reference_binary(spec: dict) -> str:
     return binary
 
 
+def one_read_fasta(reads_path: str, cache_dir: Path) -> Path:
+    """A cached one-record slice of `reads_path`'s first read.
+
+    Used by `measure`'s indexing/mapping split for a tool with no native
+    phase report (see there for the method, from Pesho): indexing does not
+    depend on the read set, so a run against just this file isolates it.
+    Cached per result set (`cache_dir` is the run's own `raw/`, so this
+    never reads a stale file across separate `run.py` invocations) and
+    keyed on the reads file's own name — regenerating costs one streamed
+    pass that stops at the second `>` record, not a full read of what can
+    be a multi-GB file.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dest = cache_dir / f"{Path(reads_path).name}.one_read.fa"
+    if dest.exists():
+        return dest
+    with open(reads_path) as fi, open(dest, "w") as fo:
+        seen_header = False
+        for line in fi:
+            if line.startswith(">"):
+                if seen_header:
+                    break
+                seen_header = True
+            fo.write(line)
+    return dest
+
+
 def measure(job: dict, binary: str, outdir: Path, suite: dict) -> dict:
     tag = f"{job['benchmark']}_{job['impl']}_{job['metric']}_t{job['threads']}_r{job['repeat']}"
     paf, tf = outdir / f"{tag}.paf", outdir / f"{tag}.time"
@@ -353,6 +380,28 @@ def measure(job: dict, binary: str, outdir: Path, suite: dict) -> dict:
             index_s, map_s = round(t.get("indexing", 0.0), 3), round(t.get("mapping", 0.0), 3)
         except (OSError, ValueError, KeyError):
             pass
+    else:
+        # No native phase report to read (the C++ reference emits none, and
+        # this is the general fallback for any future impl in the same
+        # position). Pesho's method: re-run the identical command with the
+        # read set swapped for a single read. Indexing does not depend on
+        # the read set, so that run's wall time is (almost) entirely
+        # indexing — subtracting it from the real run's wall time isolates
+        # mapping without needing the tool's own cooperation. Re-run once
+        # per `measure` call (not cached at the value level) rather than
+        # once total, so it inherits the same repeat-and-median treatment
+        # as everything else here — see the "C++ varies ~8% run-to-run"
+        # comment on `[run.reference_impl]` in suite.toml.
+        one_read = one_read_fasta(job["reads"], outdir)
+        idx_tf = outdir / f"{tag}.index_only.time"
+        idx_cmd = ["/usr/bin/time", "-v", "-o", str(idx_tf), binary,
+                   "-s", job["reference"], "-p", str(one_read), *job["base"], "-m", job["metric"]]
+        with open(outdir / f"{tag}.index_only.paf", "w") as idx_fo:
+            subprocess.run(idx_cmd, stdout=idx_fo, stderr=subprocess.DEVNULL)
+        index_wall, _ = parse_time_v(idx_tf)
+        if index_wall is not None:
+            index_s = round(index_wall, 3)
+            map_s = round(wall - index_wall, 3)
 
     return dict(**{k: job[k] for k in ("benchmark", "impl", "metric", "threads", "repeat",
                                        "reference_id", "reads_id", "params_id")},

@@ -368,16 +368,26 @@ def block_memory_scaling(rs: dict) -> str:
 
 
 def block_phase_split(rs: dict) -> str:
-    """Index vs mapping vs total, per benchmark.
+    """Index vs mapping vs total, per benchmark, per implementation.
 
     Indexing is a fixed cost set by the reference, not the read set, and it is
     largely serial. Mapping is what scales with reads and threads. A whole-run
     speedup mixes the two, and the mix changes with depth — so the same code
     looks very different at 1x and 10x unless the phases are shown apart.
+
+    `SUBJECT` gets this from its own `-x`/`--profile-log` report (wall timers
+    for the `indexing`/`mapping` brackets). `REFERENCE` (the C++) emits no
+    such report, so `run.py`'s `measure` gets it a different way — Pesho's
+    method: a second run of the identical command against a single read
+    (indexing does not depend on the read set, so that run's wall time is
+    almost entirely indexing), with mapping time recovered by subtracting it
+    from the real run's wall time. Both columns are the same two numbers
+    either way, so they are directly comparable here despite coming from
+    different measurement methods.
     """
     rows, idx = rs["rows"], index(rs["rows"])
-    out = ["| benchmark | `-@` | index | mapping | total | index share | mapping speedup |",
-           "|---|---:|---:|---:|---:|---:|---:|"]
+    out = ["| benchmark | impl | `-@` | index | mapping | total | index share | mapping speedup |",
+           "|---|---|---:|---:|---:|---:|---:|---:|"]
     any_row = False
     for bid in benchmarks_in(rows):
         threads = sorted({r["threads"] for r in rows
@@ -389,10 +399,20 @@ def block_phase_split(rs: dict) -> str:
                 continue
             i, m, w = float(r["index_s"]), float(r["map_s"]), r["wall_s"]
             sp = (float(base["map_s"]) / m) if (base and base.get("map_s") and m > 0) else None
-            out.append(f"| {bid} | {t} | {i:.2f} s | {m:.2f} s | {w:.2f} s | "
+            out.append(f"| {bid} | {SUBJECT} | {t} | {i:.2f} s | {m:.2f} s | {w:.2f} s | "
                        f"{i/w*100:.0f}% | " + (f"{sp:.2f}x |" if sp else "— |"))
             any_row = True
-        out.append("| | | | | | | |")
+        ref_threads = sorted({r["threads"] for r in rows
+                              if r["benchmark"] == bid and r["impl"] == REFERENCE})
+        for t in ref_threads:
+            r = idx.get((bid, REFERENCE, "Containment", t))
+            if not r or r.get("index_s") in (None, "") or r.get("map_s") in (None, ""):
+                continue
+            i, m, w = float(r["index_s"]), float(r["map_s"]), r["wall_s"]
+            out.append(f"| {bid} | {REFERENCE} | {t} | {i:.2f} s | {m:.2f} s | {w:.2f} s | "
+                       f"{i/w*100:.0f}% | — |")
+            any_row = True
+        out.append("| | | | | | | | |")
     if not any_row:
         return ("_This result set predates the index/mapping split; re-run to populate._\n")
     return "\n".join(out) + "\n"
