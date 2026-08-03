@@ -94,6 +94,11 @@ jobs:
       - name: concordance scoring is correct
         run: python3 benchmarks/test_concordance.py
 
+      # Pesho's index/mapping time split (measure()) for a tool with no native
+      # phase report depends on this slicing out exactly one record.
+      - name: one_read_fasta isolates exactly the first record
+        run: python3 benchmarks/test_run.py
+
       # Catches a hand-edited results table, which is how this repo previously
       # came to carry contradictory numbers.
       - name: RESULTS.md matches the current result set

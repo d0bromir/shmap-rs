@@ -13,6 +13,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q3 | Speed and memory vs the C++/paper, verified with C++ source snippets | `q3-optimizations-list` | #8 | merged |
 | Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | #9 | merged |
 | Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | #12 | dropped |
+| Q6 | Indexing time vs mapping time, per tool, for third-party comparisons | `q6-index-vs-mapping-time` | #14 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -482,6 +483,62 @@ dependencies are reverted off `main` — none of it ships. RESULTS.md §11 and t
 lasting record, so the next person who has this idea starts from "tried, five ways, here's why
 each failed" instead of from zero. Q4's `numactl --cpunodebind=0 --membind=0` (or capping `-@` at
 one socket) remains the actionable answer for multi-socket hosts.
+
+---
+
+## Q6 — Indexing time vs mapping time, per tool, for third-party comparisons
+
+**Asked** 2026-08-03 · **Branch** `q6-index-vs-mapping-time` · **PR** #14 · **Status** in review
+
+**Question.** *"we need indexing time for each tool separately from mapping time (they combine to
+total time). The idea of Pesho how to measure it for each third-party tool we are comparing shmap
+and shmap-rs with is: run each tool twice — once for measuring the indexing time by mapping only 1
+read, and once for measuring the whole time (what you currently have). To get the mapping time,
+subtract the [index-only run's time] from the time for [the full run]."*
+
+shmap-rs already reports this split via its own `-x`/`--profile-log` instrumentation (wall timers
+around the `indexing`/`mapping` brackets — see `RESULTS.md` §3b). The C++ reference emits no such
+report, so `run.py`'s `index_s`/`map_s` columns were empty for every `cpp-shmap` row, and §3b's
+table was subject-only.
+
+**Answer / change.** Implemented Pesho's two-run method as the general fallback for any
+implementation without a native phase report:
+
+- **[`benchmarks/run.py`](benchmarks/run.py)** — `measure()`'s existing branch (native JSON report,
+  for `shmap-rs`) gets a new `else`: for any impl without one, a second invocation runs the
+  identical command with the reads file swapped for `one_read_fasta()`'s cached one-record slice.
+  Indexing doesn't depend on the read set, so that run's wall time is (almost) entirely indexing;
+  `map_s` is recovered as `wall_s - index_wall`. The sub-run happens inside `measure()`, once per
+  call, so it inherits the same repeat-and-median treatment `[run.reference_impl]` already gives
+  every other number for the C++ — no new aggregation logic needed.
+- `one_read_fasta()` streams just past the first record's boundary rather than reading the whole
+  file (real reads files are up to tens of GB), and caches the slice per result set so repeated
+  calls for the same dataset don't re-derive it.
+- **[`benchmarks/report.py`](benchmarks/report.py)** — §3b's `block_phase_split` table gains an
+  `impl` column and now includes the reference impl's row(s) alongside the subject's, so the two
+  are directly comparable in one place instead of subject-only.
+- **[`benchmarks/test_run.py`](benchmarks/test_run.py)** (new) — `one_read_fasta` is the one piece
+  of this that's pure and easy to get subtly wrong (truncate mid-sequence, grab the wrong record
+  count) without it being obvious from a single manual check; unit-tested directly, wired into CI.
+
+**Verified.** Ran the real two-run method by hand against `cpp-shmap` on B01 (149,194 reads):
+index-only run 32.65 s, full run 107.72 s, derived mapping time 75.07 s — the index-only PAF has
+exactly one line, confirming the read-set swap. `report.py --check`/`paper.py --check` regenerate
+clean against the existing (subject-only, pre-this-change) cached result set, since no `cpp-shmap`
+row has `index_s`/`map_s` populated yet — the new reference-impl branch of the table is additive
+and simply has nothing to show until the next C++ re-measurement. All cheap-tier checks
+(`cargo fmt`/`clippy`/`test` release+debug, `validate_suite.py`, `test_compare.py`,
+`test_concordance.py`, the new `test_run.py`, `report.py --check`, `paper.py --check`) pass.
+
+**Scope note.** This covers `cpp-shmap`, the only third-party tool currently measured for timed
+comparison in `run.py`/`suite.toml`. `reference_mappers.py`'s corpus (mapquik, Winnowmap2,
+minimap2, blend) is a separate, accuracy/concordance-only pipeline that doesn't measure wall time
+for PR comparisons at all — extending index/mapping timing there would be a different, larger
+change, not attempted here.
+
+**Outcome.** Pending the benchmark verdict. No `src/` change — `run.py`/`report.py` only affect
+future re-measurement, not the binary.
+
 ---
 
 ## Template
