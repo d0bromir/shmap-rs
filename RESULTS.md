@@ -236,36 +236,61 @@ Whole-run scaling is best at depth simply because there is enough mapping work t
 index cost — indexing is ~9% of the wall at `-@ 32` on 10x, against ~50% for a 1x run. The mapper's
 own ceiling is a consistent ~7.7-11.4x, reached at 16-32 threads.
 
-**That ceiling is this host's socket topology, not a limit of the algorithm or the pipeline.** `a2`
-is 4 sockets of 16 cores each (`numactl --hardware`), and worker CPU-efficiency during mapping —
-`cpu_query_mapping` (summed across workers) divided by `threads x wall_mapping` — tracks the socket
-boundary almost exactly, on *every* benchmark:
+**Two separate effects explain that ceiling, and neither is the pipeline.** `a2` is 4 sockets of
+16 cores each (`numactl --hardware`). One effect is the indexing floor above (Amdahl: it barely
+shrinks past ~3.5 s, so even *perfect* mapping parallelism could only ever reach roughly
+`wall(-@1) / (3.5 s + wall_mapping(-@1)/threads)` — about 9-12x in the limit for these datasets,
+not 32x or 64x). The other is that the mapping phase itself does not scale linearly either, and —
+this needs to be said plainly, because an earlier revision of this section implied otherwise —
+**it does not stay near-ideal up to 16 threads and then fall off a cliff. The falloff starts at 2
+threads and is continuous.**
 
-| `-@` | sockets spanned | B01 | B02 | B03 | B04 | B05 |
+The clean way to see it is CPU-seconds actually spent per read, `cpu_query_mapping / mapped_reads`,
+against its `-@1` value — this is throughput, not busy-ness (below):
+
+| `-@` | sockets | B01 | B02 | B03 | B04 | B05 |
 |---:|---:|---:|---:|---:|---:|---:|
-| 16 | 1 | 93.5% | 92.8% | 92.0% | 91.5% | 73.8% |
-| 32 | 2 | 66.2% | 62.6% | 61.3% | 60.7% | 48.8% |
-| 64 | 4 | 39.2% | 40.0% | 36.4% | 34.7% | 38.1% |
+| 2 | 1 | +10.4% | +17.9% | +9.8% | +3.8% | +13.5% |
+| 4 | 1 | +18.8% | +26.3% | +13.6% | +17.3% | +22.6% |
+| 8 | 1 | +23.6% | +31.3% | +21.8% | +20.0% | +32.5% |
+| 16 | 1 | +27.7% | +37.3% | +27.0% | +25.2% | +45.4% |
+| 32 | 2 | +50.7% | +72.2% | +48.0% | +38.6% | +138.1% |
+| 64 | 4 | +95.9% | +108.3% | +85.0% | +75.9% | +240.2% |
 
-Efficiency is a steady ~90%+ for as long as `-@` fits in one socket, then drops by roughly a third
-the moment it needs a second and by roughly two-thirds needing all four — the same shape on a
-39,608-read and a 2,419,796-read benchmark alike, which rules out anything dataset-specific. The
-reader and collector threads were checked directly and are not the cause: `collector_busy` stays
-flat (1.6-2.1 s) across every thread count on B01 even as its `max_pending_reorder_buffer` counter
-grows from 1 to 1,942, and the reader's own `query_reading` timer never grows either — both are
-symptoms of more out-of-order completion at higher parallelism, not bottlenecks in their own right.
+Every extra worker, from the second one on, makes every read cost a little more CPU time than it
+did with fewer workers running — real per-operation inflation, not a measurement artifact, and it
+compounds continuously rather than sitting flat until some threshold. It accelerates sharply the
+moment `-@` needs a second socket (2-4x steeper per doubling from 16→32 than from 8→16), which is
+consistent with memory/cache-bandwidth contention on the shared, several-GB reference index: mild
+within one socket as more cores compete for its bandwidth, then severe once satisfying a read
+means reaching across the inter-socket links for it.
 
-Two direct experiments confirm cross-socket memory traffic as the cause. `numactl --membind=0`
-(forcing every allocation onto socket 0, the worst case for the 48 workers on sockets 1-3) makes
-`-@ 64` slower than the unconstrained run (7.5-7.8 s vs 6.6-6.8 s, three repeats each) — the natural
-placement is already better than that floor, not worse. And 16 threads confined to one socket
-(`numactl --cpunodebind=0 --membind=0 -@ 16`, 5.9-6.0 s) matches or beats the natural, unconstrained
-`-@ 64` run (6.6-6.8 s) on the same B01 dataset — sixteen well-placed threads outrunning sixty-four
-poorly-placed ones. `--interleave=all` (spreading every allocation round-robin across all four
-sockets) did *not* help — it was marginally slower than natural at both 32 and 64 — so this is not
-simple single-node hotspotting fixable by moving the index; it is aggregate traffic across the
-inter-socket links once enough workers are generating it concurrently. See §11 for what a real fix
-looks like and why it hasn't been attempted here yet.
+*(An earlier version of this table reported `cpu_query_mapping / (threads x wall_mapping)` instead
+— "what fraction of available core-time is spent inside the mapping timer" — and read as ~90%+
+flat through 16 threads. That number is real, but it measures whether threads are **busy**, not
+whether each read costs what it should; a thread can be 100% busy doing 28% more work than
+necessary per read, which is exactly what happens here. It is not reproduced above because on its
+own it understates the problem — the corrected framing is the ratio in this table.)*
+
+The reader and collector threads were checked directly and are not an *additional* cause:
+`collector_busy` stays flat (1.6-2.1 s) across every thread count on B01 even as its
+`max_pending_reorder_buffer` counter grows from 1 to 1,942, and the reader's own `query_reading`
+timer never grows either — both are symptoms of more out-of-order completion at higher
+parallelism, not bottlenecks in their own right.
+
+Two direct experiments confirm cross-socket memory traffic as the accelerant at 32-64 specifically.
+`numactl --membind=0` (forcing every allocation onto socket 0, the worst case for the 48 workers on
+sockets 1-3) makes `-@ 64` slower than the unconstrained run (7.5-7.8 s vs 6.6-6.8 s, three repeats
+each) — the natural placement is already better than that floor, not worse. And 16 threads confined
+to one socket (`numactl --cpunodebind=0 --membind=0 -@ 16`, 5.9-6.0 s) matches or beats the natural,
+unconstrained `-@ 64` run (6.6-6.8 s) on the same B01 dataset — sixteen well-placed threads
+outrunning sixty-four poorly-placed ones. `--interleave=all` (spreading every allocation
+round-robin across all four sockets) did *not* help — it was marginally slower than natural at both
+32 and 64 — so this is not simple single-node hotspotting fixable by moving the index; it is
+aggregate traffic across the inter-socket links once enough workers are generating it concurrently.
+See §11 for what a real fix looks like and why it hasn't been attempted here yet, and for why the
+within-one-socket inflation (already +4-45% by 16 threads) means there is real headroom to
+reclaim even on single- and dual-socket hosts, not only on this one.
 
 **Ruled out: AVX-512 downclocking.** These CPUs are Cascade Lake (Xeon Gold 5218), which
 throttles package-wide under sustained multi-core AVX-512 use — a real effect, and the reason to
@@ -1246,13 +1271,17 @@ a recommended setting.
 
 The open threads, with what is already known about each so they are not re-derived.
 
-### NUMA-aware index replication — diagnosed, not yet built
+### Memory-bandwidth contention on the shared index — diagnosed, not yet built
 
-§3 measures why efficiency drops from ~92% to ~35-40% once `-@` crosses this host's socket
-boundaries (16 cores/socket, 4 sockets): two `numactl` experiments point at aggregate cross-socket
-memory traffic against the single, shared, read-mostly index, not at the reader/collector pipeline
-(both checked directly and ruled out) or at anything dataset-specific (the same curve appears on
-all five benchmarks).
+§3 measures per-read CPU cost rising continuously with thread count — +4-45% by 16 threads
+(within one socket), +39-138% by 32, +76-240% by 64 — on every benchmark. Two `numactl`
+experiments point at memory-bandwidth/cache contention on the single, shared, read-mostly index as
+the mechanism, sharply worse once `-@` needs to cross this host's socket boundaries (16 cores each,
+4 sockets) but, per that same table, already real *within* one socket. Not the reader/collector
+pipeline (both checked directly and ruled out), and not anything dataset-specific (the same curve
+appears on all five benchmarks). This means the fix below is not purely a multi-socket concern —
+single- and dual-socket hosts should see some of the same inflation from 1 to their full core
+count, just without the sharp cross-socket acceleration this host adds on top.
 
 The natural next step is a copy of the sharded index per NUMA node, with each worker reading its
 own node's copy rather than one shared copy every socket reaches across the interconnect for. Cost:

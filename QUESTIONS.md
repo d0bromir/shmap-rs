@@ -334,13 +334,26 @@ suggests rayon library. In any case, scaling with threads needs real significant
 diagnose the poor thread scaling and fix it; a colleague suggested switching to `rayon`.
 
 **Answer.** The premise is right — B01/B02 land at 6-8x at `-@64` — but the cause isn't the
-threading library or the pipeline design. It's `a2`'s hardware: **4 sockets of 16 cores each,
-NUMA**. Worker CPU-efficiency during mapping is a rock-solid ~92% for as long as `-@` fits in one
-socket, then drops to ~63% crossing into a second and ~37% crossing into all four — the identical
-curve on every one of the five benchmarks, from a 39,608-read set to a 2,419,796-read one. `rayon`
-would not fix this: its default thread pool has no NUMA awareness, and its work-stealing scheduler
-could plausibly make locality *worse*, not better. Full diagnosis and the follow-up plan are now
-in [RESULTS.md §3](RESULTS.md#3-thread-scaling) and [§11](RESULTS.md#11-what-to-try-next).
+threading library or the pipeline design. It's memory-bandwidth contention on the shared reference
+index, which starts as soon as a second worker joins (real, measurable per-read cost inflation
+from just `-@2` on) and accelerates sharply once `-@` needs a second of `a2`'s 4 sockets (16 cores
+each, NUMA). `rayon` would not fix this: its default thread pool has no NUMA awareness, and its
+work-stealing scheduler could plausibly make locality *worse*, not better. Full diagnosis and the
+follow-up plan are now in [RESULTS.md §3](RESULTS.md#3-thread-scaling) and
+[§11](RESULTS.md#11-what-to-try-next).
+
+**Correction, same day.** The first pass of this answer reported worker efficiency as "~92% flat
+through 16 threads, then a cliff at 32/64" — Pesho asked directly whether that was really right,
+since whole-run wall time already looked well behind ideal scaling before 16 threads, and the
+answer was no: that 92% was `cpu_query_mapping / (threads x wall_mapping)`, which measures whether
+threads are *busy*, not whether each read costs what it should. It doesn't stay flat because it
+is answering the wrong question — a thread can be 100% busy while doing 28% more work than
+necessary per read, which is exactly what happens here starting at `-@2`. The corrected metric
+(step 2 below) and RESULTS.md §3 now report per-read CPU cost against its `-@1` value instead,
+which shows the true, continuous shape: real degradation from the second thread on, accelerating
+2-4x steeper the moment a second socket is needed. The `numactl` evidence, the AVX-512 rule-out,
+and the "not `rayon`" conclusion are unchanged by this correction — only the shape of the
+degradation curve was wrong, not its cause.
 
 **How this was diagnosed, in order:**
 
@@ -351,11 +364,14 @@ in [RESULTS.md §3](RESULTS.md#3-thread-scaling) and [§11](RESULTS.md#11-what-t
    the collector isn't struggling with it. The reader's own `query_reading` timer doesn't grow
    either. Neither is the bottleneck.
 
-2. **Found the real signal in worker efficiency, not wall time.** `cpu_query_mapping` (summed
-   across workers) divided by `threads x wall_mapping` — already computable from `profiles.tsv`,
-   built for the paper artifacts in an earlier question — is ~92% at `-@16`, ~63% at `-@32`, ~37%
-   at `-@64`, on *every* benchmark. `lscpu`/`numactl --hardware` showed why: 16, 32 and 64 are
-   exactly 1, 2 and 4 sockets on this host.
+2. **Found the real signal in per-read CPU cost, not busy-time.** `cpu_query_mapping / mapped_reads`
+   against its `-@1` value — computable from `profiles.tsv`, built for the paper artifacts in an
+   earlier question — rises continuously from `-@2` on: +4-18% at `-@2`, +25-45% by `-@16`, then
+   +39-138% at `-@32` and +76-240% at `-@64`, on *every* benchmark. (The first pass of this
+   investigation instead divided by `threads x wall_mapping`, which measures whether threads are
+   busy rather than whether work is inflated, and looked flat through 16 threads as a result — see
+   the correction above.) `lscpu`/`numactl --hardware` showed why the acceleration is sharpest at
+   32 and 64 specifically: those are exactly 2 and 4 sockets on this host, against 1 for 16.
 
 3. **Confirmed with direct `numactl` experiments**, host verified idle first (load average ~1 on
    64 cores). `numactl --membind=0` (forcing all memory onto socket 0, worst case for the 48
