@@ -1340,6 +1340,47 @@ well-placed threads outrunning sixty-four poorly-placed ones (§3). Capping `-@`
 count, or pinning explicitly, remains the actionable recommendation for multi-socket hosts — index
 replication, having now been tried, is not.
 
+### A tighter Jaccard pruning bound — investigated, ruled out mathematically
+
+Measured fresh for this investigation (`-x`/`--profile-log`'s `refined_buckets`/`refine_memo_hits`
+counters, B01 at `-@1`, not currently part of §5b's own generated table): Jaccard sends far more
+buckets into `refine` than Containment does on the same read set — 1,676,532 vs 620,342, a 2.70x
+ratio — while `refine`'s own wall time scales at almost exactly the same ratio (16.43 s vs 6.27 s,
+2.62x). That closeness is the key finding: the per-bucket cost of refining is essentially
+metric-symmetric, so the entire cost difference is that Jaccard's pruning pass
+(`seed_heuristic_pass`, bounded by `hseed`) lets more buckets through before ever reaching
+`refine`, not that refining a bucket costs more under Jaccard.
+
+**Why tightening `hseed` for Jaccard specifically isn't safe to do cheaply.** `hseed` bounds
+`matches/m` — exactly Containment's own score formula, so it's tight for Containment by
+construction. Jaccard's formula, `intersection/(m + s_sz − intersection)`, is bounded above by
+that same `matches/m` too, because its ceiling — the best case where the eventual scoring window
+contains zero non-matching filler k-mers (`s_sz = intersection`) — collapses to exactly
+`intersection/m`. So `hseed` isn't a loose stand-in reused for convenience; it is provably the
+*tightest bound obtainable* from the aggregate counts pruning currently tracks (`bucket.matches`,
+`bucket.seeds`).
+
+Bucket accumulation already tracks `r_min`/`r_max` per bucket for free (`matches_in_bucket`,
+`src/shmap/pruning.rs`), so the obvious next question was whether those extremes tighten the bound
+without new bookkeeping. They don't: to safely rule out a bucket, pruning would need a genuine
+lower bound on the *minimum achievable span* for some subset of its matches — not the full-count
+span between the extremes. The adversarial case pruning must not wrongly eliminate is always
+available and neither the count nor `r_min`/`r_max` can rule it out: "this bucket is about to miss
+one match, but the rest of its matches are packed arbitrarily tight nearby." Proving a materially
+tighter bound safe against that case requires the actual sorted positions of matches within the
+bucket, not two extremes — at which point pruning is no longer a cheap filter ahead of `refine`,
+it is a second pass doing comparable work to `refine` itself, and it is not obvious that pass would
+even be cheaper than the buckets it would save.
+
+**Conclusion.** The C/J refinement cost gap is an inherent property of the algorithm, not an
+implementation gap — Jaccard's theoretical ceiling for a bucket genuinely can equal Containment's,
+so no bound tighter than `hseed` is safely derivable from the counts pruning cheaply tracks today.
+A real fix would mean tracking match-position lists per bucket during pruning (not just counts and
+extremes) and re-measuring whether the extra bookkeeping cost is smaller than the buckets it saves
+— a new, real investigation with its own cost/benefit measurement, not a quick change, and not
+attempted here given the correctness stakes of any pruning-bound mistake (a wrong bound silently
+drops a correct mapping, the same class of risk `-M`/`--max_matches` was rejected for above).
+
 ### Measurements the upstream evaluation makes that this suite does not
 
 Checked against the algorithm's own (unpublished) evaluation plan on 2026-08-02. §5b closed the

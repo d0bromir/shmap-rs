@@ -87,7 +87,10 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     // Innermost loop of the mapper. Bundling these into a context struct adds a
     // level of indirection to reach `bucket` and `sh`, and this workload is
     // memory-latency bound — the same change has been measured as a net loss
-    // twice here (see RESULTS.md §5).
+    // twice here. (The RESULTS.md section this used to cite no longer carries
+    // that measurement — found stale while investigating Q7 in QUESTIONS.md —
+    // so the pointer is dropped rather than left dangling; the finding itself
+    // stands.)
     #[allow(clippy::too_many_arguments)]
     pub fn seed_heuristic_pass(
         &self,

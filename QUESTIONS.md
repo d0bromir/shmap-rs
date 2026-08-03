@@ -13,7 +13,8 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q3 | Speed and memory vs the C++/paper, verified with C++ source snippets | `q3-optimizations-list` | #8 | merged |
 | Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | #9 | merged |
 | Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | #12 | dropped |
-| Q6 | Indexing time vs mapping time, per tool, for third-party comparisons | `q6-index-vs-mapping-time` | #14 | in review |
+| Q6 | Indexing time vs mapping time, per tool, for third-party comparisons | `q6-index-vs-mapping-time` | #14 | merged |
+| Q7 | Optimize the refinement step (it differs for Containment/Jaccard) | `q7-refinement-jaccard-bound` | (open) | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -570,7 +571,56 @@ future re-measurement, not the binary.
 
 ---
 
-## Template
+## Q7 — Optimize the refinement step (it differs for Containment/Jaccard)
+
+**Asked** 2026-08-03 · **Branch** `q7-refinement-jaccard-bound` · **PR** (open) · **Status** in
+review
+
+**Question.** *"try to optimize the refinement step. it is different for C and J"* — Containment
+and Jaccard cost noticeably different amounts of wall time in `refine`/`match_rest`, and the ask
+was to try to speed it up.
+
+**Answer.** Measured first, then designed, then concluded no safe change exists to make — a real
+negative result, not an unattempted one. Full mathematical account in
+[RESULTS.md §11](RESULTS.md#11-what-to-try-next) ("A tighter Jaccard pruning bound — investigated,
+ruled out mathematically"); summary here.
+
+**What's actually different.** Profiled `refine` on B01 at `-@1`: Containment 6.27 s / 620,342
+refined buckets vs Jaccard 16.43 s / 1,676,532 refined buckets — a 2.62x time ratio against a
+2.70x bucket-count ratio. The per-bucket cost of refining is essentially metric-symmetric; the
+entire gap is that Jaccard's pruning pass lets more buckets through before they ever reach
+`refine`, not that refining costs more per bucket under Jaccard.
+
+**Why the obvious fix — tighten pruning's bound (`hseed`) specifically for Jaccard — isn't safely
+possible from what pruning cheaply tracks today.** `hseed` bounds `matches/m`, exactly
+Containment's own score formula. Jaccard's ceiling for a bucket — the best case where its eventual
+scoring window contains zero non-matching filler k-mers — collapses to that exact same value, so
+`hseed` is already the *tightest bound obtainable* from aggregate counts, not a loose stand-in.
+Checked whether the `r_min`/`r_max` extremes pruning already tracks per bucket (for free, via
+`matches_in_bucket`) would tighten it further: they don't, because the adversarial case pruning
+must not wrongly rule out — "this bucket is about to miss one match, but the rest are packed
+arbitrarily tight nearby" — can't be excluded by a count and two extremes. A genuinely tighter
+bound needs the actual sorted match positions within the bucket, at which point pruning stops
+being a cheap filter ahead of `refine` and starts doing comparable work to `refine` itself.
+
+**Also checked and ruled out:** a per-call constant-factor speedup of `best_fixed_length` itself
+(the shared sweep both metrics use). The metric dispatch inside it (`mapping_score`'s match on
+`Metric`) runs once per outer-loop position, not once per k-mer swept, so it is not a meaningful
+cost regardless of metric. No lower-risk structural win was found in the sweep itself either;
+`seed_heuristic_pass` — the pruning loop right upstream of it, and the more natural place any
+metric-aware tightening would have to live anyway — already carries its own doc comment
+documenting that bundling its state into a context struct was tried and measured as a net loss
+twice, on the same memory-latency-bound reasoning (`src/shmap/pruning.rs`); that specific finding
+belongs to pruning, not to `best_fixed_length`, but the same caution applies to restructuring
+either of these two loops without a live measurement in hand.
+
+**Outcome.** No `src/` change. The C/J refinement cost gap is an inherent property of the
+algorithm — Jaccard's theoretical ceiling for a bucket genuinely can equal Containment's — not an
+implementation gap. A real fix would mean tracking match-position lists per bucket during pruning
+and re-measuring whether the bookkeeping cost is smaller than the buckets it would save: a new,
+real investigation with its own cost/benefit measurement, not attempted here given the correctness
+stakes of a wrong pruning bound (the same class of risk `-M`/`--max_matches` was rejected for,
+RESULTS.md §8).
 
 Copy this for each new question.
 
