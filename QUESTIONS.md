@@ -13,7 +13,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q3 | Speed and memory vs the C++/paper, verified with C++ source snippets | `q3-optimizations-list` | #8 | merged |
 | Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | #9 | merged |
 | Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | #12 | dropped |
-| Q6 | Indexing time vs mapping time, per tool, for third-party comparisons | `q6-index-vs-mapping-time` | (open) | in review |
+| Q6 | Indexing time vs mapping time, per tool, for third-party comparisons | `q6-index-vs-mapping-time` | #14 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -488,7 +488,7 @@ one socket) remains the actionable answer for multi-socket hosts.
 
 ## Q6 — Indexing time vs mapping time, per tool, for third-party comparisons
 
-**Asked** 2026-08-03 · **Branch** `q6-index-vs-mapping-time` · **PR** (open) · **Status** in review
+**Asked** 2026-08-03 · **Branch** `q6-index-vs-mapping-time` · **PR** #14 · **Status** in review
 
 **Question.** *"we need indexing time for each tool separately from mapping time (they combine to
 total time). The idea of Pesho how to measure it for each third-party tool we are comparing shmap
