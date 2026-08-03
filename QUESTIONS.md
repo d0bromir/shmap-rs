@@ -15,7 +15,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | #12 | dropped |
 | Q6 | Indexing time vs mapping time, per tool, for third-party comparisons | `q6-index-vs-mapping-time` | #14 | merged |
 | Q7 | Optimize the refinement step (it differs for Containment/Jaccard) | `q7-refinement-jaccard-bound` | #16 | merged |
-| Q8 | Can SIMD be used in some of the steps of mapping a read? | `q8-simd-mapping-steps` | (open) | in review |
+| Q8 | Can SIMD be used in some of the steps of mapping a read? | `q8-simd-mapping-steps` | #17 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -627,7 +627,7 @@ RESULTS.md §8).
 
 ## Q8 — Can SIMD be used in some of the steps of mapping a read?
 
-**Asked** 2026-08-03 · **Branch** `q8-simd-mapping-steps` · **PR** (open) · **Status** in review
+**Asked** 2026-08-03 · **Branch** `q8-simd-mapping-steps` · **PR** #17 · **Status** in review
 
 **Question.** *"can SIMD be used in some of the steps of mapping a read?"*
 
