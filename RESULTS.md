@@ -1271,7 +1271,7 @@ a recommended setting.
 
 The open threads, with what is already known about each so they are not re-derived.
 
-### Memory-bandwidth contention on the shared index — diagnosed, not yet built
+### Memory-bandwidth contention on the shared index — diagnosed, attempted, doesn't pay off
 
 §3 measures per-read CPU cost rising continuously with thread count — +4-45% by 16 threads
 (within one socket), +39-138% by 32, +76-240% by 64 — on every benchmark. Two `numactl`
@@ -1279,19 +1279,52 @@ experiments point at memory-bandwidth/cache contention on the single, shared, re
 the mechanism, sharply worse once `-@` needs to cross this host's socket boundaries (16 cores each,
 4 sockets) but, per that same table, already real *within* one socket. Not the reader/collector
 pipeline (both checked directly and ruled out), and not anything dataset-specific (the same curve
-appears on all five benchmarks). This means the fix below is not purely a multi-socket concern —
-single- and dual-socket hosts should see some of the same inflation from 1 to their full core
-count, just without the sharp cross-socket acceleration this host adds on top.
+appears on all five benchmarks).
 
-The natural next step is a copy of the sharded index per NUMA node, with each worker reading its
-own node's copy rather than one shared copy every socket reaches across the interconnect for. Cost:
-`N_nodes x` the current index size. At today's ~2.5 GB (`-@1`, RESULTS.md §1) that is ~10 GB on this
-4-socket host — still well under the C++'s constant 18.85 GB, so there is real room to spend before
-losing the memory advantage this port is built around. Not attempted here: it needs runtime NUMA
-topology detection and node-bound allocation, neither available in `std`, so it would need a new
-dependency (`libnuma` FFI, or a crate wrapping it) and testing across topologies this one remote
-host cannot provide alone — a single-socket or 2-socket host would need to confirm the replication
-doesn't regress the common case before this ships.
+**The obvious fix — one copy of the index per NUMA node — was built (Q5, branch
+`fix-numa-index-replication`, not merged) and measured to be a net regression against doing
+nothing, on this host, at every thread count that touches more than one socket.** Five escalating
+attempts, each implemented completely and measured against a real benchmark run (not projected):
+
+1. **Even split across every available node.** Spread `-@`'s threads evenly across all 4 sockets
+   regardless of whether they'd fit on fewer — `-@16` (which fits on *one* 16-core socket) still
+   built four replicas. Made `-@64` slower than `-@32`.
+2. **Packed into the fewest nodes that fit, single-threaded `.clone()` per replica.** Fixed the
+   above, but re-paid close to the ~7.7 s serial hash-map-insert floor sharding the index's own
+   *build* exists to avoid (`SHARD_BITS`'s doc comment in `src/index.rs`) — once per node, on one
+   thread, while ~60 other cores sat idle.
+3. **Parallelised the clone**, one thread per shard and per segment. Faster, still a net
+   regression.
+4. **`set_mempolicy`/`MPOL_BIND`, then `mbind`/`MPOL_MF_MOVE`.** `/proc/<pid>/numa_maps`, sampled
+   mid-run, showed *why* (3) still failed: pages landed scattered across every node regardless of
+   which single node their writing thread was pinned to — not an allocation-size problem, but `cat
+   /proc/sys/kernel/numa_balancing` reading `1` on this host, meaning the kernel's own automatic
+   balancing migrates pages on its runtime heuristics, and plain CPU-pinning-plus-first-touch
+   carries no weight against it. `MPOL_BIND` is exempt from that migration; `mbind`/`MPOL_MF_MOVE`
+   actively relocates pages already placed wrong. Implemented correctly (verified via the same
+   `numa_maps` trace) — still a net regression, because migrating an already-misplaced buffer costs
+   a real page-by-page copy, scaling with exactly how wrong the placement was to begin with.
+5. **Bypass the allocator entirely.** mimalloc (this crate's global allocator) eagerly commits and
+   reuses large arena pages an earlier, unrelated, unpinned thread already touched — usually one of
+   `build_index`'s own indexing workers — so even a correctly pinned-and-bound thread's "fresh"
+   allocation could land on pages that were never actually fresh. This version routes replica
+   storage straight through `mmap(2)` instead (`src/numa_storage.rs`'s `NumaBuffer`, plus a
+   hand-rolled open-addressing `RawHashTable` standing in for `HashMap`, since there is no safe way
+   to hand a `HashMap` a caller-owned backing buffer), with the binding thread's memory policy set
+   *before* the allocating call. This is the version that actually achieves correct placement —
+   and it is *still* a wash at best (`-@16`, the single-node case, roughly ties the unreplicated
+   baseline) and a clear loss everywhere a second socket is needed, including the mapping-dominated
+   B04 at `-@64` (44.5 s replicated vs. 33.7 s unreplicated — an ~32% regression). Building and
+   first-touching a fresh multi-GB copy of the index per socket costs more wall-clock time, on this
+   host, than the cross-socket traffic it avoids ever costs during actual mapping.
+
+Every attempt kept output byte-identical (`strip_time_tag`-diffed against `-@1`) and passed the
+full test suite — the code was correct at every stage. The reason to stop is economic, not
+architectural: this host's replication cost (mmap, page-fault, and first-touch time for the ~2.5
+GB/socket index) does not amortize over even the longest mapping phase measured (B04, `-@64`,
+~30-45 s total). A host with a much longer mapping phase relative to index size, or a much smaller
+index, could plausibly see this pay off — but that is a different, unmeasured regime, not grounds
+to ship it here.
 
 **A library swap alone does not fix this.** `rayon`'s default global thread pool has no NUMA
 awareness — it does not replicate read-only data per node or pin workers to a memory domain, so
@@ -1304,8 +1337,8 @@ rolled channel/scope pipeline later, that is a maintainability argument, indepen
 **Usable today, no code change.** On this specific 4-socket host, `-@16` pinned to one socket
 (`numactl --cpunodebind=0 --membind=0`) already matches or beats an unconstrained `-@64` — sixteen
 well-placed threads outrunning sixty-four poorly-placed ones (§3). Capping `-@` at one socket's core
-count, or pinning explicitly, is the immediate recommendation for multi-socket hosts until the
-index is replicated.
+count, or pinning explicitly, remains the actionable recommendation for multi-socket hosts — index
+replication, having now been tried, is not.
 
 ### Measurements the upstream evaluation makes that this suite does not
 
