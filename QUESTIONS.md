@@ -16,7 +16,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q6 | Indexing time vs mapping time, per tool, for third-party comparisons | `q6-index-vs-mapping-time` | #14 | merged |
 | Q7 | Optimize the refinement step (it differs for Containment/Jaccard) | `q7-refinement-jaccard-bound` | #16 | merged |
 | Q8 | Can SIMD be used in some of the steps of mapping a read? | `q8-simd-mapping-steps` | #17 | merged |
-| Q9 | Software prefetching for the pruning lookups | `q9-prefetch-refine` | (open) | in review |
+| Q9 | Software prefetching for the pruning lookups | `q9-prefetch-refine` | #18 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -668,7 +668,7 @@ helps with. Documented rather than attempted, matching how Q4/Q7 handled finding
 
 ## Q9 — Software prefetching for the pruning lookups
 
-**Asked** 2026-08-03, follow-up to Q8 · **Branch** `q9-prefetch-refine` · **PR** (open) · **Status**
+**Asked** 2026-08-03, follow-up to Q8 · **Branch** `q9-prefetch-refine` · **PR** #18 · **Status**
 in review
 
 **Question.** Following Q8's finding that SIMD doesn't fit the dominant per-read costs because
