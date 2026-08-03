@@ -359,3 +359,6 @@ pauls_experiment: $(SHMAP_BIN) gen_reads
 clean_evals:
 	rm -r $(ALLREADS_DIR)
 	rm -r $(ALLOUT_DIR)
+
+bench:
+	RUSTFLAGS="-C target-cpu=native" cargo bench --bench sketch

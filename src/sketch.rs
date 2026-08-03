@@ -5,6 +5,8 @@
 use crate::types::{Hash, Kmer, RPos};
 use crate::utils::Counters;
 
+pub mod simd;
+
 pub type SketchT = Vec<Kmer>;
 
 /// A reference segment (contig/chromosome) and its k-mer sketch.
@@ -150,6 +152,18 @@ impl FracMinHash {
     fn expected_capacity(&self, len: usize) -> usize {
         let mean = (len as f64 * self.h_frac).max(0.0);
         (mean + 6.0 * mean.sqrt()) as usize + 16
+    }
+
+    pub fn hash_window(s: &[u8]) -> (Hash, Hash) {
+        let ks = s.len();
+        let mut h_fw: Hash = 0;
+        let mut h_rc: Hash = 0;
+        for (i, &c) in s.iter().enumerate() {
+            let c = c as usize;
+            h_fw ^= LUT_FW[c].rotate_left((ks - i - 1) as u32);
+            h_rc ^= LUT_RC[c].rotate_left(i as u32);
+        }
+        (h_fw, h_rc)
     }
 
     /// Sketches `s` into `buf` (cleared first), returning it. Lets a caller

@@ -2,6 +2,8 @@
 //!
 //! Rust port of https://github.com/pesho-ivanov/shmap (Map-SHmap / sweepmap).
 
+#![feature(portable_simd)]
+
 pub mod analyse_simulated;
 pub mod buckets;
 pub mod handler;
