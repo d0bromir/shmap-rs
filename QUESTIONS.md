@@ -12,7 +12,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q2 | Check: does the suite run shmap-rs and map-shmap with Jaccard, Containment, SH? | `q2-three-metrics` | #7 | merged |
 | Q3 | Speed and memory vs the C++/paper, verified with C++ source snippets | `q3-optimizations-list` | #8 | merged |
 | Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | #9 | merged |
-| Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | #12 | in review |
+| Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | #12 | dropped |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -425,54 +425,63 @@ problem.
 
 ## Q5 — Build the NUMA-aware index replication Q4 scoped but didn't ship
 
-**Asked** 2026-08-03, follow-up directive after Q4 · **Branch** `fix-numa-index-replication` ·
-**PR** #12 · **Status** in review
+**Asked** 2026-08-03, follow-up directive after Q4 · **Branch** `fix-numa-index-replication`
+(not merged) · **PR** #12 (closed, not merged) · **Status** dropped
 
 **Question.** *"Now fix the problem with the poor threading performance"* — build the fix Q4
 diagnosed and scoped but explicitly didn't attempt: the memory-bandwidth contention on the shared
 reference index that inflates per-read CPU cost continuously from `-@2` on, sharply once a run
 needs a second socket.
 
-**Answer / change.** One full copy of `SketchIndex` per NUMA node instead of one shared copy every
-socket reaches across the interconnect for, with every mapping worker pinned to the same node as
-the copy it reads.
+**Answer.** Built, measured, and dropped: five escalating, independently-implemented and
+independently-measured versions of "one copy of the index per NUMA node" all net-regressed against
+doing nothing, on this host, at every thread count that touches more than one socket. Full account
+in [RESULTS.md §11](RESULTS.md#11-what-to-try-next); summary here.
 
-- **[`src/numa.rs`](src/numa.rs)** (new): reads real topology from
-  `/sys/devices/system/node` (node ids, each node's cpu list), plans how many of `-@`'s worker
-  threads to place on each node (most-even split, using only as many nodes as there are threads to
-  place), and expands that into one `(replica, cpu)` slot per worker. Detection failing, a
-  single-node host, or `-@1` all produce an empty plan — the uniform signal every caller treats as
-  "skip replication, use the single shared index exactly as before this existed." 13 unit tests
-  cover the parsing and placement logic directly (including synthetic 1/2/4-node topologies this
-  host can't literally provide), so the "needs a single- or 2-socket host to confirm" caveat Q4
-  left open is resolved by construction rather than by borrowed hardware: those code paths are
-  exercised and cannot regress what they've never touched.
-- **[`src/shmap/mod.rs`](src/shmap/mod.rs)**: `map_reads` builds one `SketchIndex::clone()` per
-  node the plan actually uses — each clone done by a thread pinned to that node first, so its
-  allocations land there under Linux's default local-allocation memory policy — then pins each
-  worker thread to its assigned core and points it at its own node's replica instead of the one
-  `self.tidx` every worker used to share.
-- **`SketchIndex`/`Shard`/`RefSegment`** gained `#[derive(Clone)]` (`src/index.rs`,
-  `src/sketch.rs`) — all plain owned data (`Vec`, `String`, `FxHashMap` of `Copy` types), nothing
-  that made cloning unsafe or surprising.
-- **`--no-numa`** (`src/params.rs`): forces the old single-shared-index behavior, for comparison or
-  as an escape hatch if placement ever misbehaves on unusual hardware.
-- Placement uses [`core_affinity`](https://docs.rs/core_affinity), not a raw `libc`/`mbind` call —
-  it wraps the necessary unsafe FFI behind a safe, tested API, so this crate's existing "no
-  `unsafe` code anywhere" property (leaned on directly by the panic-isolation design in
-  `shmap/mod.rs`'s module doc comment) stays literally true.
+1. **Even split across every available node.** `-@16` (fits on one 16-core socket) still built
+   four replicas. `-@64` ended up slower than `-@32`.
+2. **Packed into the fewest nodes that fit**, but each replica built by one single thread calling
+   plain `.clone()`. Fixed (1), re-introduced close to the ~7.7 s serial hash-map-insert floor
+   sharding the index's own build exists to avoid — once per node.
+3. **Parallelised the clone** one thread per shard and per segment. Faster, still net-negative.
+4. **`set_mempolicy`/`MPOL_BIND`, then `mbind`/`MPOL_MF_MOVE`.** Root-caused why (2)/(3) still
+   failed: `/proc/sys/kernel/numa_balancing` reads `1` on this host, so the kernel's own automatic
+   page migration overrides plain CPU-pinning-plus-first-touch regardless of allocation size.
+   Explicit `mbind` placement verified correct via `/proc/<pid>/numa_maps` — still net-negative,
+   because actively migrating an already-misplaced buffer costs a real copy proportional to how
+   wrong the placement was.
+5. **Bypass the allocator entirely.** mimalloc (the global allocator) eagerly commits and reuses
+   large arena pages an unrelated, unpinned thread already touched — usually one of `build_index`'s
+   own workers — defeating even a correctly pinned-and-bound thread's "fresh" allocation. This
+   version (`src/numa.rs`, `src/numa_storage.rs`) routes replica storage straight through `mmap(2)`
+   — a hand-rolled `NumaBuffer` plus an open-addressing `RawHashTable` standing in for `HashMap`
+   (there is no safe way to hand `HashMap` a caller-owned backing buffer), with the binding
+   thread's memory policy set *before* the allocating call. This is the version that actually
+   achieves correct placement, confirmed via the same `numa_maps` trace — and it is *still* a wash
+   at best (`-@16`, single-node, roughly ties the unreplicated baseline) and a clear loss wherever
+   a second socket is needed, including B04 (the mapping-dominated dataset, where this fix should
+   matter most) at `-@64`: 44.5 s replicated vs. 33.7 s unreplicated.
 
-**Verified.** `-@1`, `-@64` with replication, and `-@64` with `--no-numa` all produce byte-identical
-PAF output on the real B01 dataset (149,194 reads against the full T2T-CHM13 genome), diffed with
-the project's own `strip_time_tag` (the volatile per-read wall-clock tag is the only field expected
-to vary run to run) — determinism is unaffected by which copy of the index a worker reads. `cargo
-fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --release`, `cargo test`
-(debug, `debug_assert!`s included), and all four `benchmarks/*.py` cheap-tier checks pass with zero
-changes needed. The 3-metric benchmark suite is running to produce the numbers RESULTS.md §3/§11
-need updated with — see the PR for the verdict once it lands.
+Every version kept output byte-identical to `-@1` (`strip_time_tag`-diffed, matching `run.py`'s own
+`thread_determinism` check) and passed the full test suite at every stage — none of this was ever a
+correctness question. It's an economics one: on this host, replicating a ~2.5 GB/socket index costs
+more wall-clock time (mmap, page-fault, first-touch) than the cross-socket memory traffic it avoids
+ever costs during actual mapping, even on the longest mapping phase measured (B04 `-@64`,
+~30-45 s total). A workload with a much longer mapping phase relative to index size could plausibly
+see this pay off, but that's a different, unmeasured regime — not grounds to carry the extra
+complexity (two new modules, one genuinely `unsafe` — `libc::mmap`/`munmap`/`syscall`, isolated and
+each call individually justified with a `SAFETY:` comment, but real unsafe code in a crate that
+previously had none) for a change that loses on every workload actually measured.
 
-**Outcome.** Pending the benchmark verdict.
+**On `rayon`, unchanged from Q4.** Still not the fix — no NUMA awareness in its default pool,
+independent of anything found here.
 
+**Outcome.** PR #12 closed without merging. `src/numa.rs` and `src/numa_storage.rs`, the
+`Shard`/`KmerStorage` storage-enum changes, `--no-numa`, and the `libc`/`core_affinity`
+dependencies are reverted off `main` — none of it ships. RESULTS.md §11 and this entry are the
+lasting record, so the next person who has this idea starts from "tried, five ways, here's why
+each failed" instead of from zero. Q4's `numactl --cpunodebind=0 --membind=0` (or capping `-@` at
+one socket) remains the actionable answer for multi-socket hosts.
 ---
 
 ## Template

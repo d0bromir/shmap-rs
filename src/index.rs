@@ -100,16 +100,134 @@ fn shard_of(h: Hash) -> usize {
 
 /// One hash shard: the same pair of maps the index used to hold globally,
 /// restricted to the hashes that [`shard_of`] assigns here.
-#[derive(Default, Clone, PartialEq, Eq, Debug)]
-pub struct Shard {
-    /// K-mers with exactly one hit in the reference.
-    pub h2single: FxHashMap<Hash, Hit>,
-    /// K-mers with more than one hit, each list sorted by `(segm_id, r)`
-    /// (equivalently `(segm_id, tpos)`) to allow binary search.
-    pub h2multi: FxHashMap<Hash, Vec<Hit>>,
+///
+/// `Owned` is built once by [`SketchIndex::build_index`] (through mimalloc
+/// like everything else) and is the only variant [`SketchIndex::insert_hit`]
+/// / [`SketchIndex::finalize_shard`] ever mutate. `Numa` is a NUMA index
+/// replica's own copy — see [`SketchIndex::clone_pinned`]'s doc comment for
+/// why a `HashMap` can't just be `.clone()`d for that — built once, already
+/// finalised, and read-only for the rest of its life. Every read goes
+/// through [`Shard::single_hit`]/[`Shard::multi_hits`]/[`Shard::count`],
+/// which match on the variant once per call — a single, perfectly
+/// predicted branch (every shard in one `SketchIndex` is always the same
+/// variant), not a cost this hot path pays meaningfully for.
+pub enum Shard {
+    Owned {
+        /// K-mers with exactly one hit in the reference.
+        h2single: FxHashMap<Hash, Hit>,
+        /// K-mers with more than one hit, each list sorted by
+        /// `(segm_id, r)` (equivalently `(segm_id, tpos)`) to allow binary
+        /// search.
+        h2multi: FxHashMap<Hash, Vec<Hit>>,
+    },
+    Numa {
+        h2single: crate::numa_storage::RawHashTable<Hit>,
+        /// Hash -> `(offset, len)` into `h2multi_arena`, mirroring
+        /// `Owned`'s `h2multi` one level removed: a `RawHashTable` can only
+        /// hold a fixed-size `V`, so the variable-length hit lists live in
+        /// one flat, `mmap`-backed arena instead of one allocation each.
+        h2multi_index: crate::numa_storage::RawHashTable<(u32, u32)>,
+        h2multi_arena: crate::numa_storage::NumaBuffer<Hit>,
+    },
 }
 
-#[derive(Clone)]
+impl Default for Shard {
+    fn default() -> Self {
+        Shard::Owned {
+            h2single: FxHashMap::default(),
+            h2multi: FxHashMap::default(),
+        }
+    }
+}
+
+impl Shard {
+    /// The single hit for a k-mer known to have exactly one
+    /// (`count(h) == 1`). Panics if absent, matching the `h2single[&h]`
+    /// indexing this replaced.
+    #[inline]
+    fn single_hit(&self, h: Hash) -> Hit {
+        match self {
+            Shard::Owned { h2single, .. } => h2single[&h],
+            Shard::Numa { h2single, .. } => *h2single.get(h).expect("single_hit called for a hash not in this shard"),
+        }
+    }
+
+    /// The hit list for a k-mer known to have more than one
+    /// (`count(h) > 1`), sorted by `(segm_id, r)`.
+    #[inline]
+    fn multi_hits(&self, h: Hash) -> &[Hit] {
+        match self {
+            Shard::Owned { h2multi, .. } => &h2multi[&h],
+            Shard::Numa {
+                h2multi_index,
+                h2multi_arena,
+                ..
+            } => {
+                let &(off, len) = h2multi_index
+                    .get(h)
+                    .expect("multi_hits called for a hash not in this shard");
+                &h2multi_arena[off as usize..off as usize + len as usize]
+            }
+        }
+    }
+
+    /// Number of hits in the reference for k-mer hash `h`.
+    fn count(&self, h: Hash) -> RPos {
+        match self {
+            Shard::Owned { h2single, h2multi } => {
+                if h2single.contains_key(&h) {
+                    return 1;
+                }
+                if let Some(hits) = h2multi.get(&h) {
+                    return hits.len() as RPos;
+                }
+                0
+            }
+            Shard::Numa {
+                h2single,
+                h2multi_index,
+                ..
+            } => {
+                if h2single.get(h).is_some() {
+                    return 1;
+                }
+                if let Some(&(_, len)) = h2multi_index.get(h) {
+                    return len as RPos;
+                }
+                0
+            }
+        }
+    }
+
+    /// Only ever called on an `Owned`, already-`finalize_shard`d shard —
+    /// see [`SketchIndex::clone_pinned`]. Builds the `Numa` equivalent:
+    /// both maps as [`crate::numa_storage::RawHashTable`]s, `h2multi`'s
+    /// variable-length lists flattened into one arena.
+    fn clone_numa(&self, node: usize) -> Self {
+        let Shard::Owned { h2single, h2multi } = self else {
+            unreachable!("clone_numa called on an already-Numa shard");
+        };
+        let h2single_numa = crate::numa_storage::RawHashTable::build(h2single.iter().map(|(&h, &v)| (h, v)), node);
+
+        let total_hits: usize = h2multi.values().map(|v| v.len()).sum();
+        let mut arena_vec: Vec<Hit> = Vec::with_capacity(total_hits);
+        let mut index_entries: Vec<(Hash, (u32, u32))> = Vec::with_capacity(h2multi.len());
+        for (&h, hits) in h2multi.iter() {
+            let off = arena_vec.len() as u32;
+            arena_vec.extend_from_slice(hits);
+            index_entries.push((h, (off, hits.len() as u32)));
+        }
+        let h2multi_arena = crate::numa_storage::NumaBuffer::from_slice(&arena_vec, node);
+        let h2multi_index = crate::numa_storage::RawHashTable::build(index_entries.into_iter(), node);
+
+        Shard::Numa {
+            h2single: h2single_numa,
+            h2multi_index,
+            h2multi_arena,
+        }
+    }
+}
+
 pub struct SketchIndex {
     pub segments: Vec<RefSegment>,
     /// The hash → hit(s) map, split into [`N_SHARDS`] independent pieces so
@@ -187,30 +305,96 @@ impl SketchIndex {
     }
 
     /// The single hit for a k-mer known to have exactly one (`count(h) == 1`).
-    ///
-    /// Panics if absent, matching the `h2single[&h]` indexing this replaced.
     #[inline]
     pub fn single_hit(&self, h: Hash) -> Hit {
-        self.shards[shard_of(h)].h2single[&h]
+        self.shards[shard_of(h)].single_hit(h)
     }
 
     /// The hit list for a k-mer known to have more than one (`count(h) > 1`),
     /// sorted by `(segm_id, r)`.
     #[inline]
     pub fn multi_hits(&self, h: Hash) -> &[Hit] {
-        &self.shards[shard_of(h)].h2multi[&h]
+        self.shards[shard_of(h)].multi_hits(h)
     }
 
     /// Number of hits in the reference for k-mer hash `h`.
     pub fn count(&self, h: Hash) -> RPos {
-        let shard = &self.shards[shard_of(h)];
-        if shard.h2single.contains_key(&h) {
-            return 1;
-        }
-        if let Some(hits) = shard.h2multi.get(&h) {
-            return hits.len() as RPos;
-        }
-        0
+        self.shards[shard_of(h)].count(h)
+    }
+
+    /// A full copy of `self`, built by threads pinned to `cpus`, for a
+    /// NUMA index replica (see [`crate::numa`]). Every `segments` entry and
+    /// every shard is rebuilt on `mmap`-backed storage
+    /// ([`crate::sketch::KmerStorage::Numa`], [`Shard::Numa`]) by its own
+    /// thread, round-robin over `cpus`, rather than one plain `.clone()`
+    /// call on a single thread.
+    ///
+    /// Four things were tried and measured live (real benchmark runs, not
+    /// synthetic ones) before landing here:
+    ///
+    /// 1. A plain single-threaded `.clone()`. Re-pays close to the ~7.7 s
+    ///    serial floor sharding this index's own *build* exists to avoid
+    ///    (see `SHARD_BITS`'s doc comment) once per node — made `-@64`
+    ///    slower than `-@32`.
+    /// 2. `shards` split one-thread-each, `segments` still one thread.
+    ///    Faster, still a net regression.
+    /// 3. `segments` also split per-segment. No better —
+    ///    `/proc/<pid>/numa_maps`, sampled mid-run, showed every large
+    ///    allocation landing scattered across every node regardless of
+    ///    which single node its writing thread was pinned to. Not an
+    ///    allocation-size problem: `cat /proc/sys/kernel/numa_balancing`
+    ///    reads `1` on this host, and the kernel's automatic balancing
+    ///    migrates pages on its own heuristics — plain CPU pinning plus
+    ///    first-touch carries no weight against it.
+    /// 4. `set_mempolicy`/`MPOL_BIND` (exempt from that migration) plus
+    ///    `mbind`/`MPOL_MF_MOVE` to actively relocate pages after the
+    ///    fact. *Still* a net regression: mimalloc (this crate's global
+    ///    allocator) eagerly commits and reuses large arena pages that an
+    ///    earlier, unrelated, unpinned thread — typically one of
+    ///    `build_index`'s own indexing workers — already touched, so a
+    ///    "fresh" allocation from a correctly pinned-and-bound thread can
+    ///    still land on pages that were never actually fresh, and actively
+    ///    migrating them afterward costs a real page-by-page copy scaling
+    ///    with exactly how wrong the placement was.
+    ///
+    /// This version doesn't try to steer or correct mimalloc — it bypasses
+    /// it entirely for replica storage, going straight to `mmap(2)` (see
+    /// [`crate::numa_storage`]), so first-touch-by-a-pinned-thread means
+    /// what it's supposed to.
+    pub fn clone_pinned(&self, node_id: usize, cpus: &[usize]) -> Self {
+        std::thread::scope(|scope| {
+            let segment_handles: Vec<_> = self
+                .segments
+                .iter()
+                .enumerate()
+                .map(|(i, seg)| {
+                    let cpu = cpus[i % cpus.len()];
+                    scope.spawn(move || {
+                        crate::numa::pin_current_thread(cpu);
+                        seg.clone_numa(node_id)
+                    })
+                })
+                .collect();
+            let shard_handles: Vec<_> = self
+                .shards
+                .iter()
+                .enumerate()
+                .map(|(i, shard)| {
+                    let cpu = cpus[i % cpus.len()];
+                    scope.spawn(move || {
+                        crate::numa::pin_current_thread(cpu);
+                        shard.clone_numa(node_id)
+                    })
+                })
+                .collect();
+
+            let segments: Vec<RefSegment> = segment_handles.into_iter().map(|h| h.join().unwrap()).collect();
+            let mut shards: [Shard; N_SHARDS] = std::array::from_fn(|_| Shard::default());
+            for (slot, handle) in shards.iter_mut().zip(shard_handles) {
+                *slot = handle.join().unwrap();
+            }
+            SketchIndex { segments, shards }
+        })
     }
 
     /// Fills every shard from the already-sketched segments, in parallel.
@@ -263,13 +447,16 @@ impl SketchIndex {
 
     #[inline]
     fn insert_hit(shard: &mut Shard, kmer: &Kmer, tpos: RPos, segm_id: SegmId, max_matches: Option<i32>) {
+        let Shard::Owned { h2single, h2multi } = shard else {
+            unreachable!("insert_hit called on a NUMA-backed shard (build-time only)");
+        };
         let hit = Hit::new(kmer, tpos, segm_id);
         // `entry` instead of `contains_key` + `insert`/`entry`: hashes
         // `kmer.h` once instead of twice for the common (single-hit)
         // case — this loop runs once per indexed k-mer (~19M for the
         // full CHM13 genome), so the redundant hash was a real,
         // measurable cost in `index_initializing`.
-        match shard.h2single.entry(kmer.h) {
+        match h2single.entry(kmer.h) {
             std::collections::hash_map::Entry::Vacant(e) => {
                 e.insert(hit);
             }
@@ -283,7 +470,7 @@ impl SketchIndex {
                 // immediately reallocate to 2, once per repeated k-mer —
                 // millions of avoidable reallocations on a whole genome,
                 // for the same final memory.
-                let multi = shard.h2multi.entry(kmer.h).or_insert_with(|| Vec::with_capacity(2));
+                let multi = h2multi.entry(kmer.h).or_insert_with(|| Vec::with_capacity(2));
                 if max_matches.is_none_or(|m| (multi.len() as i32) < m + 1) {
                     multi.push(hit);
                 }
@@ -294,8 +481,11 @@ impl SketchIndex {
     /// Migrates a shard's split k-mers into `h2multi`, sorts each list, and
     /// reclaims worthwhile slack. Independent per shard, so it parallelises.
     fn finalize_shard(shard: &mut Shard) {
-        for (h, hits) in shard.h2multi.iter_mut() {
-            if let Some(single_hit) = shard.h2single.remove(h) {
+        let Shard::Owned { h2single, h2multi } = shard else {
+            unreachable!("finalize_shard called on a NUMA-backed shard (build-time only)");
+        };
+        for (h, hits) in h2multi.iter_mut() {
+            if let Some(single_hit) = h2single.remove(h) {
                 hits.push(single_hit);
             }
             hits.sort_by(|a, b| a.segm_id.cmp(&b.segm_id).then(a.r.cmp(&b.r)));
@@ -341,12 +531,18 @@ impl SketchIndex {
         self.segments.push(RefSegment::new(sketch, segm_name, segm_sz, segm_id));
     }
 
+    /// Build-time only, like `insert_hit`/`finalize_shard` — every shard is
+    /// still `Owned` at this point in `build_index`; NUMA replicas are only
+    /// ever built later, from the already-finalised result.
     fn get_kmer_stats(&self, counters: &mut Counters) {
         let mut max_occ: RPos = 0;
         for shard in &self.shards {
-            counters.inc("indexed_hits", shard.h2single.len() as i64);
-            counters.inc("indexed_kmers", shard.h2single.len() as i64);
-            for hits in shard.h2multi.values() {
+            let Shard::Owned { h2single, h2multi } = shard else {
+                unreachable!("get_kmer_stats called on a NUMA-backed shard (build-time only)");
+            };
+            counters.inc("indexed_hits", h2single.len() as i64);
+            counters.inc("indexed_kmers", h2single.len() as i64);
+            for hits in h2multi.values() {
                 let occ = hits.len() as RPos;
                 counters.inc("indexed_hits", occ as i64);
                 counters.inc1("indexed_kmers");
@@ -358,10 +554,13 @@ impl SketchIndex {
         counters.inc("indexed_highest_freq_kmer", max_occ as i64);
     }
 
+    /// Build-time only — see `get_kmer_stats`.
     fn erase_frequent_kmers(&mut self, max_matches: i32, counters: &mut Counters) {
         for shard in &mut self.shards {
-            let blacklisted: Vec<Hash> = shard
-                .h2multi
+            let Shard::Owned { h2multi, .. } = shard else {
+                unreachable!("erase_frequent_kmers called on a NUMA-backed shard (build-time only)");
+            };
+            let blacklisted: Vec<Hash> = h2multi
                 .iter()
                 .filter(|(_, hits)| hits.len() as i32 > max_matches)
                 .map(|(h, hits)| {
@@ -371,7 +570,7 @@ impl SketchIndex {
                 })
                 .collect();
             for h in blacklisted {
-                shard.h2multi.remove(&h);
+                h2multi.remove(&h);
             }
         }
     }
@@ -841,11 +1040,22 @@ mod tests {
         );
         assert_eq!(tidx1.shards.len(), tidx8.shards.len());
         for (i, (a, b)) in tidx1.shards.iter().zip(tidx8.shards.iter()).enumerate() {
-            assert_eq!(
-                a.h2single, b.h2single,
-                "shard {i} h2single diverged between thread counts"
-            );
-            assert_eq!(a.h2multi, b.h2multi, "shard {i} h2multi diverged between thread counts");
+            let Shard::Owned {
+                h2single: a_single,
+                h2multi: a_multi,
+            } = a
+            else {
+                panic!("shard {i}: expected an Owned shard fresh out of build_index");
+            };
+            let Shard::Owned {
+                h2single: b_single,
+                h2multi: b_multi,
+            } = b
+            else {
+                panic!("shard {i}: expected an Owned shard fresh out of build_index");
+            };
+            assert_eq!(a_single, b_single, "shard {i} h2single diverged between thread counts");
+            assert_eq!(a_multi, b_multi, "shard {i} h2multi diverged between thread counts");
         }
         assert_eq!(counters1.count("indexed_hits"), counters8.count("indexed_hits"));
         assert_eq!(counters1.count("indexed_kmers"), counters8.count("indexed_kmers"));

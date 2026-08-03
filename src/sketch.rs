@@ -2,10 +2,36 @@
 //!
 //! Port of the sketching half of `shmap/src/sketch.h`.
 
+use crate::numa_storage::NumaBuffer;
 use crate::types::{Hash, Kmer, RPos};
 use crate::utils::Counters;
 
 pub type SketchT = Vec<Kmer>;
+
+/// A `RefSegment`'s k-mer sketch: either owned (the normal case — built
+/// once by [`crate::index::SketchIndex::build_index`], through mimalloc
+/// like everything else) or a `mmap`-backed [`NumaBuffer`] (a NUMA index
+/// replica's copy — see [`crate::index::SketchIndex::clone_pinned`]'s doc
+/// comment for why this needs its own storage rather than another
+/// `Vec::clone()`).
+///
+/// `Deref<Target = [Kmer]>` so every existing read of `segment.kmers` —
+/// indexing, iteration, slicing — keeps working unchanged regardless of
+/// which variant is behind it.
+pub enum KmerStorage {
+    Owned(SketchT),
+    Numa(NumaBuffer<Kmer>),
+}
+
+impl std::ops::Deref for KmerStorage {
+    type Target = [Kmer];
+    fn deref(&self) -> &[Kmer] {
+        match self {
+            KmerStorage::Owned(v) => v,
+            KmerStorage::Numa(b) => b,
+        }
+    }
+}
 
 /// A reference segment (contig/chromosome) and its k-mer sketch.
 ///
@@ -13,9 +39,8 @@ pub type SketchT = Vec<Kmer>;
 /// (`seq`), but that field is only ever read by the fully-commented-out
 /// SAM/edlib alignment code — carrying it here would roughly double index
 /// memory for a feature that's dead code upstream, so it's dropped.
-#[derive(Clone)]
 pub struct RefSegment {
-    pub kmers: SketchT,
+    pub kmers: KmerStorage,
     pub name: String,
     pub sz: RPos,
     pub id: i32,
@@ -23,7 +48,23 @@ pub struct RefSegment {
 
 impl RefSegment {
     pub fn new(kmers: SketchT, name: String, sz: RPos, id: i32) -> Self {
-        RefSegment { kmers, name, sz, id }
+        RefSegment {
+            kmers: KmerStorage::Owned(kmers),
+            name,
+            sz,
+            id,
+        }
+    }
+
+    /// A copy of this segment's k-mers as a fresh, `mmap`-backed,
+    /// node-bound [`NumaBuffer`] — see [`KmerStorage`]'s doc comment.
+    pub fn clone_numa(&self, node: usize) -> Self {
+        RefSegment {
+            kmers: KmerStorage::Numa(NumaBuffer::from_slice(&self.kmers, node)),
+            name: self.name.clone(),
+            sz: self.sz,
+            id: self.id,
+        }
     }
 }
 

@@ -438,11 +438,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 let handles: Vec<_> = numa_plan
                     .iter()
                     .map(|(node, _count)| {
-                        let pin_cpu = node.cpus[0];
-                        replica_scope.spawn(move || {
-                            crate::numa::pin_current_thread(pin_cpu);
-                            tidx.clone()
-                        })
+                        let node_id = node.id;
+                        let cpus = &node.cpus;
+                        replica_scope.spawn(move || tidx.clone_pinned(node_id, cpus))
                     })
                     .collect();
                 handles.into_iter().map(|h| h.join().unwrap()).collect()
@@ -486,9 +484,13 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     .map(|slot| &numa_replicas[slot.replica])
                     .unwrap_or(tidx);
                 let pin_cpu = numa_slots.get(worker_idx).map(|slot| slot.cpu);
+                let pin_node = numa_slots.get(worker_idx).map(|slot| slot.node_id);
                 scope.spawn(move || {
                     if let Some(cpu) = pin_cpu {
                         crate::numa::pin_current_thread(cpu);
+                    }
+                    if let Some(node_id) = pin_node {
+                        crate::numa::bind_current_thread_memory(node_id);
                     }
                     // This thread's own cumulative timers/counters, distinct
                     // from `worker.timers`/`worker.counters` (which
