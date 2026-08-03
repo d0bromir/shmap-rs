@@ -325,6 +325,35 @@ the Rust implementation with a real snippet, then the measured effect.
 **Outcome.** New file, `PORT_CHANGES.md`, plus a pointer added to `README.md`'s documentation
 table. No `src/` change.
 
+**Third redirect, 2026-08-03.** *"historical data is not needed — Pesho wants to compare current
+state with his paper and C++ shmap, and wants the changes in a table."* `PORT_CHANGES.md` led with
+narrative — each optimization as a small essay, and §1 (bucket accumulation) specifically told the
+story as three generations of attempts rather than stating the current design plainly. Both
+restructured, nothing deleted:
+
+- **A table now opens the document**, immediately after the one-paragraph summary: one row per
+  optimization, columns for what it optimizes, its measured effect, and whether it's exact (byte-
+  identical output) or not — every optimization here *is* exact, which the table now states
+  per-row rather than leaving implicit. Rows without an isolated standalone measurement say so
+  plainly instead of estimating one.
+- **§1's "three generations" narrative moved to a clearly separated, explicitly-optional closing
+  subsection** ("How this design was reached"); the current design's own description now leads,
+  stated directly rather than as the endpoint of a story. `PROFILING.md` remains the
+  never-updated, fully chronological record for anyone who wants the complete history — that was
+  already its job, and still is.
+- **Fixed a dangling cross-reference found while restructuring**, unrelated to the redirect but
+  caught in the same pass: §1's C++ description promised "§3 below covers this sort specifically"
+  for the paper's Algorithm 4 Optimization 2 (the final descending-match-count sort) — but no such
+  section existed; §3 is `RefineCache`, a different optimization entirely. This was never actually
+  documented with its own C++/Rust snippet pair despite being the one optimization the paper names
+  directly. Now it is, in place, right where the C++ snippet already was — plus one detail the
+  fix surfaced: shmap-rs's version is not just as-good but *more* deterministic than the C++'s,
+  since it reproduces exactly what a stable sort would give (`sort_unstable` on a tiebreak-packed
+  key) where the C++'s own `std::sort` gives no such guarantee even between its own runs.
+
+Applies going forward too: new optimizations should add a row to the table above, not just a
+prose subsection.
+
 ---
 
 ## Q4 — Thread scaling caps at ~7x on 64 threads: diagnose, and is rayon the fix?
