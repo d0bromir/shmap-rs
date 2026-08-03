@@ -14,7 +14,8 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q4 | Thread scaling is only ~7x at 64 threads — diagnose and fix | `q4-thread-scaling` | #9 | merged |
 | Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | #12 | dropped |
 | Q6 | Indexing time vs mapping time, per tool, for third-party comparisons | `q6-index-vs-mapping-time` | #14 | merged |
-| Q7 | Optimize the refinement step (it differs for Containment/Jaccard) | `q7-refinement-jaccard-bound` | #16 | in review |
+| Q7 | Optimize the refinement step (it differs for Containment/Jaccard) | `q7-refinement-jaccard-bound` | #16 | merged |
+| Q8 | Can SIMD be used in some of the steps of mapping a read? | `q8-simd-mapping-steps` | #17 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -621,6 +622,50 @@ and re-measuring whether the bookkeeping cost is smaller than the buckets it wou
 real investigation with its own cost/benefit measurement, not attempted here given the correctness
 stakes of a wrong pruning bound (the same class of risk `-M`/`--max_matches` was rejected for,
 RESULTS.md §8).
+
+---
+
+## Q8 — Can SIMD be used in some of the steps of mapping a read?
+
+**Asked** 2026-08-03 · **Branch** `q8-simd-mapping-steps` · **PR** #17 · **Status** in review
+
+**Question.** *"can SIMD be used in some of the steps of mapping a read?"*
+
+**Answer.** Investigated across every per-read mapping step, not just sketching (which Q1 already
+answered: SIMD k-mer emission measured 0.79-0.96x, a wash to a regression, before even accounting
+for this host's AVX-512 downclocking). Full account in
+[RESULTS.md §11](RESULTS.md#11-what-to-try-next) ("SIMD in the per-read mapping steps —
+investigated, doesn't fit the dominant costs"); summary here.
+
+**What's actually dominant.** Profiled fresh at the standard benchmark parameters (`k=25`, `-@1`,
+B01) rather than reusing older k=15 whole-genome figures, since the cost balance differs at the
+paper's own operating point: `match_rest`/`refine` is the single largest per-read cost at 31.3% of
+`mapping`, ahead of `match_seeds` at 21.1% and sketching at 19.3%.
+
+**Why neither of the two largest fits SIMD.** `match_seeds` streams pre-sorted hits through a
+two-slot accumulator (Q3/PORT_CHANGES §2) — an O(1)-per-hit design chosen specifically to replace
+a hashmap, where each hit's processing depends on state carried from the previous one; vectorizing
+across hits means giving up the streaming property that redesign exists for. `match_rest`/`refine`
+(`best_fixed_length`) sweeps reference k-mers doing a hashtable lookup and a data-dependent array
+index per element — memory-latency-bound, the same shape already documented for the neighboring
+pruning loop (Q7), where restructuring was tried and measured as a net loss twice. The genuinely
+uniform arithmetic that does exist on this path (`DenseSlot::add`) is cheap enough relative to the
+random memory access around it that a perfect vectorization would be unmeasurable, and the struct
+is deliberately kept at 16 bytes for L3 residency — widening it for SIMD lanes works against that.
+
+**One real, modest candidate, not pursued.** `unique_elements_with_info` sorts each read's own
+k-mers by hash (~4-5% of `mapping` combined). A packed-key sort — the same technique already used
+elsewhere in this codebase for `get_sorted_buckets`'s final ordering — could plausibly speed this
+up, but the ceiling is small (a few percent of `mapping` at best) and reproducing the exact
+tie-break semantics correctly needs real care for a reward this size.
+
+**Outcome.** No `src/` change. SIMD is not a strong lever for the current dominant per-read mapping
+costs — they are memory-latency-bound and hashtable/pointer-chasing-heavy, not the regime SIMD
+helps with. Documented rather than attempted, matching how Q4/Q7 handled findings of this shape.
+
+---
+
+## Template
 
 Copy this for each new question.
 

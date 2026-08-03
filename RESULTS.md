@@ -1381,6 +1381,48 @@ extremes) and re-measuring whether the extra bookkeeping cost is smaller than th
 attempted here given the correctness stakes of any pruning-bound mistake (a wrong bound silently
 drops a correct mapping, the same class of risk `-M`/`--max_matches` was rejected for above).
 
+### SIMD in the per-read mapping steps — investigated, doesn't fit the dominant costs
+
+Sketching's own SIMD question is already answered (§1 above / Q1 in QUESTIONS.md): a real k-mer-
+emission SIMD pass measured 0.79-0.96x, a wash to a regression, before even accounting for this
+host's AVX-512 downclocking. What follows is the *other* per-read steps.
+
+Profiled fresh at the standard benchmark parameters (`k=25`, `-@1`, B01) rather than reusing the
+k=15 whole-genome figures elsewhere in this file, since the balance of costs is different at the
+paper's own operating point: `match_rest`/`refine` is the single largest per-read cost at **31.3%**
+of `mapping`, ahead of `match_seeds` at **21.1%** and sketching at **19.3%**.
+
+Neither of the two largest fits SIMD:
+
+- **`match_seeds`** streams pre-sorted hits through a two-slot accumulator (§2 above) — an
+  O(1)-per-hit design chosen specifically to replace a hashmap. Each hit's processing depends on
+  accumulator state carried from the previous one; vectorizing across hits would mean giving up
+  the streaming property that redesign exists for.
+- **`match_rest`/`refine` (`best_fixed_length`)** sweeps reference k-mers doing a hashtable lookup
+  (`p_ht.get`) and a data-dependent array index (`diff_hist[seed_num]`) per element — the same
+  memory-latency-bound shape already documented for the neighboring pruning loop (Q7 above), where
+  restructuring was tried and measured as a net loss twice. The small pieces of genuinely uniform
+  arithmetic on this path (`DenseSlot::add`: two integer adds, a min, a max, on a struct
+  deliberately kept at 16 bytes for L3 residency) are cheap enough relative to the random memory
+  access around them that even a hypothetical perfect vectorization would be unmeasurable —
+  widening the struct to a SIMD-friendly lane count would also work directly against the memory-
+  footprint design §1 already optimizes for.
+
+**One real, modest candidate, not pursued.** `unique_elements_with_info` sorts each read's own
+k-mers by hash (`group_kmers` + `sort_kmers`, ~4-5% of `mapping` combined) — a comparison sort over
+a few thousand elements per read, called once per read. A packed-key sort — the same technique §1
+above already uses for `get_sorted_buckets`'s final ordering — could plausibly speed this up, since
+every hash reaching it is already bounded below `2^57` at `-r 0.01`, leaving header room to pack a
+tie-break in. Not attempted: the ceiling is small (a few percent of `mapping` at best, since that
+is this stage's entire current share), and reproducing the exact tie-break semantics correctly
+(`b.r.cmp(&a.r)` on equal hashes, needed for LCS — see the comparator in `seeding.rs`) needs real
+care for a reward this size.
+
+**Conclusion.** SIMD is not a strong lever for the current dominant per-read mapping costs — they
+are memory-latency-bound and hashtable/pointer-chasing-heavy, the regime SIMD (a compute-throughput
+technique) does not help. The one place with genuinely uniform arithmetic on that path is too
+cheap, relative to the memory access around it, to move measurably.
+
 ### Measurements the upstream evaluation makes that this suite does not
 
 Checked against the algorithm's own (unpublished) evaluation plan on 2026-08-02. §5b closed the
