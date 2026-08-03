@@ -10,8 +10,33 @@ CLI-visible features with no effect on a default run's cost.
 **The short version.** shmap-rs preserves shmap's core mapping algorithm — FracMinHash sketching,
 rarest-first seeding, seed-heuristic pruning, single/multi-hit index separation, sliding-window
 refinement all come from the paper and the C++ unchanged — but substantially redesigns the hot
-paths that algorithm runs through, and adds multithreading the C++ has none of. Two measurements
-exist, from two different result sets, and both are real:
+paths that algorithm runs through, and adds multithreading the C++ has none of.
+
+## Current state, in one table
+
+Every optimization below, current design only — not the sequence of attempts that got there (that
+record is [`PROFILING.md`](PROFILING.md), kept deliberately chronological and never updated). Only
+row 9 is prescribed by the paper itself (it names "Optimization 2" directly); everything else is an
+engineering choice in how shmap-rs implements the algorithm the paper and the C++ both already
+specify, not a change to the algorithm.
+
+| # | Optimization | What it optimizes | Effect, measured | Exact? |
+|---|---|---|---|---|
+| 1 | Dense bucket array sized by the read's own half-length, not the reference | Peak memory; incidentally fixed a multithreading speed bug (§1) | ~4 MB/worker vs the C++'s constant ~15 GB — the 6.9-7.4x-less-memory headline (RESULTS.md §1) is almost entirely this. On a 6,000-read whole-genome run: `bucket_merge` 1342.1 s → 39.1 s, whole run 1995.6 s → 725.6 s | Yes — byte-identical output; the dense and sparse-fallback paths are tested to agree exactly |
+| 2 | Streaming multi-hit seeds — no per-seed scratch hashmap | `match_seeds` speed on repetitive references | Not isolated as its own standalone percentage in the record; replaces ~O(hits) hashmap inserts with O(1) integer work per hit (§2) | Yes — same buckets receive the same accumulated, clamped content |
+| 3 | `RefineCache` — the second-best search replays the first's scores instead of recomputing them | `match_rest_for_best2` / `refine` / `query_mapping` speed | 44% of `find_best_mapping` calls eliminated, flat across 1x/3x/10x coverage: `match_rest_for_best2` **-66 to -67%**, `refine` **-39 to -41%**, `query_mapping` **-9 to -11%** (§3) | Yes — byte-identical PAF; restricted to exactly the two metrics (Containment, Jaccard) where it's provably safe — **not** applied to `bucket_SH`/`bucket_LCS` |
+| 4 | Multithreaded read mapping — a capability, not present in the C++ at all | Whole-run wall time | RESULTS.md §2 (single-thread and `-@4` per benchmark) and §3 (the full thread-scaling table, including the NUMA ceiling Q4/Q5 diagnosed) | Yes — byte-identical regardless of thread count (`tests/multithreaded_parity.rs`) |
+| 5 | Hash-sharded index storage + chunked reference sketching, both parallel across `-@` | Indexing wall time | `index_initializing` **8.4 s → 1.1-1.8 s**; chunked sketching **~18% off `indexing`** at `-@8` (§5) | Yes — index contents never depend on thread count |
+| 6 | Two-pass parallel FASTA parsing | Indexing wall time (the reading phase specifically) + peak RSS | `index_reading` **4.4 s → 1.5-1.7 s** (§6) | Yes — `debug_assert`-pinned: pass 2 writes exactly what pass 1 counted, with no gaps |
+| 7 | Sketching/index hot loop: precomputed rotation tables, bounds-check-free iteration, `Entry` API, binomial-sized sketch buffers | Reference and read sketching speed | **~13-17% off `index_sketching`** is the bounds-check-free iteration alone (§7); the other three items in this row have no isolated standalone percentage in the record | Yes |
+| 8 | Lower allocation/memory traffic: `PMatches` inline for the common single-occurrence case, `Match` borrows its `Seed`, dense `diff_hist`, no `seq` field on `RefSegment`, FASTA records by value, bounded read-ahead, buffered stdout, `lto="fat"` | Peak memory, and speed via fewer allocations | **~11-13% off peak RSS** is the bounded read-ahead alone; **~5% wall** is `lto="fat"` alone (§8); the rest are allocation-*count* reductions (e.g. ~300 M fewer heap allocations for single-occurrence seeds) without an isolated standalone percentage in the record | Yes |
+| 9 | Final bucket ordering: an unstable sort on a packed key reproduces stable-sort output — the paper's own Algorithm 4 "Optimization 2" | Sort cost in `get_sorted_buckets`, and (as a side effect) determinism | Sorts 8-byte packed keys instead of 32-byte records — no isolated standalone percentage in the record, but real: moving 4x fewer bytes and skipping a stable sort's temporary allocation | Yes, and stronger than the C++: reproduces exactly what a *stable* sort by descending match count would give (the original index is packed in as the tiebreak), where the C++'s `std::sort` gives no such guarantee even between its own runs (`src/buckets.rs`'s `get_sorted_buckets` doc comment) |
+
+Rows without an isolated standalone percentage are stated as such rather than estimated — they are
+real (each is individually documented below with its own reasoning and, where one exists, a code
+citation) but were not measured in isolation from the rest of their group at the time they landed.
+
+Two whole-run measurements exist, from two different result sets, and both are real:
 
 - **RESULTS.md's current suite** (five benchmarks, three metrics, commit `e9aa9c98a2c7`):
   **1.91–2.74x** faster single-threaded, **6.90–7.43x** less peak memory (2.54–2.73 GB vs the
@@ -126,45 +151,66 @@ std::vector< std::pair<BucketLoc, BucketContent> > get_sorted_buckets() {
 ```
 
 Sort by location to make duplicates adjacent, `std::unique` to collapse them, then a *second* sort
-by descending match count — the paper's own Algorithm 4 Optimization 2 (§3 below covers this sort
-specifically). Three passes over the touched-bucket list to produce one ordered, deduplicated
+by descending match count — the paper's own Algorithm 4 Optimization 2, and the current-state
+table's row 9. Three passes over the touched-bucket list to produce one ordered, deduplicated
 result.
 
-### shmap-rs: three generations, driven by measuring what went wrong each time
+**shmap-rs's version of that final sort** — dedup itself works differently by design (below), but
+every path funnels into the same descending-match-count ordering before scoring:
 
-**Generation 1 mirrored the C++ almost exactly** — one dense `Vec<BucketContent>` per segment,
-sized by `sz / MIN_HALFLEN + 2`, the same ~15 GB allocation. Profiling found the one-time
-allocation-plus-zero-init alone cost 7–21+ seconds *per worker thread* once threading existed
-(§4) — a cost the single-threaded C++ never had to pay more than once, but which multiplies with
-every additional worker. It was also the direct cause of a genuinely counterintuitive bug:
-multithreaded whole-genome runs sometimes got *slower* with more threads, because a worker that
-finishes this huge allocation last simply starts with zero reads left to process.
+```rust
+// src/buckets.rs:654-682 (abridged; full comments in the file explain each step)
+/// Deduplicates the touched buckets and returns them sorted by
+/// descending match count.
+///
+/// Uses a **stable** sort, unlike the C++'s `std::sort` — ties (equal
+/// `.matches`) get a deterministic relative order here, which the C++
+/// itself doesn't guarantee even between its own runs/compiler
+/// versions. Bit-exact PAF parity against the reference binary isn't a
+/// meaningful target specifically for tied buckets as a result; that's
+/// a property of the reference implementation, not a port regression.
+pub fn get_sorted_buckets(&mut self) -> Vec<(BucketLoc, BucketContent)> {
+    self.merge_entries();
+    let (i, seeds) = (self.prop_i, self.prop_seeds);
 
-**Generation 2** replaced the array with `FxHashMap<BucketLoc, BucketContent>` — only touched
-buckets exist, so memory scales with reads processed, not with reference size. This fixes the
-memory problem outright, but costs speed: at k=15 on a whole genome, nearly every 15-mer window in
-a read has a match *somewhere* in a 3+ Gbp reference, so a single read can touch millions of
-distinct buckets, and every touch through a hashmap is a full `entry()` call — hash the key, probe
-for a slot, possibly resize. Measured ~20% slower single-threaded than generation 1's array
-despite fixing its memory blowup.
+    // Order 8-byte keys, not the 32-byte output records: on a k=15
+    // whole-genome read this list is ~240k entries, and sorting it as
+    // records moved 4x the bytes and needed the stable sort's temporary
+    // allocation. Packing `(u32::MAX - matches, index)` into one `u64`
+    // and sorting it ascending reproduces exactly what a *stable* sort by
+    // descending `matches` produced — ties keep their original
+    // (location-sorted) order — so the result is unchanged, including for
+    // the tied buckets the doc comment below calls out.
+    self.order.clear();
+    self.order.extend(
+        self.entries
+            .iter()
+            .enumerate()
+            .map(|(idx, e)| (((u32::MAX - e.matches as u32) as u64) << 32) | idx as u64),
+    );
+    self.order.sort_unstable();
+    // ...
+}
+```
 
-**Generation 2.5, still live today as the fallback for what generation 3 can't handle:** an
-append-only `Vec` of raw contributions, merged once per read by an LSD radix sort on a packed
-`(segm_id, b)` key instead of a hashmap. Already, at this stage, **25% faster than the C++
-original** on whole-genome k=15 HiFi at `-@1` (1972.7 s vs 2637.2 s), byte-identical mapped/mapq
-counts. What it still pays for is materializing every raw contribution before collapsing them: a
-read producing ~4M raw contributions collapsing to only ~242k distinct buckets means sorting 4M
-32-byte records to do that collapse — ~1.1 GB moved per read at memory-bandwidth speed, 56% of
-total wall by itself.
+An *unstable* sort algorithm, but on a key engineered so instability never matters: packing the
+original index into the low bits means no two keys are ever truly equal, so `sort_unstable`'s
+ambiguity about tie order simply never triggers — the output is exactly what a stable sort by
+`matches` alone would give, at an unstable sort's cost. A side effect worth stating plainly: this
+makes shmap-rs *more* deterministic than the C++ it's matched against, not less — `std::sort`'s
+tie order isn't guaranteed even between two runs of the reference binary itself, which is why
+RESULTS.md §2 attributes some fraction of shmap-rs/C++ disagreement to exactly this (adjacent
+buckets tied on match count, resolved differently by two different tie-breaking rules).
 
-**Generation 3, current for the common case, is the actual redesign** — a dense array again, but
-correctly sized this time: by the *read's own* half-length divided into the reference, not by the
-algorithm's minimum-allowed half-length divided into the whole genome. A read with half-length `l`
-partitions a reference of sketch length `n` into only `n / l` buckets total — for a typical
-whole-genome HiFi read, ~242k slots (the exact figure generation 2.5 was collapsing down to by
-sorting), each 16 bytes: **~4 MB, entirely L3-resident**. Three to four orders of magnitude
-smaller than generation 1's array, because it scales with how finely *this one read* divides the
-reference rather than with the smallest half-length the algorithm ever allows anyone to request:
+### shmap-rs: a dense array again, but sized by the read, not the reference
+
+The current design is a dense array like the C++'s, but correctly sized: by the *read's own*
+half-length divided into the reference, not by the algorithm's minimum-allowed half-length divided
+into the whole genome. A read with half-length `l` partitions a reference of sketch length `n`
+into only `n / l` buckets total — for a typical whole-genome HiFi read, ~242k slots, each 16
+bytes: **~4 MB, entirely L3-resident**. Three to four orders of magnitude smaller than a
+reference-sized array, because it scales with how finely *this one read* divides the reference
+rather than with the smallest half-length the algorithm ever allows anyone to request:
 
 ```rust
 // src/buckets.rs:620-638
@@ -214,8 +260,8 @@ fn extract_dense(&mut self) {
 
 Capped at `MAX_DENSE_SLOTS = 2 << 20` — 2,097,152 slots × 16 bytes = **exactly 32 MB per worker**
 — as a safety valve for the read that doesn't fit this profile (an unusually small half-length
-implies an unusually large slot count), with generation 2.5 kept as the fallback beyond that cap,
-pinned by a test asserting the two paths agree exactly.
+implies an unusually large slot count), with the sort-based sparse path (below) kept as the
+fallback beyond that cap, pinned by a test asserting the two paths agree exactly.
 
 **Measured, on a 6,000-read whole-genome HiFi run at `-@1`:** `bucket_merge` fell from 1342.1 s to
 39.1 s, and whole-run wall from 1995.6 s to 725.6 s — byte-identical output.
@@ -226,6 +272,34 @@ all-empty; re-zeroing it anyway would cost O(slots) per read regardless, measure
 `memset` across a 240,000-read whole-genome run. The one case that can leave it dirty — a read
 abandoned mid-accumulation, before extraction ran — is handled by clearing only that read's own
 touched slots.
+
+### How this design was reached
+
+Background, not needed to understand the current design above — kept because it explains a couple
+of decisions (why the sparse fallback exists at all, why it's capped rather than trusted
+unconditionally) that would otherwise look arbitrary. `PROFILING.md` has the full chronological
+log with every intermediate measurement.
+
+Three attempts came before the current one. A dense array sized like the C++'s own (`sz /
+MIN_HALFLEN + 2`, the same ~15 GB allocation) was tried first, mirroring the C++ almost exactly —
+its one-time allocation-plus-zero-init cost 7-21+ seconds *per worker thread* once threading
+existed (§4 below), and was the direct cause of a genuinely counterintuitive bug: multithreaded
+whole-genome runs sometimes got *slower* with more threads, because a worker that finished this
+huge allocation last simply started with zero reads left to process. Replacing it with
+`FxHashMap<BucketLoc, BucketContent>` fixed the memory problem outright — only touched buckets
+exist — but cost speed instead: at k=15 on a whole genome, nearly every 15-mer window in a read
+matches *somewhere* in a 3+ Gbp reference, so a single read can touch millions of distinct
+buckets, and every touch through a hashmap is a full `entry()` call. Measured ~20% slower
+single-threaded than the reference-sized array, despite fixing its memory blowup. An append-only
+`Vec` of raw contributions, merged once per read by an LSD radix sort on a packed `(segm_id, b)`
+key, recovered most of that — already **25% faster than the C++ original** on whole-genome k=15
+HiFi at `-@1` (1972.7 s vs 2637.2 s), byte-identical mapped/mapq counts — but still paid to
+materialize every raw contribution before collapsing them: a read producing ~4M raw contributions
+collapsing to only ~242k distinct buckets meant sorting 4M 32-byte records to do that collapse,
+~1.1 GB moved per read at memory-bandwidth speed, 56% of total wall by itself. That sort-based
+version is what the current design's dense array replaced for the common case — and what it still
+falls back to (`MAX_DENSE_SLOTS`, above) for the read that doesn't fit the dense profile, pinned by
+a test asserting the two paths agree exactly.
 
 ---
 
