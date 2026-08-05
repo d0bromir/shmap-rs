@@ -79,9 +79,9 @@ pub fn hash_window(s: &[u8]) -> (Hash, Hash) {
     let mut fw_n = ks - 1;
     let mut rc_n = 0usize;
 
-    let mut chunks = s.chunks_exact(LANES);
+    let (chunks, remainder) = s.as_chunks::<LANES>();
 
-    for chunk in &mut chunks {
+    for chunk in chunks {
         let v: Simd<u8, LANES> = Simd::from_slice(chunk);
         let (fw, rc) = process(v, fw_n, rc_n);
         fw_acc ^= fw;
@@ -92,7 +92,6 @@ pub fn hash_window(s: &[u8]) -> (Hash, Hash) {
         rc_n = rc_n.wrapping_add(LANES);
     }
 
-    let remainder = chunks.remainder();
     if !remainder.is_empty() {
         let v: Simd<u8, LANES> = Simd::load_or_default(remainder);
         let (fw, rc) = process(v, fw_n, rc_n);
