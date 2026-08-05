@@ -5,6 +5,7 @@
 use crate::types::{Hash, Kmer, RPos};
 use crate::utils::Counters;
 
+#[cfg(feature = "simd")]
 pub mod simd;
 
 pub type SketchT = Vec<Kmer>;

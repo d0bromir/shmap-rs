@@ -1,6 +1,6 @@
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use rand::{RngExt, SeedableRng};
-use shmap::sketch::{self, FracMinHash};
+use shmap::sketch::FracMinHash;
 use std::hint::black_box;
 
 /// Generate a sequence of DNA bases of length `len`. All values are guaranteed to be valid, and the
@@ -29,10 +29,11 @@ fn fracminhash_benchmark(c: &mut Criterion) {
             });
         });
 
+        #[cfg(feature = "simd")]
         group.bench_function(format!("simd::hash_window::{k}"), |b| {
             b.iter(|| {
                 for window in data.windows(k) {
-                    black_box(sketch::simd::hash_window(black_box(window)));
+                    black_box(shmap::sketch::simd::hash_window(black_box(window)));
                 }
             });
         });
