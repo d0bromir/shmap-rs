@@ -5,7 +5,6 @@
 use crate::types::{Hash, Kmer, RPos};
 use crate::utils::Counters;
 
-#[cfg(feature = "simd")]
 pub mod simd;
 
 pub type SketchT = Vec<Kmer>;
@@ -174,6 +173,28 @@ impl FracMinHash {
         self.sketch_slice_into(s, 0, buf)
     }
 
+    #[cfg(unix)]
+    pub fn sketch_slice_into(&self, s: &[u8], offset: RPos, mut buf: SketchT) -> SketchT {
+        buf.clear();
+        if (s.len() as RPos) < self.k || self.k <= 0 {
+            return buf;
+        }
+        buf.reserve(self.expected_capacity(s.len()));
+
+        let ks = self.k as usize;
+        let h_thres = self.h_thres();
+
+        let mut r: RPos = self.k - 1 + offset;
+        for window in s.windows(ks) {
+            let (h_fw, h_rc) = simd::hash_window(window);
+            emit(&mut buf, r, h_fw, h_rc, h_thres);
+            r += 1;
+        }
+
+        buf
+    }
+
+    #[cfg(not(unix))]
     /// Sketches `s` treating it as the sub-slice of a longer sequence that
     /// begins at `offset`, so the k-mer positions written out are positions
     /// in that longer sequence rather than in `s`.
