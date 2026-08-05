@@ -361,4 +361,10 @@ clean_evals:
 	rm -r $(ALLOUT_DIR)
 
 bench:
-	RUSTFLAGS="-C target-cpu=native" cargo bench --bench sketch
+	cargo bench --bench sketch --features simd
+
+avx2_bench:
+	RUSTFLAGS="-C target-feature=+avx2" cargo bench --bench sketch --features simd
+
+native_bench:
+	RUSTFLAGS="-C target-cpu=native" cargo bench --bench sketch --features simd
