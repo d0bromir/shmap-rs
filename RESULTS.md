@@ -1457,6 +1457,62 @@ prefetch" case) does not survive contact with a real measurement on this host: m
 execution is already doing most of what explicit prefetching would add, for this access pattern
 and table size.
 
+### 2-bit-packed sequence encoding for sketching — probed, measured negative
+
+The "remaining bottlenecks" section of [`PROFILING.md`](PROFILING.md) names 2-bit packing as one of
+two levers left for sketching (~2.0 ns/base; 19.3% of `mapping`, plus a large share of indexing).
+The other, SIMD, was tried in Q1 and lost. Packing attacks a different thing: 4 bases per byte
+means one sequence load serves 4 iterations instead of 1, cutting the sequence-load share from
+2/base to 0.5/base.
+
+Probed standalone (`profiling/pack2bit_probe.rs`, 50 Mbase, `k=25`) against a faithful copy of
+`sketch_slice_into`'s loop — **all variants asserted to produce bit-identical accumulators**, so
+the timings compare the same computation:
+
+| variant | ns/base | vs. baseline |
+|---|---:|---|
+| baseline (byte-per-base, the real loop) | 1.013 | — |
+| 2-bit packed, naive (reload byte on boundary) | 2.058 | **0.49x — 2x slower** |
+| 2-bit packed, unrolled x4 (one u64 load/stream/group, no branch) | 1.131 | **0.90x — 10% slower** |
+
+Even given its best case — the unrolled form, one unaligned `u64` load per stream per four bases,
+no per-base branch — packing loses. Testing only the naive form would have strawmanned it; it
+doesn't need the help.
+
+**Why, and what it says about the loop generally.** The baseline's 1.013 ns/base is ~3.95 cycles at
+this host's single-core turbo (3.9 GHz — see Q1's addendum in `QUESTIONS.md`). A second probe
+(`profiling/chain_probe.rs`) ran 1-3 *independent* hash chains over disjoint slices in one loop, to
+separate "waiting on the serial `rotate -> xor -> xor` chain" from "saturating a hardware port":
+
+| chains | ns/base | throughput vs. 1 chain |
+|---:|---:|---|
+| 1 | 1.012 | 1.00x |
+| 2 | 0.931 | 1.09x |
+| 3 | 0.910 | 1.11x |
+
+Only **1.11x** from three independent chains. Were the loop dependency-bound, independent chains
+would nearly multiply throughput; they don't. The floor is a port limit, and the arithmetic
+identifies which: the loop issues **6 loads per base** (two sequence bytes, four LUT entries)
+against this core's two load ports — a hard 3 cycles/base, against the ~3.6-4.0 measured. ALU is
+not close to binding (~8 ops/base across four ports, ~2 cycles).
+
+That explains the packing result exactly. Packing removes 1.5 loads/base — but the *cheapest* ones,
+sequential and prefetcher-friendly — and pays for them in shift/mask ALU work, moving the
+bottleneck from the load ports to the ALU ports at roughly the same cycle count, plus overhead.
+
+**This confirms Q1's premise rather than overturning it.** Q1's probe concluded "the lever is
+removing loads, not adding independent chains"; the multi-chain measurement above is independent
+evidence for exactly that, arrived at from the opposite direction. It also sharpens it: the four
+*LUT* loads are the real cost, not the two sequence loads, so 2-bit packing was aimed at the wrong
+half. Q1's AVX-512 attempt did target the LUT loads (replacing table lookups with `vpermq`
+register permutes) and won on hashing alone — it lost only once real k-mer emission was included.
+
+**Conclusion.** No implementation in `src/`. Sketching's rolling loop is load-port-bound at ~6
+loads/base, and the only lever that addresses that is removing LUT lookups — which is Q1's already-
+measured, already-rejected SIMD path. 2-bit packing's remaining merit is memory footprint, not
+speed, and this port already discards the reference sequence after sketching (§8 of
+[`PORT_CHANGES.md`](PORT_CHANGES.md)), so that benefit would be transient during indexing only.
+
 ### Measurements the upstream evaluation makes that this suite does not
 
 Checked against the algorithm's own (unpublished) evaluation plan on 2026-08-02. §5b closed the

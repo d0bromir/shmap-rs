@@ -17,6 +17,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q7 | Optimize the refinement step (it differs for Containment/Jaccard) | `q7-refinement-jaccard-bound` | #16 | merged |
 | Q8 | Can SIMD be used in some of the steps of mapping a read? | `q8-simd-mapping-steps` | #17 | merged |
 | Q9 | Software prefetching for the pruning lookups | `q9-prefetch-refine` | #18 | in review |
+| Q10 | 2-bit-packed sequence encoding for sketching | `q10-2bit-packed-sketching` | (open) | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -706,6 +707,61 @@ change, so there is nothing to benchmark against the official suite. The hypothe
 (this loop is genuinely memory-latency bound, confirmed independently by its own doc comment) but
 doesn't survive contact with a real measurement: modern out-of-order execution already does most of
 what explicit prefetching would add, for this access pattern and table size, on this host.
+
+---
+
+## Q10 — 2-bit-packed sequence encoding for sketching
+
+**Asked** 2026-08-09, follow-up after Q9 · **Branch** `q10-2bit-packed-sketching` · **PR** (open) ·
+**Status** in review
+
+**Question.** After Q9, asked whether the negative results so far meant nothing else could be
+optimized. They don't — they were four specific hypotheses, not an exhaustive search. Of the
+candidates still genuinely open, 2-bit-packed sequence encoding was the one worth doing next:
+[`PROFILING.md`](PROFILING.md)'s own "remaining bottlenecks" names it as one of two levers left for
+sketching (~2.0 ns/base, 19.3% of `mapping` plus a large share of indexing), it had never been
+attempted, and it is a *different mechanism* from SIMD — so Q1/Q8's negative SIMD results did not
+rule it out.
+
+**Answer.** Probed before touching real code, and measured negative — but the probe also identified
+what actually limits this loop, which is the more useful result. Full account in
+[RESULTS.md §11](RESULTS.md#11-what-to-try-next); summary here.
+
+**The packing measurement** (`profiling/pack2bit_probe.rs`, 50 Mbase, `k=25`, all variants asserted
+to produce bit-identical accumulators):
+
+| variant | ns/base | vs. baseline |
+|---|---:|---|
+| baseline (byte-per-base, the real loop) | 1.013 | — |
+| 2-bit packed, naive | 2.058 | 0.49x — 2x slower |
+| 2-bit packed, unrolled x4 (its best case) | 1.131 | 0.90x — 10% slower |
+
+Both forms were tested deliberately: measuring only the naive one would have strawmanned the idea.
+It loses even unrolled, with one `u64` load per stream per four bases and no per-base branch.
+
+**Why — and a mid-investigation correction.** Baseline works out to ~3.95 cycles/base at this
+host's 3.9 GHz single-core turbo (measured in Q1's addendum above), which is close to the length of
+the serial `rotate -> xor -> xor` chain, so I suspected the loop was *dependency*-bound — which
+would have meant Q1's stated premise ("the lever is removing loads, not adding independent chains")
+was wrong. Tested it directly rather than assuming (`profiling/chain_probe.rs`, 1-3 independent
+hash chains over disjoint slices): **three independent chains buy only 1.11x**. A dependency-bound
+loop would have nearly multiplied. So the suspicion was wrong and **Q1's premise was right** — now
+confirmed independently, from the opposite direction.
+
+What binds instead is load-port throughput: 6 loads/base (two sequence bytes, four LUT entries)
+against two load ports is a hard 3 cycles/base, against ~3.6-4.0 measured; ALU isn't close (~8
+ops/base over four ports). That explains the packing result exactly — packing removes 1.5
+loads/base, but the *cheapest* ones (sequential, prefetcher-friendly), and pays for them in
+shift/mask ALU work, trading a load-port bottleneck for an ALU one at about the same cycle count.
+
+**Outcome.** No `src/` change, so nothing to run the benchmark suite against. The sharpened finding
+is more useful than the negative one: the four **LUT** loads are this loop's real cost, not the two
+sequence loads — so 2-bit packing was aimed at the wrong half. The one lever that does target them
+is replacing table lookups with register permutes, which is precisely Q1's AVX-512 attempt: it won
+on hashing alone and lost only once real k-mer emission was included. Sketching's rolling loop is
+therefore close to its floor on this hardware, and 2-bit packing's remaining merit is memory
+footprint rather than speed — largely moot here, since this port already discards the reference
+sequence after sketching ([`PORT_CHANGES.md`](PORT_CHANGES.md) §8).
 
 ---
 
