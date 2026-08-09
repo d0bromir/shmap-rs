@@ -23,8 +23,15 @@ for line in open(DATASETS_TSV):
         continue
     reg[f[0]] = dict(zip(("kind", "host", "path", "bytes", "records", "bases"), f[1:7]))
 
+# Presence of the corpus is a property of one machine, not of the repository.
+# This script's job is that suite.toml is coherent, and that must hold on a CI
+# runner too -- which has no corpus. So a missing file is a note unless asked
+# for explicitly. `run.py:verify_datasets` is the real gate and refuses to
+# measure anything whose size does not match the registry.
+require_data = "--require-data" in sys.argv
+
 errs = []
-host = suite["run"]["host"]
+absent = []
 for b in suite["benchmark"]:
     for key in ("reference", "reads"):
         ds = b[key]
@@ -32,11 +39,11 @@ for b in suite["benchmark"]:
             errs.append(f"{b['id']}: dataset '{ds}' not in datasets.tsv")
         elif not resolve_dataset(reg[ds]["path"]).exists():
             # The registry's `host` column is provenance -- where a dataset was
-            # first registered -- not a gate. Whether it is usable *here* is a
-            # question for the filesystem, and the corpus resolves through the
-            # same relative root on every host, so this is the honest check.
-            errs.append(f"{b['id']}: dataset '{ds}' not present on this host at "
-                        f"{resolve_dataset(reg[ds]['path'])} — see benchmarks/data/README.md")
+            # first registered -- not a gate on where it may be used.
+            where = f"{ds} at {resolve_dataset(reg[ds]['path'])}"
+            (errs if require_data else absent).append(
+                f"{b['id']}: dataset '{where}' not present on this host"
+                + ("" if require_data else " (note)"))
         elif reg[ds]["bytes"] == "MISSING":
             errs.append(f"{b['id']}: dataset '{ds}' is marked MISSING in the registry")
     if b["params"] not in suite["params"]:
@@ -59,6 +66,14 @@ refrep = suite["run"]["reference_impl"]["repeats"]
 reference = sum(len(b["metrics"]) * len(b["reference_impl_threads"]) * refrep for b in suite["benchmark"])
 
 import platform
+if absent:
+    print(f"\n{len(absent)} dataset(s) referenced by the suite are not on this machine.")
+    print("That is expected off a benchmark host — see benchmarks/data/README.md.")
+    print("Use --require-data to make it an error (a benchmark host should).")
+    for a_ in absent:
+        print(f"  {a_}")
+    print()
+
 print(f"suite_version {suite['suite_version']}  dataset_version "
       f"{suite['dataset_version']}  running on {platform.node()} ({arch()})")
 print(f"benchmarks: {len(ids)}  ({', '.join(ids)})")

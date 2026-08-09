@@ -36,8 +36,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  # Everything that is a property of the code on a given architecture. Both
+  # are native runners; ARM ones are free for public repositories.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+    name: build (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
     steps:
       - name: checkout
         env:
@@ -61,10 +72,23 @@ jobs:
       - name: toolchain
         run: |
           set -euo pipefail
-          rustup update --no-self-update stable
-          rustup default stable
-          rustup component add rustfmt clippy
+          # rust-toolchain.toml pins an exact version; rustup fetches it on
+          # first use. Do not `rustup default stable` here -- that would
+          # install a toolchain the pin then ignores, and misleadingly print
+          # a version this build does not use.
+          command -v rustup >/dev/null || \
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          rustup show active-toolchain
           cargo --version && rustc --version
+
+      # Fail loudly if the runner is not the architecture the matrix claims,
+      # rather than silently testing x86 twice and reporting ARM as green.
+      - name: runner really is ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          actual="$(uname -m)"
+          echo "uname -m = $actual, matrix says ${{ matrix.arch }}"
+          test "$actual" = "${{ matrix.arch }}"
 
       - name: fmt
         run: cargo fmt --check
@@ -110,21 +134,43 @@ jobs:
       - name: profiling charts draw what they claim
         run: python3 benchmarks/scripts/test_charts.py
 
+  # Generated artifacts are checked against a committed result set, and every
+  # result set that exists today was measured on x86_64. Pinned with --arch so
+  # the check does not depend on which runner it lands on.
+  artifacts:
+    name: generated artifacts match the result set
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        env:
+          TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          git config --local advice.detachedHead false
+          git remote add origin "https://github.com/${REPO}.git"
+          git config --local http.https://github.com/.extraheader \
+            "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          git fetch -q --depth 1 origin "$SHA"
+          git checkout -q FETCH_HEAD
+
       # Same reason report.py --check exists: charts are generated and
       # committed, so a stale one is a silent lie about the current numbers.
       - name: charts match the current result set
-        run: python3 benchmarks/scripts/charts.py --check
+        run: python3 benchmarks/scripts/charts.py --check --arch x86_64
 
       # Catches a hand-edited results table, which is how this repo previously
       # came to carry contradictory numbers.
       - name: RESULTS.md matches the current result set
-        run: python3 benchmarks/scripts/report.py --check
+        run: python3 benchmarks/scripts/report.py --check --arch x86_64
 
       # Same failure mode one step further out: a table in the paper draft that
       # no longer matches the measurement it claims to report. The artifacts are
       # a pure function of the result set, so this is a real equality check.
       - name: paper artifacts match the current result set
-        run: python3 benchmarks/scripts/paper.py --check
+        run: python3 benchmarks/scripts/paper.py --check --arch x86_64
 
       # The simulators produce the only datasets that can support an accuracy
       # claim, so a syntax error in them is a silent hole in the evidence.

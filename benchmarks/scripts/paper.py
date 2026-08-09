@@ -942,6 +942,9 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("result_set", nargs="?", help="default: the suite's current/")
     ap.add_argument("--out", help=f"output directory (default: {OUT_DEFAULT})")
+    ap.add_argument("--arch", default=None,
+                    help="architecture whose results to use; default: this machine's "
+                         "(x86_64, aarch64)")
     ap.add_argument("--check", action="store_true",
                     help="exit 1 if any artifact would change (does not write)")
     ap.add_argument("--list", action="store_true",
@@ -964,7 +967,7 @@ def main() -> int:
     if a.result_set:
         rs = load_set(Path(a.result_set))
     else:
-        d = current_dir(load_suite()["suite_version"])
+        d = current_dir(load_suite()["suite_version"], a.arch)
         if not d.is_dir():
             print(f"no baseline at {d}; pass a result set explicitly", file=sys.stderr)
             return 2
