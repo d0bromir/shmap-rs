@@ -58,7 +58,7 @@ included — so a draft `\input`s it and refers to it by the label already insid
 \usepackage{pgfplots}                 % figures
 \pgfplotsset{compat=1.18}
 
-\input{paper/generated/table_mapper_comparison.tex}
+\input{paper/generated/x86_64/table_mapper_comparison.tex}
 As Table~\ref{tab:comparison} shows, ...
 ```
 

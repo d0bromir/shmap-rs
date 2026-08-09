@@ -54,11 +54,12 @@ ARTIFACT_FILES = ["results.tsv", "checks.tsv", "profiles.tsv", "manifest.json",
 # having to re-derive its pictures first.
 ARTIFACT_GLOBS = ["per-read-*.tsv", "chart-*.svg", "chart-index.html"]
 
-# RESULTS.md, README.md and the paper artifacts describe one architecture.
-# Every headline number in them -- the C++ comparison, the memory table, the
-# thread-scaling curve -- was measured on x86_64, and there is no
-# multi-architecture reporting yet. Promoting another architecture updates
-# its own result tree and charts, and deliberately leaves those documents be.
+# RESULTS.md and README.md carry one running narrative, written about x86_64:
+# the C++ comparison, the memory story, the thread-scaling argument. They are
+# not a pure function of a result set the way the charts and paper artifacts
+# are, so they are regenerated only for this architecture. Promoting another
+# updates its own result tree, charts and paper artifacts, all of which are
+# per-architecture and cannot collide.
 DOC_ARCH = "x86_64"
 
 
@@ -130,25 +131,31 @@ def main() -> int:
     # `current/` -- which would leave CI failing after every promotion.
     run([sys.executable, "benchmarks/scripts/charts.py", "--arch", set_arch], "charts.py")
 
+    # Paper artifacts are a pure function of one result set and now live in
+    # paper/generated/<arch>/, so every architecture gets its own -- they
+    # cannot overwrite each other.
+    run([sys.executable, "benchmarks/scripts/paper.py", "--arch", set_arch], "paper.py")
+    run([sys.executable, "benchmarks/scripts/build_pdf.py", "--arch", set_arch], "build_pdf.py")
+
     if set_arch == DOC_ARCH:
         run([sys.executable, "benchmarks/scripts/report.py", "--arch", DOC_ARCH], "report.py")
-        run([sys.executable, "benchmarks/scripts/paper.py", "--arch", DOC_ARCH], "paper.py")
-        run([sys.executable, "benchmarks/scripts/build_pdf.py"], "build_pdf.py")
     else:
-        print(f"\n{set_arch} promoted; RESULTS.md, README.md and the paper left alone.")
-        print(f"They describe {DOC_ARCH} — regenerating them from {set_arch} numbers would")
-        print("silently restate the project's headline figures for a different machine.")
-        print("Multi-architecture reporting is not built yet; see benchmarks/README.md.")
+        print(f"\n{set_arch} promoted: its result tree, charts and paper artifacts are")
+        print(f"regenerated. RESULTS.md and README.md are left alone — they carry one")
+        print(f"running narrative written about {DOC_ARCH}, so restating their headline")
+        print("figures from another machine's numbers would misrepresent them. An")
+        print("aarch64 section within that narrative is separate work.")
 
     print("\nverifying that everything regenerates to what is now on disk")
     run([sys.executable, "benchmarks/scripts/charts.py", "--check", "--arch", set_arch],
         "charts.py --check")
+    run([sys.executable, "benchmarks/scripts/paper.py", "--check", "--arch", set_arch],
+        "paper.py --check")
+    run([sys.executable, "benchmarks/scripts/build_pdf.py", "--check", "--arch", set_arch],
+        "build_pdf.py --check")
     if set_arch == DOC_ARCH:
         run([sys.executable, "benchmarks/scripts/report.py", "--check", "--arch", DOC_ARCH],
             "report.py --check")
-        run([sys.executable, "benchmarks/scripts/paper.py", "--check", "--arch", DOC_ARCH],
-            "paper.py --check")
-        run([sys.executable, "benchmarks/scripts/build_pdf.py", "--check"], "build_pdf.py --check")
 
     if not a.commit and not a.push:
         print("\npromoted. Review `git diff`, then commit; or re-run with --commit.")

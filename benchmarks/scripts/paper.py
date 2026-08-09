@@ -68,10 +68,19 @@ from typing import Callable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run import REPO, load_registry, load_suite  # noqa: E402
 from compare import RESULTS, load_set  # noqa: E402
-from layout import current_dir  # noqa: E402
+from layout import arch, current_dir  # noqa: E402
 import report  # noqa: E402
 
-OUT_DEFAULT = REPO / "paper" / "generated"
+# One directory per architecture: the artifacts are a pure function of a
+# result set, and result sets are per-architecture, so a flat output
+# directory let the second architecture generated overwrite the first --
+# with --check still passing, because the files were consistent with
+# whichever set was written last.
+GENERATED_ROOT = REPO / "paper" / "generated"
+
+
+def out_default(a: str | None = None) -> Path:
+    return GENERATED_ROOT / (a or arch())
 SUBJECT = "shmap-rs"
 REFERENCE = "cpp-shmap"
 
@@ -941,7 +950,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("result_set", nargs="?", help="default: the suite's current/")
-    ap.add_argument("--out", help=f"output directory (default: {OUT_DEFAULT})")
+    ap.add_argument("--out",
+                    help="output directory (default: paper/generated/<arch>/)")
     ap.add_argument("--arch", default=None,
                     help="architecture whose results to use; default: this machine's "
                          "(x86_64, aarch64)")
@@ -973,7 +983,7 @@ def main() -> int:
             return 2
         rs = load_set(d)
 
-    out = Path(a.out) if a.out else OUT_DEFAULT
+    out = Path(a.out) if a.out else out_default(a.arch)
     files = build_all(rs)
 
     if a.check:
@@ -981,7 +991,8 @@ def main() -> int:
                  if not (out / n).exists() or (out / n).read_text() != body]
         if stale:
             print(f"paper artifacts out of date in {out}: {', '.join(stale)}\n"
-                  f"regenerate with: python3 benchmarks/scripts/paper.py", file=sys.stderr)
+                  f"regenerate with: python3 benchmarks/scripts/paper.py "
+                  f"--arch {a.arch or arch()}", file=sys.stderr)
             return 1
         print(f"{len(files)} paper artifacts are current with {rs['dir'].name}")
         return 0
