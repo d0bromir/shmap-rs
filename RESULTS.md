@@ -1542,7 +1542,7 @@ in `reference_mappers.py`, not new code.
 
 **Per-read time against per-read match count — instrumented, and the answer is not yet clean.**
 `--per-read-stats` now writes a row per read (time, matches, buckets, mapq), a run collects it
-when `[per_read_stats]` is enabled, and `paper/generated/fig_time_vs_matches` plots it. What the
+when `[per_read_stats]` is enabled, and `paper/generated/x86_64/fig_time_vs_matches` plots it. What the
 data does not yet do is settle the scaling claim.
 
 Fitting per-bin median time against the matches a read examined, a *linear* fit beats a

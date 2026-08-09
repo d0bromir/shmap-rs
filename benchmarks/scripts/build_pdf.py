@@ -44,8 +44,13 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-from layout import REPO  # noqa: E402
-DEFAULT_DIR = REPO / "paper" / "generated"
+from layout import REPO, arch  # noqa: E402
+GENERATED_ROOT = REPO / "paper" / "generated"
+
+
+def default_dir(a: str | None = None) -> Path:
+    """Artifacts live per architecture; typeset the one asked for."""
+    return GENERATED_ROOT / (a or arch())
 
 # Order is deliberate: tables before figures, and within each the same order the
 # paper argues in. Anything found on disk but not named here is appended after,
@@ -134,6 +139,15 @@ def source_date_epoch(prov: list[str]) -> str:
     return "0"
 
 
+def tex_escape(name: str) -> str:
+    """LaTeX-safe form of a path component.
+
+    Architecture names carry underscores (`x86_64`), which LaTeX reads as
+    subscript in text mode and refuses to typeset.
+    """
+    return name.replace("\\", "").replace("_", r"\_")
+
+
 def provenance_of(d: Path) -> list[str]:
     """The header lines the generator wrote into every artifact, lifted from
     whichever one is present so the PDF states the same provenance."""
@@ -161,7 +175,7 @@ def build_document(d: Path) -> tuple[str, list[str]]:
     body = [PREAMBLE,
             r"\begin{center}",
             r"{\Large\bfseries Generated benchmark artifacts}\\[0.4em]",
-            r"{\small Typeset from \texttt{paper/generated/} by "
+            rf"{{\small Typeset from \texttt{{paper/generated/{tex_escape(d.name)}/}} by "
             r"\texttt{benchmarks/scripts/build\_pdf.py}. Every number resolves to a row in the "
             r"result set named below; see \texttt{PROVENANCE.md} for the inputs, "
             r"transformation and caveats of each artifact.}\\[0.6em]",
@@ -184,14 +198,18 @@ def escape(s: str) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--dir", default=str(DEFAULT_DIR), help="artifact directory")
+    ap.add_argument("--arch", default=None,
+                    help="architecture whose artifacts to typeset "
+                         "(default: this machine's)")
+    ap.add_argument("--dir", default=None,
+                    help="artifact directory (default: paper/generated/<arch>/)")
     ap.add_argument("--out", help="output PDF (default: <dir>/artifacts.pdf)")
     ap.add_argument("--engine", help="LaTeX engine to use")
     ap.add_argument("--check", action="store_true",
                     help="exit 1 if the built PDF would differ from the one on disk")
     a = ap.parse_args()
 
-    d = Path(a.dir)
+    d = Path(a.dir) if a.dir else default_dir(a.arch)
     if not d.is_dir():
         print(f"no artifact directory at {d}; run benchmarks/scripts/paper.py first", file=sys.stderr)
         return 2

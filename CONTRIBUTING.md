@@ -161,11 +161,13 @@ python3 benchmarks/scripts/report.py --check    # what CI runs
 ```
 
 The paper's tables and figures are generated the same way and from the same result set, into
-`paper/generated/`. A benchmark run rebuilds them for the set it just measured; `make paper`
+`paper/generated/<arch>/` — one directory per architecture, since the artifacts are a
+pure function of one result set and result sets are per-architecture. A benchmark run
+rebuilds them for the set it just measured; `make paper`
 rebuilds the repo copy after a set is promoted.
 
 ```bash
-python3 benchmarks/scripts/paper.py             # regenerate paper/generated/
+python3 benchmarks/scripts/paper.py             # regenerate paper/generated/<arch>/
 python3 benchmarks/scripts/paper.py --check     # what CI runs
 python3 benchmarks/scripts/paper.py --list      # each artifact's inputs and transformation
 python3 benchmarks/scripts/build_pdf.py         # typeset them into generated/artifacts.pdf
@@ -173,7 +175,7 @@ python3 benchmarks/scripts/build_pdf.py --check # fail if the committed PDF is s
 make paper                              # regenerate and typeset
 ```
 
-`paper/generated/artifacts.pdf` is committed. That works only because the build is
+`paper/generated/<arch>/artifacts.pdf` is committed. That works only because the build is
 byte-reproducible: `build_pdf.py` sets `SOURCE_DATE_EPOCH` from the result set's measurement date,
 so the same artifacts always typeset to the same bytes. CI does not check it — the runner has no
 LaTeX engine, and `build_pdf.py` exits 0 rather than claiming a verdict it cannot reach. It is
@@ -201,7 +203,7 @@ python3 benchmarks/scripts/run.py --per-read-stats benchmarks/results/suite-1.0/
 That records the commit that produced the rows separately in the manifest, because they come
 from a later binary than the timing rows beside them.
 
-`paper/generated/PROVENANCE.md` is generated from the same `Artifact` declarations that build the
+`paper/generated/<arch>/PROVENANCE.md` is generated from the same `Artifact` declarations that build the
 files, so it cannot document a transformation the code does not perform. Adding an artifact means
 declaring its sources, transformation, presentation and caveats — there is no separate place to
 write them down, and no way to skip it.
