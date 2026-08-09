@@ -6,7 +6,7 @@ shmap-rs.
 
 For a *maintained* comparison against Winnowmap2 and mapquik — rebuilt whenever the corpus or the
 inputs change, and scored on every benchmark run — see [`../../RESULTS.md`](../../RESULTS.md) §8 and
-[`../../benchmarks/reference_mappers.py`](../../benchmarks/).
+[`../../benchmarks/scripts/reference_mappers.py`](../../benchmarks/).
 
 | file | what |
 |---|---|

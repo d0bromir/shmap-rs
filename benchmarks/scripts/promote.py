@@ -40,7 +40,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parent
+from layout import REPO, current_dir  # noqa: E402
 sys.path.insert(0, str(HERE))
 from run import load_suite  # noqa: E402
 
@@ -85,7 +85,7 @@ def main() -> int:
         sys.exit(f"{src.name} has {man['failures']} failure(s) recorded; "
                  f"promoting a failed run would publish numbers the gate rejected")
 
-    dst = REPO / "benchmarks" / "results" / f"suite-{suite['suite_version']}" / "current"
+    dst = current_dir(suite["suite_version"])
     dst.mkdir(parents=True, exist_ok=True)
 
     print(f"promoting {src.name}")
@@ -110,14 +110,14 @@ def main() -> int:
             copied.append(p.name)
     print(f"  copied {len(copied)} file(s) into {dst.relative_to(REPO)}")
 
-    run([sys.executable, "benchmarks/report.py"], "report.py")
-    run([sys.executable, "benchmarks/paper.py"], "paper.py")
-    run([sys.executable, "benchmarks/build_pdf.py"], "build_pdf.py")
+    run([sys.executable, "benchmarks/scripts/report.py"], "report.py")
+    run([sys.executable, "benchmarks/scripts/paper.py"], "paper.py")
+    run([sys.executable, "benchmarks/scripts/build_pdf.py"], "build_pdf.py")
 
     print("\nverifying that everything regenerates to what is now on disk")
-    run([sys.executable, "benchmarks/report.py", "--check"], "report.py --check")
-    run([sys.executable, "benchmarks/paper.py", "--check"], "paper.py --check")
-    run([sys.executable, "benchmarks/build_pdf.py", "--check"], "build_pdf.py --check")
+    run([sys.executable, "benchmarks/scripts/report.py", "--check"], "report.py --check")
+    run([sys.executable, "benchmarks/scripts/paper.py", "--check"], "paper.py --check")
+    run([sys.executable, "benchmarks/scripts/build_pdf.py", "--check"], "build_pdf.py --check")
 
     if not a.commit and not a.push:
         print("\npromoted. Review `git diff`, then commit; or re-run with --commit.")
@@ -129,7 +129,7 @@ def main() -> int:
             f"Result set {src.name}: {man.get('invocations', '?')} invocations on "
             f"{man.get('host', '?')}, {man.get('failures', 0)} failures.\n\n"
             f"RESULTS.md, README.md, the paper artifacts and paper/generated/artifacts.pdf\n"
-            f"are all regenerated from it by benchmarks/promote.py, and every --check\n"
+            f"are all regenerated from it by benchmarks/scripts/promote.py, and every --check\n"
             f"passes against what was written.\n\n"
             f"Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n")
     run(["git", "add", "-A",

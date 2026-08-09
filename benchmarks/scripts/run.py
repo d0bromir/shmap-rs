@@ -25,6 +25,7 @@ import csv
 import fcntl
 import json
 import os
+import platform
 import re
 import shlex
 import subprocess
@@ -36,7 +37,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parent
+from layout import BENCH, DATASETS_TSV, REPO, RESULTS, SUITE_TOML  # noqa: E402
+from layout import arch, current_dir, resolve_dataset  # noqa: E402
 LOCKFILE = Path.home() / ".shmap-bench.lock"
 WORKROOT = Path.home() / "bench-work"
 # Where result sets are written on the benchmark host — deliberately not
@@ -184,20 +186,32 @@ def authorize_pr(pr: int, repo: str) -> tuple[str, str]:
 # --------------------------------------------------------------------------
 
 def load_suite() -> dict:
-    return tomllib.load(open(HERE / "suite.toml", "rb"))
+    return tomllib.load(open(SUITE_TOML, "rb"))
 
 
 def load_registry() -> dict:
     reg = {}
-    for line in open(HERE / "datasets.tsv"):
+    for line in open(DATASETS_TSV):
         if line.startswith("#") or not line.strip():
             continue
         f = line.rstrip("\n").split("\t")
         if f[0] == "id":
             continue
-        reg[f[0]] = dict(kind=f[1], host=f[2], path=os.path.expanduser(f[3]),
-                         bytes=f[4], records=f[5], bases=f[6])
+        # `path` is absolute and host-specific (resolved through the data
+        # root); `rel` is verbatim from the registry and is what generated
+        # docs must print, or two hosts regenerate them differently.
+        reg[f[0]] = dict(kind=f[1], host=f[2], path=str(resolve_dataset(f[3])),
+                         rel=f[3], bytes=f[4], records=f[5], bases=f[6])
     return reg
+
+
+def rustc_version() -> str:
+    """`rustc -V` as it resolves here, i.e. after rust-toolchain.toml applies."""
+    try:
+        out = subprocess.run(["rustc", "-V"], capture_output=True, text=True, cwd=REPO)
+        return out.stdout.strip() or "unknown"
+    except OSError:
+        return "unknown"
 
 
 def verify_datasets(suite: dict, reg: dict) -> None:
@@ -863,7 +877,8 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
 
     manifest = dict(
         schema=1, suite_version=suite["suite_version"], dataset_version=suite["dataset_version"],
-        commit=commit, host=suite["run"]["host"], authorized_by=authorized_by,
+        commit=commit, host=platform.node(), arch=arch(), rustc=rustc_version(),
+        configured_host=suite["run"]["host"], authorized_by=authorized_by,
         started=datetime.fromtimestamp(t0, timezone.utc).isoformat(),
         finished=datetime.now(timezone.utc).isoformat(), duration_s=round(time.time() - t0, 1),
         invocations=len(rows), failures=failed,
@@ -893,7 +908,7 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
         print((rc.stdout or rc.stderr).strip() or "artifacts PDF: no output")
     except Exception as e:                                      # noqa: BLE001
         print(f"paper artifacts failed ({e}); rebuild with "
-              f"benchmarks/paper.py {outdir} --out {outdir}/paper")
+              f"benchmarks/scripts/paper.py {outdir} --out {outdir}/paper")
 
     print(f"\n{len(rows)} invocations in {(time.time()-t0)/60:.1f} min; "
           f"{sum(1 for c in checks if not c['passed'])} check failures; wrote {outdir}")
@@ -1008,7 +1023,7 @@ def main() -> int:
             print("\n(skipping comparison: --only produces a partial result set)")
         return rc
 
-    baseline = HERE / "results" / f"suite-{suite['suite_version']}" / "current"
+    baseline = current_dir(suite["suite_version"])
     if not baseline.is_dir():
         print(f"\nno baseline at {baseline}; nothing to compare against.\n"
               f"If this run should become the baseline:  cp -r {out} {baseline}")

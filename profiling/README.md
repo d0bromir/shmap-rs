@@ -4,7 +4,7 @@ Three live tools, plus the measurements and provenance that **cannot be regenera
 
 Current benchmark numbers are not here — they are in [`../RESULTS.md`](../RESULTS.md), generated
 from [`../benchmarks/`](../benchmarks/). This directory used to hold ~400 files of shmap-rs
-profiling runs; all of it is now produced on demand by `benchmarks/run.py`, so it was removed rather
+profiling runs; all of it is now produced on demand by `benchmarks/scripts/run.py`, so it was removed rather
 than left to rot into a second, contradictory set of numbers.
 
 What survived is what a re-run cannot give back.
@@ -48,13 +48,13 @@ Two cautions before quoting them:
   bases, so a line-wrapped reference gives coordinates in file-offset space. Given a one-line
   reference it maps ~99% and agrees with shmap-rs on 96-98% of placements. See
   [`../RESULTS.md`](../RESULTS.md) §8; the current corpus is built by
-  `benchmarks/reference_mappers.py`, which passes it a one-line reference.
+  `benchmarks/scripts/reference_mappers.py`, which passes it a one-line reference.
 - These are older runs at older parameters. For a current, maintained comparison against Winnowmap2
   and mapquik, use the concordance corpus, not this file.
 
 ## datasets/ — how the read sets were made
 
-Provenance for [`../benchmarks/datasets.tsv`](../benchmarks/datasets.tsv). A dataset's numbers mean
+Provenance for [`../benchmarks/data/datasets.tsv`](../benchmarks/data/datasets.tsv). A dataset's numbers mean
 nothing without knowing what it contains.
 
 | script | dataset | what it does |
@@ -87,7 +87,7 @@ Roughly 400 files of shmap-rs profiling artifacts — `sweep_metrics/`, `full_su
 the loose `*.profile.json`, and the 157 KB `tables.md` dump — plus the drivers that produced them
 (`benchmark.py`, `bench_shmaprs_wgs.py`, `extract_tables.py`).
 
-Every one measured **shmap-rs**, which is re-measured on every run by `benchmarks/run.py`, with the
+Every one measured **shmap-rs**, which is re-measured on every run by `benchmarks/scripts/run.py`, with the
 `-x` reports archived per result set in `benchmarks/results/<suite>/<commit>/raw-profiles.tar.gz`.
 `RESULTS.md` §5 is generated from those, so the stage-breakdown tables now describe the commit being
 measured rather than whatever was current when someone last edited them by hand.

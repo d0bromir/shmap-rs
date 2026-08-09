@@ -1,13 +1,13 @@
 # Paper artifacts
 
 Tables and figures for the paper, generated from a benchmark result set by
-[`benchmarks/paper.py`](../benchmarks/paper.py). Nothing in `generated/` is written by hand.
+[`benchmarks/scripts/paper.py`](../benchmarks/scripts/paper.py). Nothing in `generated/` is written by hand.
 
 ```
-python3 benchmarks/paper.py            # rebuild generated/ from results/suite-1.0/current/
-python3 benchmarks/paper.py --check    # fail if anything is out of date (CI runs this)
-python3 benchmarks/paper.py --list     # what each artifact is built from, without building
-python3 benchmarks/build_pdf.py        # typeset them all into generated/artifacts.pdf
+python3 benchmarks/scripts/paper.py            # rebuild generated/ from results/suite-1.0/current/
+python3 benchmarks/scripts/paper.py --check    # fail if anything is out of date (CI runs this)
+python3 benchmarks/scripts/paper.py --list     # what each artifact is built from, without building
+python3 benchmarks/scripts/build_pdf.py        # typeset them all into generated/artifacts.pdf
 make paper                             # both of the above, from the repo root
 ```
 
@@ -27,9 +27,9 @@ same reason.
 ## Publishing after a benchmark run
 
 ```
-python3 benchmarks/promote.py <result-set-dir>            # regenerate + verify
-python3 benchmarks/promote.py <result-set-dir> --commit   # ... and commit
-python3 benchmarks/promote.py <result-set-dir> --push     # ... and push
+python3 benchmarks/scripts/promote.py <result-set-dir>            # regenerate + verify
+python3 benchmarks/scripts/promote.py <result-set-dir> --commit   # ... and commit
+python3 benchmarks/scripts/promote.py <result-set-dir> --push     # ... and push
 make promote RESULT_SET=<dir> ARGS=--commit               # same, from the repo root
 ```
 
@@ -45,7 +45,7 @@ every headline number in the repository, so it should be a decision rather than 
 quietly loses its data. Backfill the *source* set, then promote:
 
 ```
-python3 benchmarks/run.py --per-read-stats <result-set-dir>
+python3 benchmarks/scripts/run.py --per-read-stats <result-set-dir>
 ```
 
 ## Using them in the paper

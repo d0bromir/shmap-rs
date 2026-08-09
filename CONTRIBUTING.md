@@ -40,10 +40,11 @@ defended. The same applies to unrelated cleanups — they get their own PR.
 `.github/workflows/ci.yml` runs on every push and pull request:
 
 `cargo fmt --check` · `cargo build --release --locked` · `cargo clippy -D warnings` ·
-`cargo test --release` · `cargo test` (debug) · `benchmarks/validate_suite.py` ·
-`benchmarks/test_compare.py` · `benchmarks/test_concordance.py` · `benchmarks/test_run.py` ·
-`benchmarks/test_charts.py` · `benchmarks/report.py --check` · `benchmarks/charts.py --check` ·
-`benchmarks/paper.py --check`
+`cargo test --release` · `cargo test` (debug) · `benchmarks/scripts/test_layout.py` ·
+`benchmarks/scripts/validate_suite.py` ·
+`benchmarks/scripts/test_compare.py` · `benchmarks/scripts/test_concordance.py` · `benchmarks/scripts/test_run.py` ·
+`benchmarks/scripts/test_charts.py` · `benchmarks/scripts/report.py --check` · `benchmarks/scripts/charts.py --check` ·
+`benchmarks/scripts/paper.py --check`
 
 Two of those are easy to trip over:
 
@@ -51,7 +52,7 @@ Two of those are easy to trip over:
   that `best_fixed_length` restores `diff_hist` exactly, that the parallel reader's second pass
   writes what its first pass counted, that a segment's parts tile its buffer with no gaps.
 - **`report.py --check` fails if `RESULTS.md` *or* `README.md` was hand-edited.** Both carry
-  generated regions; regenerate with `python3 benchmarks/report.py`. See §5.
+  generated regions; regenerate with `python3 benchmarks/scripts/report.py`. See §5.
 
 **Do not add a `uses:` line to the workflow.** The repository is set to `allowed_actions: local_only`,
 so a third-party action does not produce a failing step — it aborts the whole run as
@@ -67,7 +68,7 @@ GitHub self-hosted runner.
 A maintainer runs, on `a2`:
 
 ```bash
-python3 benchmarks/run.py --pr 123 --post
+python3 benchmarks/scripts/run.py --pr 123 --post
 ```
 
 That single command authorizes, measures, compares against the baseline, and posts the verdict to
@@ -88,8 +89,8 @@ rather than failing, so two of them cannot contaminate each other's timings.
 
 ## 2 What decides the merge
 
-`benchmarks/compare.py` applies the table in [`VERSIONING.md`](VERSIONING.md) mechanically, with the
-numbers from `benchmarks/suite.toml`:
+`benchmarks/scripts/compare.py` applies the table in [`VERSIONING.md`](VERSIONING.md) mechanically, with the
+numbers from `benchmarks/data/suite.toml`:
 
 | verdict | condition |
 |---|---|
@@ -115,7 +116,7 @@ accuracy blocks to REVIEW. Name the affected records in the commit message, as `
 ```bash
 cargo fmt && cargo clippy --release --all-targets -- -D warnings
 cargo test --release && cargo test
-python3 benchmarks/validate_suite.py
+python3 benchmarks/scripts/validate_suite.py
 ```
 
 That is the cheap tier, locally. It takes about a minute and saves a round trip.
@@ -131,13 +132,13 @@ measured as a net loss more than once. Measure before and after; do not reason a
 
 ## 4 Adding or changing a benchmark
 
-Everything measured is defined in `benchmarks/suite.toml`. If a parameter is not in that file, it is
+Everything measured is defined in `benchmarks/data/suite.toml`. If a parameter is not in that file, it is
 not passed to the binary — do not add flags in a script.
 
 - **Adding** a benchmark is a `suite_version` MINOR bump. Old results stay comparable.
 - **Changing** an existing one — parameters, thread counts, dataset binding — is a MAJOR bump, and
   results across that boundary must not be diffed. `compare.py` enforces this and returns ERROR.
-- **Datasets are append-only.** A regenerated input gets a new id in `benchmarks/datasets.tsv`,
+- **Datasets are append-only.** A regenerated input gets a new id in `benchmarks/data/datasets.tsv`,
   never a redefinition, so historical results keep resolving to what they actually measured. Every
   run re-checks each file's identity and fails rather than measuring a changed input.
 
@@ -147,7 +148,7 @@ not passed to the binary — do not add flags in a script.
 
 `RESULTS.md` is the single place benchmark numbers live, and `README.md`'s headline figures are
 generated from the same result set. The regions between `<!-- BEGIN GENERATED -->` markers are
-produced by `benchmarks/report.py` — edit them and CI fails. The prose around them is written by
+produced by `benchmarks/scripts/report.py` — edit them and CI fails. The prose around them is written by
 people and is not derivable from a TSV.
 
 README.md was added as a target after its headline table drifted for several commits: it advertised
@@ -155,8 +156,8 @@ README.md was added as a target after its headline table drifted for several com
 because `--check` only looked at RESULTS.md.
 
 ```bash
-python3 benchmarks/report.py            # regenerate from results/suite-<v>/current/
-python3 benchmarks/report.py --check    # what CI runs
+python3 benchmarks/scripts/report.py            # regenerate from results/suite-<v>/current/
+python3 benchmarks/scripts/report.py --check    # what CI runs
 ```
 
 The paper's tables and figures are generated the same way and from the same result set, into
@@ -164,11 +165,11 @@ The paper's tables and figures are generated the same way and from the same resu
 rebuilds the repo copy after a set is promoted.
 
 ```bash
-python3 benchmarks/paper.py             # regenerate paper/generated/
-python3 benchmarks/paper.py --check     # what CI runs
-python3 benchmarks/paper.py --list      # each artifact's inputs and transformation
-python3 benchmarks/build_pdf.py         # typeset them into generated/artifacts.pdf
-python3 benchmarks/build_pdf.py --check # fail if the committed PDF is stale
+python3 benchmarks/scripts/paper.py             # regenerate paper/generated/
+python3 benchmarks/scripts/paper.py --check     # what CI runs
+python3 benchmarks/scripts/paper.py --list      # each artifact's inputs and transformation
+python3 benchmarks/scripts/build_pdf.py         # typeset them into generated/artifacts.pdf
+python3 benchmarks/scripts/build_pdf.py --check # fail if the committed PDF is stale
 make paper                              # regenerate and typeset
 ```
 
@@ -181,7 +182,7 @@ checked on the benchmark host during promotion instead.
 **Publishing a finished run:**
 
 ```bash
-python3 benchmarks/promote.py <result-set-dir> --commit
+python3 benchmarks/scripts/promote.py <result-set-dir> --commit
 ```
 
 That copies the set over `current/`, regenerates RESULTS.md, README.md, the paper artifacts and
@@ -194,7 +195,7 @@ afterwards without re-measuring anything else:
 
 ```bash
 cargo build --release
-python3 benchmarks/run.py --per-read-stats benchmarks/results/suite-1.0/current
+python3 benchmarks/scripts/run.py --per-read-stats benchmarks/results/suite-1.0/current
 ```
 
 That records the commit that produced the rows separately in the manifest, because they come
@@ -206,7 +207,7 @@ declaring its sources, transformation, presentation and caveats — there is no 
 write them down, and no way to skip it.
 
 External mappers (Winnowmap2, mapquik) are a **concordance** corpus, not ground truth. They are run
-once per dataset by `benchmarks/reference_mappers.py` and cached; `run.py` only joins against them.
+once per dataset by `benchmarks/scripts/reference_mappers.py` and cached; `run.py` only joins against them.
 Where shmap-rs and Winnowmap2 disagree, nothing says which is right — accuracy claims come from B02,
 whose reads carry true positions. Report the two separately and label them.
 

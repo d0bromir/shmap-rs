@@ -44,7 +44,7 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parent
+from layout import REPO  # noqa: E402
 DEFAULT_DIR = REPO / "paper" / "generated"
 
 # Order is deliberate: tables before figures, and within each the same order the
@@ -162,7 +162,7 @@ def build_document(d: Path) -> tuple[str, list[str]]:
             r"\begin{center}",
             r"{\Large\bfseries Generated benchmark artifacts}\\[0.4em]",
             r"{\small Typeset from \texttt{paper/generated/} by "
-            r"\texttt{benchmarks/build\_pdf.py}. Every number resolves to a row in the "
+            r"\texttt{benchmarks/scripts/build\_pdf.py}. Every number resolves to a row in the "
             r"result set named below; see \texttt{PROVENANCE.md} for the inputs, "
             r"transformation and caveats of each artifact.}\\[0.6em]",
             r"{\small\ttfamily " + r" \\ ".join(escape(p) for p in prov) + r"}",
@@ -193,7 +193,7 @@ def main() -> int:
 
     d = Path(a.dir)
     if not d.is_dir():
-        print(f"no artifact directory at {d}; run benchmarks/paper.py first", file=sys.stderr)
+        print(f"no artifact directory at {d}; run benchmarks/scripts/paper.py first", file=sys.stderr)
         return 2
     out = Path(a.out) if a.out else d / "artifacts.pdf"
 
@@ -245,7 +245,7 @@ def main() -> int:
                 return 0
             why = "differs from" if out.exists() else "is missing beside"
             print(f"{out.name} {why} the artifacts in {d}\n"
-                  f"rebuild with: python3 benchmarks/build_pdf.py", file=sys.stderr)
+                  f"rebuild with: python3 benchmarks/scripts/build_pdf.py", file=sys.stderr)
             return 1
         out.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(pdf, out)

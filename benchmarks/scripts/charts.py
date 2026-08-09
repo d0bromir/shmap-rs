@@ -75,6 +75,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from compare import RESULTS  # noqa: E402
+from layout import current_dir  # noqa: E402
 from run import load_suite  # noqa: E402
 
 # Slices below this are folded into a single "other" wedge: a pie cannot show
@@ -354,7 +355,7 @@ def index_html(names: list[str], d: Path, metric: str, threads: str) -> str:
 </style>
 <h1>shmap-rs profiling charts</h1>
 <p>Result set <code>{esc(d.name)}</code> · metric <code>{esc(metric)}</code> ·
-   <code>-@{esc(threads)}</code>. Regenerate with <code>python3 benchmarks/charts.py</code>.</p>
+   <code>-@{esc(threads)}</code>. Regenerate with <code>python3 benchmarks/scripts/charts.py</code>.</p>
 <p>Chain: <code>shmap -x</code> &rarr; <code>run.py</code> &rarr;
    <code>profiles.tsv</code> &rarr; <code>charts.py</code> &rarr; these files.
    Time pies are CPU-seconds summed across threads, never wall-clock.</p>
@@ -398,12 +399,15 @@ def main() -> int:
     ap.add_argument("result_set", nargs="?", help="default: the suite's current/")
     ap.add_argument("--check", action="store_true",
                     help="exit 1 if any chart would change (does not write)")
+    ap.add_argument("--arch", default=None,
+                    help="architecture whose results to use; default: this machine's "
+                         "(x86_64, aarch64)")
     ap.add_argument("--metric", default="Containment")
     ap.add_argument("--threads", default="1")
     args = ap.parse_args()
 
     d = Path(args.result_set) if args.result_set else (
-        RESULTS / f"suite-{load_suite()['suite_version']}" / "current")
+        current_dir(load_suite()["suite_version"], args.arch))
     if not d.is_dir():
         sys.exit(f"no such result set: {d}")
 
@@ -418,7 +422,7 @@ def main() -> int:
         if stale:
             print(f"charts are out of date in {d.name} ({len(stale)}): "
                   f"{', '.join(stale[:4])}{' …' if len(stale) > 4 else ''}")
-            print("run `python3 benchmarks/charts.py` and commit the result")
+            print("run `python3 benchmarks/scripts/charts.py` and commit the result")
             return 1
         print(f"{len(files)} charts are current with {d.name}")
         return 0

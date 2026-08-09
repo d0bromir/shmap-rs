@@ -10,7 +10,7 @@ Every benchmark run archives those per result set in
 `benchmarks/results/<suite>/<commit>/raw-profiles.tar.gz`, and RESULTS.md §5 is generated from them.
 
 ```sh
-python3 benchmarks/run.py --commit <sha>          # the maintained runner
+python3 benchmarks/scripts/run.py --commit <sha>          # the maintained runner
 target/release/shmap -s ref.fa -p reads.fa -x --profile-log run.json   # one-off
 ```
 

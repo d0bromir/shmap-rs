@@ -1,0 +1,22 @@
+# Pin the compiler, not just the dependencies.
+#
+# `Cargo.lock` is committed and every build uses `--locked`, so the crate
+# graph is already reproducible. The compiler was not: a2 had 1.93.1 and
+# galaxy's fresh rustup installed 1.97.1, which would have made every
+# x86_64-vs-aarch64 comparison a comparison of two architectures *and* two
+# compilers at once, with no way to attribute a difference to either.
+#
+# An exact version, never "stable": a floating channel would silently change
+# the compiler under a result set and make two runs incomparable for a reason
+# nothing records.
+#
+# Raised to 1.97.1 (current stable, 2026-07-14) on both hosts together,
+# deliberately and before measuring. Note what that costs: the x86_64 result
+# sets already committed under benchmarks/results/suite-1.0/x86_64/ were
+# measured with 1.93.1, so a timing difference against those is a change of
+# compiler as much as of code. The first run on each host after this bump
+# establishes a new baseline rather than judging a change.
+
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]

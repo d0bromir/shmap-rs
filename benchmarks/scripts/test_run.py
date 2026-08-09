@@ -8,7 +8,7 @@ function slicing out exactly the reads file's first record — get that wrong
 silently measures the wrong thing, and every index_s/map_s the C++ reports
 is wrong with it.
 
-  python3 benchmarks/test_run.py
+  python3 benchmarks/scripts/test_run.py
 """
 
 from __future__ import annotations
