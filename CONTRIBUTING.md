@@ -43,8 +43,8 @@ defended. The same applies to unrelated cleanups — they get their own PR.
 `cargo test --release` · `cargo test` (debug) · `benchmarks/scripts/test_layout.py` ·
 `benchmarks/scripts/validate_suite.py` ·
 `benchmarks/scripts/test_compare.py` · `benchmarks/scripts/test_concordance.py` · `benchmarks/scripts/test_run.py` ·
-`benchmarks/scripts/test_charts.py` · `benchmarks/scripts/report.py --check` · `benchmarks/scripts/charts.py --check` ·
-`benchmarks/scripts/paper.py --check`
+`benchmarks/scripts/test_charts.py` · `benchmarks/scripts/test_crossarch.py` · `benchmarks/scripts/report.py --check` ·
+`benchmarks/scripts/charts.py --check` · `benchmarks/scripts/paper.py --check` · `benchmarks/scripts/crossarch.py --check`
 
 Two of those are easy to trip over:
 
@@ -172,6 +172,10 @@ python3 benchmarks/scripts/paper.py --check     # what CI runs
 python3 benchmarks/scripts/paper.py --list      # each artifact's inputs and transformation
 python3 benchmarks/scripts/build_pdf.py         # typeset them into generated/artifacts.pdf
 python3 benchmarks/scripts/build_pdf.py --check # fail if the committed PDF is stale
+
+python3 benchmarks/scripts/crossarch.py         # every architecture in one document
+python3 benchmarks/scripts/crossarch.py --pdf   # ...and typeset it
+python3 benchmarks/scripts/crossarch.py --check # what CI runs
 make paper                              # regenerate and typeset
 ```
 

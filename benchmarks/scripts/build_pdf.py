@@ -56,6 +56,16 @@ def default_dir(a: str | None = None) -> Path:
 # paper argues in. Anything found on disk but not named here is appended after,
 # so a new artifact appears in the PDF without being registered twice.
 PREFERRED_ORDER = [
+    # cross-architecture, in the order crossarch.py argues: which machines,
+    # then the evidence they ran the same computation, then the comparison
+    # that evidence licenses.
+    "table_crossarch_machines",
+    "table_crossarch_agreement",
+    "table_crossarch_headline",
+    "table_crossarch_stages",
+    "fig_crossarch_thread_scaling",
+    "fig_crossarch_stages",
+    # single architecture
     "table_mapper_comparison",
     "table_seed_heuristic",
     "fig_thread_scaling",

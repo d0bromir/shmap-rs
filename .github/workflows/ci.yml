@@ -134,6 +134,12 @@ jobs:
       - name: profiling charts draw what they claim
         run: python3 benchmarks/scripts/test_charts.py
 
+      # The only script allowed to put two machines' numbers in one table, so
+      # what is pinned is that it refuses to compare what is not comparable
+      # and shouts when the two runs disagree about the algorithm itself.
+      - name: cross-architecture aggregation compares like with like
+        run: python3 benchmarks/scripts/test_crossarch.py
+
   # Generated artifacts are checked against a committed result set, and every
   # result set that exists today was measured on x86_64. Pinned with --arch so
   # the check does not depend on which runner it lands on.
@@ -171,6 +177,12 @@ jobs:
       # a pure function of the result set, so this is a real equality check.
       - name: paper artifacts match the current result set
         run: python3 benchmarks/scripts/paper.py --check --arch x86_64
+
+      # No --arch: this one is about every promoted architecture at once. With
+      # only one promoted it passes without writing anything, so it is safe to
+      # run here before the second machine's results land.
+      - name: cross-architecture document matches every result set
+        run: python3 benchmarks/scripts/crossarch.py --check
 
       # The simulators produce the only datasets that can support an accuracy
       # claim, so a syntax error in them is a silent hole in the evidence.
