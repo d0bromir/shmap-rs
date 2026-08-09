@@ -15,7 +15,8 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q5 | Build the NUMA-aware index replication Q4 scoped but didn't ship | `fix-numa-index-replication` | #12 | dropped |
 | Q6 | Indexing time vs mapping time, per tool, for third-party comparisons | `q6-index-vs-mapping-time` | #14 | merged |
 | Q7 | Optimize the refinement step (it differs for Containment/Jaccard) | `q7-refinement-jaccard-bound` | #16 | merged |
-| Q8 | Can SIMD be used in some of the steps of mapping a read? | `q8-simd-mapping-steps` | #17 | in review |
+| Q8 | Can SIMD be used in some of the steps of mapping a read? | `q8-simd-mapping-steps` | #17 | merged |
+| Q9 | Software prefetching for the pruning lookups | `q9-prefetch-refine` | #18 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -662,6 +663,49 @@ tie-break semantics correctly needs real care for a reward this size.
 **Outcome.** No `src/` change. SIMD is not a strong lever for the current dominant per-read mapping
 costs — they are memory-latency-bound and hashtable/pointer-chasing-heavy, not the regime SIMD
 helps with. Documented rather than attempted, matching how Q4/Q7 handled findings of this shape.
+
+---
+
+## Q9 — Software prefetching for the pruning lookups
+
+**Asked** 2026-08-03, follow-up to Q8 · **Branch** `q9-prefetch-refine` · **PR** #18 · **Status**
+in review
+
+**Question.** Following Q8's finding that SIMD doesn't fit the dominant per-read costs because
+they're memory-latency-bound: does software prefetching — the technique that actually targets a
+latency-bound loop — help instead?
+
+**Answer.** Probed before touching any real code, and measured negative. Full account in
+[RESULTS.md §11](RESULTS.md#11-what-to-try-next) ("Software prefetching for the pruning lookups —
+probed, measured negative"); summary here.
+
+**Refined the target first.** `best_fixed_length` (Q7/Q8's focus) mostly touches `p_ht`/`diff_hist`
+— small, per-read, cache-resident structures by the time they matter. The function that actually
+does random access into the multi-GB reference index is `matches_in_bucket` (called from
+`seed_heuristic_pass`, during pruning) via `tidx.single_hit`/`multi_hits` — and it's the one whose
+own doc comment already calls the workload memory-latency bound. That's the correct target for a
+latency-hiding technique, not `best_fixed_length`.
+
+**Probed, not implemented.** `profiling/prefetch_probe.rs`: an open-addressing table sized to this
+host's real per-shard scale (4M entries, ~100 MB, well past L3), queried at real-run order of
+magnitude (20M lookups), three hit rates, lookahead depths 4-32. Three variants against the same
+table and query stream: plain sequential baseline, safe-Rust lookahead (reordered but no explicit
+hint), and explicit `_mm_prefetch`.
+
+- Plain lookahead (no hardware hint): **consistently 35-40% slower** than baseline — the ring-buffer
+  bookkeeping isn't compensated by anything.
+- Explicit `_mm_prefetch`, shallow depth (`D=4`): still slower (0.83-0.86x).
+- Explicit `_mm_prefetch`, deeper (`D=16-32`): roughly breaks even (0.96-1.05x) — never a clear win.
+
+Baseline itself runs ~25-30 ns/query for a table many times larger than L3 — fast enough that the
+CPU's own out-of-order execution is already overlapping independent loads without help, leaving
+little latency for explicit prefetching to additionally hide.
+
+**Outcome.** No `src/` change — the probe answered the question before any real code needed to
+change, so there is nothing to benchmark against the official suite. The hypothesis was reasonable
+(this loop is genuinely memory-latency bound, confirmed independently by its own doc comment) but
+doesn't survive contact with a real measurement: modern out-of-order execution already does most of
+what explicit prefetching would add, for this access pattern and table size, on this host.
 
 ---
 

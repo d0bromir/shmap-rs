@@ -1423,6 +1423,40 @@ are memory-latency-bound and hashtable/pointer-chasing-heavy, the regime SIMD (a
 technique) does not help. The one place with genuinely uniform arithmetic on that path is too
 cheap, relative to the memory access around it, to move measurably.
 
+### Software prefetching for the pruning lookups — probed, measured negative
+
+`seed_heuristic_pass`'s own doc comment already calls that workload memory-latency bound, and it is
+the function that actually does random access into the multi-GB reference index
+(`matches_in_bucket`'s `tidx.single_hit`/`multi_hits`, keyed by k-mer hash) — a different, larger
+structure than `best_fixed_length`'s own `p_ht`/`diff_hist` above, which are per-read and small
+enough to be cache-resident by the time they matter. The textbook fix for a confirmed
+latency-bound, sequential-but-independent-lookup loop is software prefetching: hint the hardware to
+start fetching lookup `i+D`'s cache line while still processing lookup `i`, hiding the DRAM
+round-trip instead of paying it serially.
+
+Tested with a standalone probe (`profiling/prefetch_probe.rs`) before touching any real code — an
+open-addressing table sized to this host's real per-shard scale (4M entries, ~100 MB, well past
+this host's L3), queried at the same order of magnitude as a real run (20M lookups), across three
+hit rates and lookahead depths 4-32:
+
+| variant | vs. baseline |
+|---|---|
+| plain lookahead (safe Rust, reordered, no explicit hint) | **0.64-0.69x — consistently slower** |
+| explicit `_mm_prefetch`, `D=4` | 0.83-0.86x — still slower |
+| explicit `_mm_prefetch`, `D=16-32` | 0.96-1.05x — roughly breaks even, never a clear win |
+
+Baseline itself runs at ~25-30 ns/query (~75-90 cycles at this host's clock) for a table many times
+larger than L3 — fast enough that the CPU's own out-of-order execution is already overlapping
+independent loads on its own, leaving little latency for explicit prefetching to additionally hide.
+The safe-Rust reordering variant is a clean loss (the ring-buffer bookkeeping isn't compensated by
+anything); the unsafe explicit-hint variant is at best a wash.
+
+**Conclusion.** No implementation in `src/` — the probe answered the question before any real code
+needed to change. The hypothesis (this loop resembles a classic "hide DRAM latency with software
+prefetch" case) does not survive contact with a real measurement on this host: modern out-of-order
+execution is already doing most of what explicit prefetching would add, for this access pattern
+and table size.
+
 ### Measurements the upstream evaluation makes that this suite does not
 
 Checked against the algorithm's own (unpublished) evaluation plan on 2026-08-02. §5b closed the
