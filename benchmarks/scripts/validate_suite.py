@@ -10,7 +10,7 @@ import sys, tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from layout import DATASETS_TSV, SUITE_TOML  # noqa: E402
+from layout import DATASETS_TSV, SUITE_TOML, arch, resolve_dataset  # noqa: E402
 
 suite = tomllib.load(open(SUITE_TOML, "rb"))
 
@@ -30,8 +30,13 @@ for b in suite["benchmark"]:
         ds = b[key]
         if ds not in reg:
             errs.append(f"{b['id']}: dataset '{ds}' not in datasets.tsv")
-        elif reg[ds]["host"] != host:
-            errs.append(f"{b['id']}: dataset '{ds}' is on host '{reg[ds]['host']}', run.host is '{host}'")
+        elif not resolve_dataset(reg[ds]["path"]).exists():
+            # The registry's `host` column is provenance -- where a dataset was
+            # first registered -- not a gate. Whether it is usable *here* is a
+            # question for the filesystem, and the corpus resolves through the
+            # same relative root on every host, so this is the honest check.
+            errs.append(f"{b['id']}: dataset '{ds}' not present on this host at "
+                        f"{resolve_dataset(reg[ds]['path'])} — see benchmarks/data/README.md")
         elif reg[ds]["bytes"] == "MISSING":
             errs.append(f"{b['id']}: dataset '{ds}' is marked MISSING in the registry")
     if b["params"] not in suite["params"]:
@@ -53,7 +58,9 @@ subject = sum(len(b["metrics"]) * len(b["threads"]) for b in suite["benchmark"])
 refrep = suite["run"]["reference_impl"]["repeats"]
 reference = sum(len(b["metrics"]) * len(b["reference_impl_threads"]) * refrep for b in suite["benchmark"])
 
-print(f"suite_version {suite['suite_version']}  dataset_version {suite['dataset_version']}  host {host}")
+import platform
+print(f"suite_version {suite['suite_version']}  dataset_version "
+      f"{suite['dataset_version']}  running on {platform.node()} ({arch()})")
 print(f"benchmarks: {len(ids)}  ({', '.join(ids)})")
 print(f"invocations: {subject} subject + {reference} reference = {subject + reference}")
 print(f"blocking checks: {', '.join(k for k, v in suite['checks'].items() if v.get('blocking'))}")

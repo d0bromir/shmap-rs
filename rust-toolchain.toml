@@ -1,0 +1,20 @@
+# Pin the compiler, not just the dependencies.
+#
+# `Cargo.lock` is committed and every build uses `--locked`, so the crate
+# graph is already reproducible. The compiler was not: a2 had 1.93.1 and
+# galaxy's fresh rustup installed 1.97.1, which would have made every
+# x86_64-vs-aarch64 comparison a comparison of two architectures *and* two
+# compilers at once, with no way to attribute a difference to either.
+#
+# Pinned to what the existing x86_64 baselines in
+# benchmarks/results/suite-1.0/x86_64/ were actually measured with, so those
+# results stay valid and the new architecture is the only variable.
+#
+# rustup honours this automatically and fetches the toolchain on first use.
+# Raising it is a deliberate act: it invalidates cross-arch comparability
+# with every result set measured before the change, so bump it on both hosts
+# and re-measure, or not at all.
+
+[toolchain]
+channel = "1.93.1"
+components = ["rustfmt", "clippy"]

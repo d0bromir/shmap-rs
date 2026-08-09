@@ -25,6 +25,7 @@ import csv
 import fcntl
 import json
 import os
+import platform
 import re
 import shlex
 import subprocess
@@ -867,7 +868,8 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
 
     manifest = dict(
         schema=1, suite_version=suite["suite_version"], dataset_version=suite["dataset_version"],
-        commit=commit, host=suite["run"]["host"], authorized_by=authorized_by,
+        commit=commit, host=platform.node(), arch=arch(),
+        configured_host=suite["run"]["host"], authorized_by=authorized_by,
         started=datetime.fromtimestamp(t0, timezone.utc).isoformat(),
         finished=datetime.now(timezone.utc).isoformat(), duration_s=round(time.time() - t0, 1),
         invocations=len(rows), failures=failed,

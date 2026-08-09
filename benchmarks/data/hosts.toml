@@ -30,7 +30,10 @@ notes       = "4x16 Xeon Gold 5218, 4 NUMA nodes, 376 GB. See results/suite-1.0/
 arch        = "aarch64"
 address     = "192.168.191.12"
 user        = "mpiuser"
-# cores/thread_cap left unset until the machine has been inspected — writing
-# a guess here would silently cap or oversubscribe the thread sweep.
+cores       = 128
+# Swept to 64, not 128, so both hosts sweep the same thread counts and the
+# two result trees stay directly comparable. The spare cores are a separate
+# question, not a change to the shared matrix.
+thread_cap  = 64
 data_root   = "/home/mpiuser"
-notes       = "ARM host. Provision with scripts/sync_data.py; see results/suite-1.0/aarch64/ARCH.md once it exists."
+notes       = "ARM Neoverse-N1, 1 socket, 1 NUMA node, 246 GB. The single NUMA node makes this the control for the Q4/Q5 findings. See results/suite-1.0/aarch64/ARCH.md."
