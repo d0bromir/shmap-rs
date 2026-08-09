@@ -49,7 +49,10 @@ from run import load_suite  # noqa: E402
 # and that is deliberately not committed.
 ARTIFACT_FILES = ["results.tsv", "checks.tsv", "profiles.tsv", "manifest.json",
                   "raw-profiles.tar.gz"]
-ARTIFACT_GLOBS = ["per-read-*.tsv"]
+# `chart-*` are regenerable from profiles.tsv, but they travel with the
+# result set anyway: a promoted set should be viewable without anyone
+# having to re-derive its pictures first.
+ARTIFACT_GLOBS = ["per-read-*.tsv", "chart-*.svg", "chart-index.html"]
 
 
 def run(cmd: list[str], what: str) -> None:

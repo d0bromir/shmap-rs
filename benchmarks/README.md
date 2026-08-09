@@ -18,6 +18,8 @@ version means and for the rule a pull request has to satisfy.
 | `compare.py` | diffs two result sets and returns the PR verdict as its exit code | **in place** |
 | `test_compare.py` | 25 synthetic cases pinning those verdicts; runs in CI | **in place** |
 | `report.py` | regenerates the marked regions of `../RESULTS.md` | **in place** |
+| `charts.py` | draws pie charts of `profiles.tsv` — the picture of the profiling tables | **in place** |
+| `test_charts.py` | aggregation, wedge geometry and partition-guard cases; runs in CI | **in place** |
 | `reference_mappers.py` | builds the cached external-mapper corpus (once, not per PR) | **in place** |
 | `concordance.py` | scores a shmap-rs PAF against a cached external PAF | **in place** |
 | `test_concordance.py` | interval-arithmetic and scoring cases; runs in CI | **in place** |
@@ -58,7 +60,23 @@ datasets.tsv  ->  suite.toml  ->  results/<suite>/<commit>/results.tsv
                                      -> raw/ (-x reports behind each row)
                                      -> compare.py (verdict vs current/)
                                      -> report.py  -> ../RESULTS.md
+                                     -> profiles.tsv -> charts.py -> chart-*.svg
 ```
+
+The profiling branch of that chain, spelled out, because every link is a file
+somebody can open:
+
+```
+shmap -x --profile-log     one JSON report per invocation        profiling
+  -> run.py                write_profiles_tsv()                  script
+  -> profiles.tsv          one row per invocation, one col/stage  tables
+  -> charts.py             reads the table, never the JSON        script
+  -> chart-*.svg           + chart-index.html to browse them      graphics
+```
+
+`charts.py` deliberately reads `profiles.tsv` rather than `raw/`: the table is
+the reviewed, checked-in form of the data, so every wedge traces to a row a
+reader can look up, and each chart footers the exact row it came from.
 
 What is still hand-run rather than wired in: `../profiling/adjudicate_disagreements.py`, which
 scores disagreements against ground truth and is an investigation tool, not a gate.
@@ -114,7 +132,15 @@ results/suite-1.0/<version>-<commit12>-<date>/
   profiles.tsv           one row per invocation, one column per stage — the readable -x view
   checks.tsv             every check, pass/fail, with the detail
   raw-profiles.tar.gz    the full -x JSON reports and time -v records
+  chart-*.svg            pie charts drawn from profiles.tsv by charts.py
+  chart-index.html       all of the above on one page, for browsing
 ```
+
+The charts are written by `run.py` at the end of a run and can be regenerated
+at any time with `python3 benchmarks/charts.py` — they are a view of
+`profiles.tsv`, never a separate measurement. Time pies are CPU-seconds summed
+across threads: `profiles.tsv` warns in its own header that `cpu_*` and
+`wall_*` must not be divided into each other, and the charts hold to that.
 
 The directory is named by the **binary's own `--version`**, then the commit, then the date — so a
 reader looking for a release's numbers does not have to open a manifest to find the SHA.

@@ -671,6 +671,22 @@ def write_profiles_tsv(outdir: Path, rows: list[dict]) -> None:
         for r in out:
             fo.write("\t".join(r) + "\n")
 
+    # Last link of the chain: profiles.tsv is the *table*, the charts are the
+    # picture of it. Hung off this function rather than off its two callers so
+    # a fresh run and a --recheck both get charts without either remembering
+    # to ask. Imported here, not at module scope: charts.py imports this
+    # module for `load_suite`, so a top-level import would be circular.
+    #
+    # Never fatal. A measured run costs ~78 minutes of exclusive host time;
+    # losing it because a chart could not be drawn would be absurd, so this
+    # reports and carries on. `charts.py --check` in CI is what actually
+    # holds the charts to account.
+    try:
+        from charts import write_charts
+        print(f"  wrote {write_charts(outdir)} profiling charts (chart-index.html)")
+    except Exception as e:
+        print(f"  !! charts skipped: {e}")
+
 
 def collect_per_read_stats(suite: dict, reg: dict, outdir: Path, binary: str, lock) -> list[str]:
     """Per-read time and match counts, for the scaling scatter.

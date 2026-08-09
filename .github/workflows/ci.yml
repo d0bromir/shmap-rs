@@ -99,6 +99,16 @@ jobs:
       - name: one_read_fasta isolates exactly the first record
         run: python3 benchmarks/test_run.py
 
+      # A wrong chart looks as authoritative as a right one, so the
+      # aggregation rule, the wedge maths and the partition guard are pinned.
+      - name: profiling charts draw what they claim
+        run: python3 benchmarks/test_charts.py
+
+      # Same reason report.py --check exists: charts are generated and
+      # committed, so a stale one is a silent lie about the current numbers.
+      - name: charts match the current result set
+        run: python3 benchmarks/charts.py --check
+
       # Catches a hand-edited results table, which is how this repo previously
       # came to carry contradictory numbers.
       - name: RESULTS.md matches the current result set
