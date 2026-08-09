@@ -17,7 +17,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q7 | Optimize the refinement step (it differs for Containment/Jaccard) | `q7-refinement-jaccard-bound` | #16 | merged |
 | Q8 | Can SIMD be used in some of the steps of mapping a read? | `q8-simd-mapping-steps` | #17 | merged |
 | Q9 | Software prefetching for the pruning lookups | `q9-prefetch-refine` | #18 | in review |
-| Q10 | 2-bit-packed sequence encoding for sketching | `q10-2bit-packed-sketching` | (open) | in review |
+| Q10 | 2-bit-packed sequence encoding for sketching | `q10-2bit-packed-sketching` | #20 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -712,7 +712,7 @@ what explicit prefetching would add, for this access pattern and table size, on 
 
 ## Q10 — 2-bit-packed sequence encoding for sketching
 
-**Asked** 2026-08-09, follow-up after Q9 · **Branch** `q10-2bit-packed-sketching` · **PR** (open) ·
+**Asked** 2026-08-09, follow-up after Q9 · **Branch** `q10-2bit-packed-sketching` · **PR** #20 ·
 **Status** in review
 
 **Question.** After Q9, asked whether the negative results so far meant nothing else could be
