@@ -54,6 +54,13 @@ ARTIFACT_FILES = ["results.tsv", "checks.tsv", "profiles.tsv", "manifest.json",
 # having to re-derive its pictures first.
 ARTIFACT_GLOBS = ["per-read-*.tsv", "chart-*.svg", "chart-index.html"]
 
+# RESULTS.md, README.md and the paper artifacts describe one architecture.
+# Every headline number in them -- the C++ comparison, the memory table, the
+# thread-scaling curve -- was measured on x86_64, and there is no
+# multi-architecture reporting yet. Promoting another architecture updates
+# its own result tree and charts, and deliberately leaves those documents be.
+DOC_ARCH = "x86_64"
+
 
 def run(cmd: list[str], what: str) -> None:
     print(f"\n$ {' '.join(str(c) for c in cmd)}")
@@ -85,12 +92,18 @@ def main() -> int:
         sys.exit(f"{src.name} has {man['failures']} failure(s) recorded; "
                  f"promoting a failed run would publish numbers the gate rejected")
 
-    dst = current_dir(suite["suite_version"])
+    # Where a result set belongs is a property of the set, not of the machine
+    # doing the promoting: take it from the manifest so a galaxy set promoted
+    # from a2 still lands under aarch64. Sets measured before the multi-arch
+    # split carry no `arch` and were all x86_64.
+    set_arch = man.get("arch") or "x86_64"
+    dst = current_dir(suite["suite_version"], set_arch)
     dst.mkdir(parents=True, exist_ok=True)
 
     print(f"promoting {src.name}")
     print(f"  commit   {man.get('commit', '?')[:12]}")
     print(f"  host     {man.get('host', '?')}")
+    print(f"  arch     {set_arch}")
     print(f"  measured {man.get('finished', '?')[:10]}")
 
     # Stale files from the previous set would otherwise survive and be read by
@@ -110,14 +123,32 @@ def main() -> int:
             copied.append(p.name)
     print(f"  copied {len(copied)} file(s) into {dst.relative_to(REPO)}")
 
-    run([sys.executable, "benchmarks/scripts/report.py"], "report.py")
-    run([sys.executable, "benchmarks/scripts/paper.py"], "paper.py")
-    run([sys.executable, "benchmarks/scripts/build_pdf.py"], "build_pdf.py")
+    # Charts are regenerated rather than trusted as copied. Each one footers
+    # the result-set directory it was drawn from, so a chart copied out of
+    # `1.3.1-<sha>-<date>/` still claims that as its source while
+    # `charts.py --check` regenerates from `current/` and expects to see
+    # `current/` -- which would leave CI failing after every promotion.
+    run([sys.executable, "benchmarks/scripts/charts.py", "--arch", set_arch], "charts.py")
+
+    if set_arch == DOC_ARCH:
+        run([sys.executable, "benchmarks/scripts/report.py", "--arch", DOC_ARCH], "report.py")
+        run([sys.executable, "benchmarks/scripts/paper.py", "--arch", DOC_ARCH], "paper.py")
+        run([sys.executable, "benchmarks/scripts/build_pdf.py"], "build_pdf.py")
+    else:
+        print(f"\n{set_arch} promoted; RESULTS.md, README.md and the paper left alone.")
+        print(f"They describe {DOC_ARCH} — regenerating them from {set_arch} numbers would")
+        print("silently restate the project's headline figures for a different machine.")
+        print("Multi-architecture reporting is not built yet; see benchmarks/README.md.")
 
     print("\nverifying that everything regenerates to what is now on disk")
-    run([sys.executable, "benchmarks/scripts/report.py", "--check"], "report.py --check")
-    run([sys.executable, "benchmarks/scripts/paper.py", "--check"], "paper.py --check")
-    run([sys.executable, "benchmarks/scripts/build_pdf.py", "--check"], "build_pdf.py --check")
+    run([sys.executable, "benchmarks/scripts/charts.py", "--check", "--arch", set_arch],
+        "charts.py --check")
+    if set_arch == DOC_ARCH:
+        run([sys.executable, "benchmarks/scripts/report.py", "--check", "--arch", DOC_ARCH],
+            "report.py --check")
+        run([sys.executable, "benchmarks/scripts/paper.py", "--check", "--arch", DOC_ARCH],
+            "paper.py --check")
+        run([sys.executable, "benchmarks/scripts/build_pdf.py", "--check"], "build_pdf.py --check")
 
     if not a.commit and not a.push:
         print("\npromoted. Review `git diff`, then commit; or re-run with --commit.")
