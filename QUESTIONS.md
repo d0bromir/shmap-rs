@@ -16,8 +16,8 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q6 | Indexing time vs mapping time, per tool, for third-party comparisons | `q6-index-vs-mapping-time` | #14 | merged |
 | Q7 | Optimize the refinement step (it differs for Containment/Jaccard) | `q7-refinement-jaccard-bound` | #16 | merged |
 | Q8 | Can SIMD be used in some of the steps of mapping a read? | `q8-simd-mapping-steps` | #17 | merged |
-| Q9 | Software prefetching for the pruning lookups | `q9-prefetch-refine` | #18 | in review |
-| Q10 | 2-bit-packed sequence encoding for sketching | `q10-2bit-packed-sketching` | #20 | in review |
+| Q9 | Software prefetching for the pruning lookups | `q9-prefetch-refine` | #18 | merged |
+| Q10 | 2-bit-packed sequence encoding for sketching | `q10-2bit-packed-sketching` | #20 | merged |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -362,7 +362,7 @@ prose subsection.
 
 ## Q4 — Thread scaling caps at ~7x on 64 threads: diagnose, and is rayon the fix?
 
-**Asked** 2026-08-02 · **Branch** `q4-thread-scaling` · **PR** #9 · **Status** in review
+**Asked** 2026-08-02 · **Branch** `q4-thread-scaling` · **PR** #9 · **Status** merged 2026-08-02
 
 **Question.** *"scaling with threads doesn't look good. 7x for 64 threads. My colleague dpetrov
 suggests rayon library. In any case, scaling with threads needs real significant optimization"* —
@@ -521,7 +521,7 @@ one socket) remains the actionable answer for multi-socket hosts.
 
 ## Q6 — Indexing time vs mapping time, per tool, for third-party comparisons
 
-**Asked** 2026-08-03 · **Branch** `q6-index-vs-mapping-time` · **PR** #14 · **Status** in review
+**Asked** 2026-08-03 · **Branch** `q6-index-vs-mapping-time` · **PR** #14 · **Status** merged 2026-08-03
 
 **Question.** *"we need indexing time for each tool separately from mapping time (they combine to
 total time). The idea of Pesho how to measure it for each third-party tool we are comparing shmap
@@ -629,7 +629,7 @@ RESULTS.md §8).
 
 ## Q8 — Can SIMD be used in some of the steps of mapping a read?
 
-**Asked** 2026-08-03 · **Branch** `q8-simd-mapping-steps` · **PR** #17 · **Status** in review
+**Asked** 2026-08-03 · **Branch** `q8-simd-mapping-steps` · **PR** #17 · **Status** merged 2026-08-03
 
 **Question.** *"can SIMD be used in some of the steps of mapping a read?"*
 
@@ -669,8 +669,7 @@ helps with. Documented rather than attempted, matching how Q4/Q7 handled finding
 
 ## Q9 — Software prefetching for the pruning lookups
 
-**Asked** 2026-08-03, follow-up to Q8 · **Branch** `q9-prefetch-refine` · **PR** #18 · **Status**
-in review
+**Asked** 2026-08-03, follow-up to Q8 · **Branch** `q9-prefetch-refine` · **PR** #18 · **Status** merged 2026-08-09
 
 **Question.** Following Q8's finding that SIMD doesn't fit the dominant per-read costs because
 they're memory-latency-bound: does software prefetching — the technique that actually targets a
@@ -713,7 +712,7 @@ what explicit prefetching would add, for this access pattern and table size, on 
 ## Q10 — 2-bit-packed sequence encoding for sketching
 
 **Asked** 2026-08-09, follow-up after Q9 · **Branch** `q10-2bit-packed-sketching` · **PR** #20 ·
-**Status** in review
+**Status** merged 2026-08-09
 
 **Question.** After Q9, asked whether the negative results so far meant nothing else could be
 optimized. They don't — they were four specific hypotheses, not an exhaustive search. Of the
