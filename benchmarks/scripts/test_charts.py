@@ -6,7 +6,7 @@ and nobody re-derives it by hand. The three things that could silently make
 one wrong are pinned here — the under-5% aggregation, the wedge geometry, and
 the counter-partition guard that stops an invalid pie being drawn at all.
 
-  python3 benchmarks/test_charts.py
+  python3 benchmarks/scripts/test_charts.py
 """
 
 from __future__ import annotations

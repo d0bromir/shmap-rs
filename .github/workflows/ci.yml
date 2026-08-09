@@ -83,42 +83,48 @@ jobs:
       - name: test (debug)
         run: cargo test
 
+      # Every benchmark path, and the architecture a run files itself under,
+      # derive from layout.py. A wrong arch() would compare ARM numbers to
+      # x86 ones and produce no error at all.
+      - name: benchmark layout and architecture resolve correctly
+        run: python3 benchmarks/scripts/test_layout.py
+
       - name: benchmark suite definition is consistent
-        run: python3 benchmarks/validate_suite.py
+        run: python3 benchmarks/scripts/validate_suite.py
 
       # compare.py decides whether a PR may merge, so a bug in it either waves
       # a regression through or blocks a good change. Cheap to check here.
       - name: merge-gate verdicts are correct
-        run: python3 benchmarks/test_compare.py
+        run: python3 benchmarks/scripts/test_compare.py
 
       - name: concordance scoring is correct
-        run: python3 benchmarks/test_concordance.py
+        run: python3 benchmarks/scripts/test_concordance.py
 
       # Pesho's index/mapping time split (measure()) for a tool with no native
       # phase report depends on this slicing out exactly one record.
       - name: one_read_fasta isolates exactly the first record
-        run: python3 benchmarks/test_run.py
+        run: python3 benchmarks/scripts/test_run.py
 
       # A wrong chart looks as authoritative as a right one, so the
       # aggregation rule, the wedge maths and the partition guard are pinned.
       - name: profiling charts draw what they claim
-        run: python3 benchmarks/test_charts.py
+        run: python3 benchmarks/scripts/test_charts.py
 
       # Same reason report.py --check exists: charts are generated and
       # committed, so a stale one is a silent lie about the current numbers.
       - name: charts match the current result set
-        run: python3 benchmarks/charts.py --check
+        run: python3 benchmarks/scripts/charts.py --check
 
       # Catches a hand-edited results table, which is how this repo previously
       # came to carry contradictory numbers.
       - name: RESULTS.md matches the current result set
-        run: python3 benchmarks/report.py --check
+        run: python3 benchmarks/scripts/report.py --check
 
       # Same failure mode one step further out: a table in the paper draft that
       # no longer matches the measurement it claims to report. The artifacts are
       # a pure function of the result set, so this is a real equality check.
       - name: paper artifacts match the current result set
-        run: python3 benchmarks/paper.py --check
+        run: python3 benchmarks/scripts/paper.py --check
 
       # The simulators produce the only datasets that can support an accuracy
       # claim, so a syntax error in them is a silent hole in the evidence.

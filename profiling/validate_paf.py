@@ -22,7 +22,7 @@ for a in sys.argv[2:]:
             reflen[k] = int(v)
 
 # paftools.js mapeval's threshold: intersection over union of the true and
-# reported intervals. Kept identical to benchmarks/concordance.py so the two
+# reported intervals. Kept identical to benchmarks/scripts/concordance.py so the two
 # tools never disagree about what 'same place' means.
 MIN_OVERLAP = 0.1
 

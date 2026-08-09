@@ -12,7 +12,7 @@ have actually cost time, written down so they cost it once.
 ssh a2
 cd ~/shmap-rs && git fetch -q origin && git pull -q --ff-only origin main
 COMMIT=$(git rev-parse HEAD)                       # AFTER the pull, and check it
-setsid nohup python3 benchmarks/run.py --commit "$COMMIT" \
+setsid nohup python3 benchmarks/scripts/run.py --commit "$COMMIT" \
     --impls shmap-rs,cpp-shmap > ~/run.log 2>&1 < /dev/null &
 ```
 
@@ -53,7 +53,7 @@ Checks are deterministic functions of the retained PAFs, so a corrected threshol
 external corpus does not need another 4.7 h:
 
 ```bash
-python3 benchmarks/run.py --recheck ~/bench-results/<version>-<commit>-<date>
+python3 benchmarks/scripts/run.py --recheck ~/bench-results/<version>-<commit>-<date>
 ```
 
 Re-evaluates `validate_paf`, `ground_truth` and `concordance_*`. It cannot redo
@@ -70,7 +70,7 @@ Re-evaluates `validate_paf`, `ground_truth` and `concordance_*`. It cannot redo
 | build worktrees | `~/bench-work/<commit>/` — throwaway, removed after each run |
 | host lock | `~/.shmap-bench.lock` — kernel flock, released even if the process is killed |
 
-`python3 benchmarks/run.py --status` says whether anything is running.
+`python3 benchmarks/scripts/run.py --status` says whether anything is running.
 
 ## Tools built from source
 

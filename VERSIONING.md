@@ -6,8 +6,8 @@ when all four are stated. This document defines them and the rule a pull request
 | # | what | where it lives | changes when |
 |---|---|---|---|
 | 1 | **Software version** | `Cargo.toml`, git tag, GitHub release | code changes |
-| 2 | **Benchmark suite version** | `benchmarks/suite.toml` → `suite_version` | the *definition* of a benchmark changes |
-| 3 | **Dataset version** | `benchmarks/datasets.tsv` → `dataset_version` | any input file is added, replaced or regenerated |
+| 2 | **Benchmark suite version** | `benchmarks/data/suite.toml` → `suite_version` | the *definition* of a benchmark changes |
+| 3 | **Dataset version** | `benchmarks/data/datasets.tsv` → `dataset_version` | any input file is added, replaced or regenerated |
 | 4 | **Result set** | `benchmarks/results/<suite>/<commit>/` | every run |
 
 ---
@@ -30,7 +30,7 @@ annotate a tag with the release notes, push tag, `gh release create --verify-tag
 
 ## 2 Benchmark suite version
 
-`benchmarks/suite.toml` defines *what* is measured: which datasets, which parameter sets, which
+`benchmarks/data/suite.toml` defines *what* is measured: which datasets, which parameter sets, which
 metrics, which thread counts. Its `suite_version` is `MAJOR.MINOR`:
 
 - **MINOR** — a benchmark is *added*. Old results stay comparable; the new row simply has no history.
@@ -42,7 +42,7 @@ This is the version that makes PR comparison sound. Two result sets may only be 
 
 ## 3 Dataset version
 
-`benchmarks/datasets.tsv` is the registry. Every input file carries an identity triple —
+`benchmarks/data/datasets.tsv` is the registry. Every input file carries an identity triple —
 **bytes, records, bases** — which is what a run records and re-checks.
 
 A run **fails** rather than silently proceeding if a dataset's triple does not match the registry.

@@ -5,13 +5,41 @@ version means and for the rule a pull request has to satisfy.
 
 ## Layout
 
+Three folders, by what the contents *are*: declarative inputs, code, and
+measured output.
+
+```
+benchmarks/
+  data/      suite.toml, datasets.tsv, hosts.toml — and files/ (the ~46 GB
+             corpus, gitignored, reached through a per-host symlink)
+  scripts/   everything that runs
+  results/   suite-<v>/<arch>/{ARCH.md, current/, <ver>-<sha>-<date>/}
+```
+
+**Results are separated by architecture.** `results/suite-1.0/x86_64/` and
+`.../aarch64/` each carry their own `current/` baseline and their own
+`ARCH.md` describing the machine. They are kept apart because they are not
+comparable: `compare.py` already refuses to diff result sets whose manifests
+name different hosts, and this tree is that rule applied to the filesystem,
+so a pull request measured on ARM is judged against ARM. The directory name
+is `uname -m` verbatim — derived by [`scripts/layout.py`](scripts/layout.py),
+never typed — so a run cannot file itself under the wrong architecture.
+
+**The corpus resolves the same way everywhere.** `datasets.tsv` stores paths
+relative to `data/files/`, a gitignored symlink to wherever that host keeps
+its data. The relative tree below it is identical on every host, so nothing
+in the runner is host-aware. See [`data/README.md`](data/README.md).
+
 | path | what | status |
 |---|---|---|
 | `RUNBOOK.md` | operating the host: launch sequence, traps, recovery | **in place** |
-| `datasets.tsv` | dataset registry — id, host, path, identity triple, provenance | **in place** |
-| `enumerate_datasets.sh` | regenerates the registry's measured columns | **in place** |
-| `validate_suite.py` | checks `suite.toml` resolves against the registry | **in place** |
-| `suite.toml` | benchmark definitions: which dataset × params × metric × threads | **in place** |
+| `data/README.md` | the corpus root, and how to provision a new host | **in place** |
+| `data/hosts.toml` | per-host operational facts: address, cores, corpus location | **in place** |
+| `scripts/layout.py` | where everything lives; `arch()` and the results paths | **in place** |
+| `data/datasets.tsv` | dataset registry — id, host, path, identity triple, provenance | **in place** |
+| `scripts/enumerate_datasets.sh` | regenerates the registry's measured columns | **in place** |
+| `scripts/validate_suite.py` | checks `suite.toml` resolves against the registry | **in place** |
+| `data/suite.toml` | benchmark definitions: which dataset × params × metric × threads | **in place** |
 | `run.py` | the runner: lock, authorization, verification, measurement | **in place** |
 | `results/<suite>/current/` | the baseline a PR is compared against | **written by run.py** |
 | `results/<suite>/<commit>-<date>/` | archived, immutable result sets | **written by run.py** |
@@ -137,7 +165,7 @@ results/suite-1.0/<version>-<commit12>-<date>/
 ```
 
 The charts are written by `run.py` at the end of a run and can be regenerated
-at any time with `python3 benchmarks/charts.py` — they are a view of
+at any time with `python3 benchmarks/scripts/charts.py` — they are a view of
 `profiles.tsv`, never a separate measurement. Time pies are CPU-seconds summed
 across threads: `profiles.tsv` warns in its own header that `cpu_*` and
 `wall_*` must not be divided into each other, and the charts hold to that.

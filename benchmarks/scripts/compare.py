@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run import REPO, load_suite  # noqa: E402
 
-RESULTS = Path(__file__).resolve().parent / "results"
+from layout import RESULTS, current_dir  # noqa: E402
 
 ACCEPT, REVIEW, BLOCK, ERROR = 0, 1, 2, 3
 NAMES = {ACCEPT: "ACCEPT", REVIEW: "REVIEW", BLOCK: "BLOCK", ERROR: "ERROR"}
@@ -562,7 +562,7 @@ def main() -> int:
     if a.baseline:
         base = load_set(Path(a.baseline))
     else:
-        d = RESULTS / f"suite-{cand['manifest']['suite_version']}" / "current"
+        d = current_dir(cand["manifest"]["suite_version"])
         if not d.is_dir():
             print(f"no baseline at {d} — nothing to compare against.\n"
                   f"If this run is meant to become the baseline, copy it there:\n"

@@ -86,7 +86,7 @@ Output is fully determined by `--seed`, so a dataset can be re-derived instead o
 
 ## Reproducing
 
-Simulated sets used in results should be registered in `../benchmarks/datasets.tsv` like any other
+Simulated sets used in results should be registered in `../benchmarks/data/datasets.tsv` like any other
 input, with the exact command in the provenance column. Regenerating with different parameters
 means a **new id**, never editing a row — historical results have to keep resolving to what they
 actually measured.

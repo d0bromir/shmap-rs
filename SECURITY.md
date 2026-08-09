@@ -25,7 +25,7 @@ on them. Wiring `a2` up as a runner would hand every GitHub user a shell on the 
 ## What we do instead
 
 `a2` **pulls work; nothing pushes to it.** No inbound access, no runner registration, no webhook.
-`benchmarks/run.py` executes on `a2` and decides for itself what it is willing to measure.
+`benchmarks/scripts/run.py` executes on `a2` and decides for itself what it is willing to measure.
 
 ### Two tiers of checking
 

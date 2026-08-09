@@ -1,0 +1,36 @@
+# Benchmark hosts.
+#
+# One entry per machine that produces result sets. This is operational
+# configuration — where the corpus lives, how many cores may be swept — kept
+# apart from `suite.toml`, which defines *what* is measured and must stay
+# identical across hosts for results to mean anything.
+#
+# `arch` must match what `uname -m` reports there, because that is what
+# `layout.arch()` uses to choose the results directory. A mismatch here does
+# not misfile anything (the runner never reads `arch` to decide where to
+# write) — it just makes this file wrong, so keep it honest.
+#
+# `data_root` documents where that host's corpus lives. The runner does not
+# read it: it resolves datasets through `benchmarks/data/files`, which is a
+# gitignored symlink pointing at exactly this path. The value is recorded so
+# a new host can be provisioned without anyone having to guess.
+
+schema = 1
+
+[a2]
+arch        = "x86_64"
+address     = "192.168.191.2"
+user        = "mpiuser"
+cores       = 64
+thread_cap  = 64
+data_root   = "/home/mpiuser"
+notes       = "4x16 Xeon Gold 5218, 4 NUMA nodes, 376 GB. See results/suite-1.0/x86_64/ARCH.md."
+
+[galaxy]
+arch        = "aarch64"
+address     = "192.168.191.12"
+user        = "mpiuser"
+# cores/thread_cap left unset until the machine has been inspected — writing
+# a guess here would silently cap or oversubscribe the thread sweep.
+data_root   = "/home/mpiuser"
+notes       = "ARM host. Provision with scripts/sync_data.py; see results/suite-1.0/aarch64/ARCH.md once it exists."

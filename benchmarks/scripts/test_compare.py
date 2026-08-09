@@ -6,7 +6,7 @@ regression waved through or a good change blocked. It is exercised here against
 synthetic result sets rather than real ones, because the cases that matter most
 (an accuracy drop, a failed check) should never appear in a real set.
 
-  python3 benchmarks/test_compare.py
+  python3 benchmarks/scripts/test_compare.py
 """
 
 from __future__ import annotations

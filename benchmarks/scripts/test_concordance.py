@@ -6,7 +6,7 @@ it either hides a real loss of mappings or invents one. The interval arithmetic
 is the fiddly part and is tested directly, including the nested case that
 mapquik's intersect_pafs.py gets wrong.
 
-  python3 benchmarks/test_concordance.py
+  python3 benchmarks/scripts/test_concordance.py
 """
 
 from __future__ import annotations

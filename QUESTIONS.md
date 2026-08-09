@@ -220,7 +220,7 @@ implementations under all three metrics for every result set it has ever produce
 
 **One piece of dead code found while checking, not part of the answer.** The repo also carries a
 legacy `Makefile` `eval_*` pipeline, ported unchanged from the original C++ repo's own Makefile
-(see the file's header comment) and superseded by `benchmarks/run.py`/`suite.toml` for anything
+(see the file's header comment) and superseded by `benchmarks/scripts/run.py`/`suite.toml` for anything
 this project documents or gates on. Its `eval_shmap_on_datasets_on_metrics` target sweeps
 `METRIC=bucket_SH`, `bucket_LCS`, then `fixed_C` — `fixed_C` is not a value either binary's `-m`
 accepts (confirmed: both reject it with a clear error), and the target never touches `Jaccard` at
@@ -538,7 +538,7 @@ table was subject-only.
 **Answer / change.** Implemented Pesho's two-run method as the general fallback for any
 implementation without a native phase report:
 
-- **[`benchmarks/run.py`](benchmarks/run.py)** — `measure()`'s existing branch (native JSON report,
+- **[`benchmarks/scripts/run.py`](benchmarks/scripts/run.py)** — `measure()`'s existing branch (native JSON report,
   for `shmap-rs`) gets a new `else`: for any impl without one, a second invocation runs the
   identical command with the reads file swapped for `one_read_fasta()`'s cached one-record slice.
   Indexing doesn't depend on the read set, so that run's wall time is (almost) entirely indexing;
@@ -548,10 +548,10 @@ implementation without a native phase report:
 - `one_read_fasta()` streams just past the first record's boundary rather than reading the whole
   file (real reads files are up to tens of GB), and caches the slice per result set so repeated
   calls for the same dataset don't re-derive it.
-- **[`benchmarks/report.py`](benchmarks/report.py)** — §3b's `block_phase_split` table gains an
+- **[`benchmarks/scripts/report.py`](benchmarks/scripts/report.py)** — §3b's `block_phase_split` table gains an
   `impl` column and now includes the reference impl's row(s) alongside the subject's, so the two
   are directly comparable in one place instead of subject-only.
-- **[`benchmarks/test_run.py`](benchmarks/test_run.py)** (new) — `one_read_fasta` is the one piece
+- **[`benchmarks/scripts/test_run.py`](benchmarks/scripts/test_run.py)** (new) — `one_read_fasta` is the one piece
   of this that's pure and easy to get subtly wrong (truncate mid-sequence, grab the wrong record
   count) without it being obvious from a single manual check; unit-tested directly, wired into CI.
 
@@ -778,7 +778,7 @@ scripts to generate the charts. For profiling we are most interested in time eac
 computation took, but other relative info can be added to other pie diagrams too. Indexing and
 alignment should be clearly separable in the diagrams visually."*
 
-**Answer / change.** New [`benchmarks/charts.py`](benchmarks/charts.py), plus the 30 charts for the
+**Answer / change.** New [`benchmarks/scripts/charts.py`](benchmarks/scripts/charts.py), plus the 30 charts for the
 current result set. Runs at the end of a benchmark run and standalone.
 
 The chain, with every link a file that can be opened:
@@ -821,7 +821,7 @@ exiting so a chart problem can never take down a ~78-minute measured run.
 
 **Outcome.** No `src/` change — this only reads artifacts the benchmark already writes, and the
 charts were generated from the existing result set with no re-run, as asked.
-[`benchmarks/test_charts.py`](benchmarks/test_charts.py) pins the aggregation rule, wedge geometry,
+[`benchmarks/scripts/test_charts.py`](benchmarks/scripts/test_charts.py) pins the aggregation rule, wedge geometry,
 the partition guard and end-to-end rendering (30 assertions); wired into CI with `charts.py
 --check`, and `promote.py` now carries `chart-*` so a promoted result set stays viewable.
 

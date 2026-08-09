@@ -51,7 +51,7 @@ HDR = re.compile(r"^S\d+_\d+!([^!]+)!(\d+)!(\d+)!([+-])")
 MIN_OVERLAP = 0.1          # paftools.js mapeval; same constant as concordance.py
 
 # (label, models, read_len, total_error, error_sd, hp_bias)
-# Lengths and error rates from benchmarks/datasets.tsv and measure_error_rate.py
+# Lengths and error rates from benchmarks/data/datasets.tsv and measure_error_rate.py
 # --from-paf. HiFi errors are split ~80/20 substitution/indel; ONT ~60/40, which
 # is the usual shape for those platforms.
 POINTS = [

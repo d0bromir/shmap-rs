@@ -9,11 +9,13 @@ no [checks.*] section defines.
 import sys, tomllib
 from pathlib import Path
 
-here = Path(__file__).parent
-suite = tomllib.load(open(here / "suite.toml", "rb"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from layout import DATASETS_TSV, SUITE_TOML  # noqa: E402
+
+suite = tomllib.load(open(SUITE_TOML, "rb"))
 
 reg = {}
-for line in open(here / "datasets.tsv"):
+for line in open(DATASETS_TSV):
     if line.startswith("#") or not line.strip():
         continue
     f = line.rstrip("\n").split("\t")

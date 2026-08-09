@@ -8,3 +8,4 @@ __pycache__/
 # transient session lock. Both are per-checkout, both name local paths and
 # hosts, and neither means anything to anyone else's clone.
 .claude/
+benchmarks/data/files
