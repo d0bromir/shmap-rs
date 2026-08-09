@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">
+<rect width="760" height="420" fill="#ffffff"/>
+<text x="20" y="30" font-size="17" font-weight="bold">B04 — mapping phase only (Containment, -@1)</text>
+<text x="20" y="50" font-size="12" fill="#555555">417.96 CPU-seconds total · wall_mapping was 456.58s</text>
+<path d="M 200.00,210.00 L 200.00,70.00 A 140.00,140.00 0 0,1 311.51,125.35 Z" fill="#fbd9a5" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 311.51,125.35 A 140.00,140.00 0 0,1 329.06,264.25 Z" fill="#f7bc6d" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 329.06,264.25 A 140.00,140.00 0 0,1 85.80,290.98 Z" fill="#f09a3e" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 85.80,290.98 A 140.00,140.00 0 0,1 66.27,251.44 Z" fill="#dd7020" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 66.27,251.44 A 140.00,140.00 0 0,1 196.98,70.03 Z" fill="#b74d10" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 196.98,70.03 A 140.00,140.00 0 0,1 200.00,70.00 Z" fill="#c2c2c2" stroke="#ffffff" stroke-width="2"/>
+<rect x="400" y="81" width="14" height="14" fill="#fbd9a5" stroke="#dddddd" stroke-width="1"/>
+<text x="422" y="92" font-size="13">map: sketching</text>
+<text x="740" y="92" font-size="13" text-anchor="end" fill="#333333">61.30 s · 14.7%</text>
+<rect x="400" y="104" width="14" height="14" fill="#f7bc6d" stroke="#dddddd" stroke-width="1"/>
+<text x="422" y="115" font-size="13">map: prepare</text>
+<text x="740" y="115" font-size="13" text-anchor="end" fill="#333333">69.66 s · 16.7%</text>
+<rect x="400" y="127" width="14" height="14" fill="#f09a3e" stroke="#dddddd" stroke-width="1"/>
+<text x="422" y="138" font-size="13">map: match_seeds</text>
+<text x="740" y="138" font-size="13" text-anchor="end" fill="#333333">141.48 s · 33.8%</text>
+<rect x="400" y="150" width="14" height="14" fill="#dd7020" stroke="#dddddd" stroke-width="1"/>
+<text x="422" y="161" font-size="13">map: bucket_merge</text>
+<text x="740" y="161" font-size="13" text-anchor="end" fill="#333333">21.04 s · 5.0%</text>
+<rect x="400" y="173" width="14" height="14" fill="#b74d10" stroke="#dddddd" stroke-width="1"/>
+<text x="422" y="184" font-size="13">map: match_rest</text>
+<text x="740" y="184" font-size="13" text-anchor="end" fill="#333333">123.04 s · 29.4%</text>
+<rect x="400" y="196" width="14" height="14" fill="#c2c2c2" stroke="#dddddd" stroke-width="1"/>
+<text x="422" y="207" font-size="13">other: map: other (unattributed)</text>
+<text x="740" y="207" font-size="13" text-anchor="end" fill="#333333">1.44 s · 0.3%</text>
+<line x1="400" y1="224" x2="740" y2="224" stroke="#dddddd"/>
+<text x="400" y="242" font-size="13" font-weight="bold">total</text>
+<text x="740" y="242" font-size="13" text-anchor="end" font-weight="bold">417.96 s</text>
+<text x="20" y="372" font-size="10.5" fill="#666666">source: current/profiles.tsv row B04/Containment/-@1</text>
+<text x="20" y="387" font-size="10.5" fill="#666666">CPU-seconds summed across threads, not wall-clock — cpu_* and wall_* are different units and are never mixed.</text>
+<text x="20" y="402" font-size="10.5" fill="#666666">not shown (nested inside a slice above, would double-count): seeding 55.05s (inside prepare), collect_kmer_info 41.42s (inside seeding), refine 84.21s (inside match_rest)</text>
+</svg>

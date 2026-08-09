@@ -19,6 +19,7 @@ aarch64 is judged against aarch64.
 | Rust | 1.97.1, host triple `aarch64-unknown-linux-gnu` — pinned by `rust-toolchain.toml` |
 | C++ | g++ 15.2.0 |
 | state during runs | `run.py` takes `~/.shmap-bench.lock`, so only one measurement runs at a time *on this host* |
+| other tenants | shared machine, unlike a2. Measured draw during the 2026-08-09 run was ~0.12 of 128 cores (<0.1%). The raw load average reads ~4.7, which looks alarming and is not: almost all of it is uninterruptible-sleep tasks, which Linux counts in load but which consume no CPU. |
 
 ## Why this host is scientifically useful, not just a second data point
 
@@ -26,10 +27,30 @@ aarch64 is judged against aarch64.
 QUESTIONS.md Q4 and Q5: thread scaling there flattens near 16 threads (one
 socket) and degrades beyond it, and five attempts at per-node index replication
 all measured as net regressions. Galaxy is the natural control for that
-diagnosis. If thread scaling here stays clean well past 16, the Q4 conclusion —
-that the ceiling is cross-socket memory traffic and not the pipeline — is
-corroborated by hardware rather than by argument. If it does *not*, the
-diagnosis needs revisiting.
+diagnosis.
+
+**Measured 2026-08-09, commit `00d8c08`, and the control came back clean.**
+Median speedup over all five benchmarks and three metrics, each host against
+its own single-threaded time:
+
+| | `-@2` | `-@4` | `-@8` | `-@16` | `-@32` | `-@64` |
+|---|---:|---:|---:|---:|---:|---:|
+| `x86_64` (a2, 4 nodes) | 1.6x | 2.7x | 4.3x | **6.0x** | 5.5x | 5.8x |
+| `aarch64` (galaxy, 1 node) | 1.8x | 3.4x | 6.3x | 9.8x | 11.2x | **11.7x** |
+
+a2 peaks at 16 threads — exactly one socket — and then goes *backwards*.
+Galaxy climbs monotonically through 64 and has not yet turned over. Same
+commit, same compiler, same corpus, and
+[bit-identical counters](../../../paper/generated/cross-arch/) on both, so the
+difference cannot be the code. **The Q4 conclusion is corroborated by hardware
+rather than by argument**: the ceiling is cross-socket memory traffic, not the
+pipeline and not the threading library.
+
+It does not follow that the Q5 fix would have worked. Q5 failed for reasons
+measured on a2 — `numa_balancing` migrating pages out from under the
+placement, and mimalloc's eager arena commit defeating `set_mempolicy` — and
+this host, having one node, cannot speak to either. What galaxy establishes is
+that the *diagnosis* was right, not that the abandoned remedy was.
 
 **It also has no AVX-512**, so the downclocking recorded in Q1's addendum
 cannot apply. The shipped binary never contained AVX-512 on either host, but
@@ -51,6 +72,27 @@ this removes the possibility entirely.
 - **Same thread sweep.** `suite.toml` sweeps `1..64` and stays that way here
   even though 128 cores are available, so the two hosts sweep identically. The
   extra 64 cores are a separate question, not a change to the shared matrix.
+
+## This host is markedly quieter than a2
+
+Indexing is an accidental but genuine noise-floor control. It does identical
+work in all 15 rows of a run — same reference, same code, no dependence on the
+read set — so the spread of `index_s` across those rows measures the *host*.
+
+| | mean | min | max | spread | CV |
+|---|---:|---:|---:|---:|---:|
+| `x86_64` (a2) | 7.44s | 6.84 | 8.57 | 23.2% | 7.0% |
+| `aarch64` (galaxy) | 6.53s | 6.47 | 6.89 | **6.4%** | **1.6%** |
+
+Peak RSS over the same rows tells the same story: 14.3% spread on a2 against
+3.3% here. So the shared host is the *steadier* of the two, which is the
+opposite of what "shared" suggests and worth knowing before anyone discounts a
+result measured here.
+
+The practical consequence is for a2, not for this host: a2's own noise floor on
+identical work is ±23%, which is larger than the 3–6% wall-time movements its
+regression gate flags for review. A single a2 row moving a few percent is not
+evidence of anything.
 
 ## The C++ reference
 

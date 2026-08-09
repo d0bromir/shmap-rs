@@ -7,8 +7,8 @@ that finds where a read belongs by k-mer set overlap rather than by alignment.
 mapping time reported separately, and a corrected memory claim. Binary byte-identical to 1.3.0.
 
 <!-- BEGIN GENERATED: readme-pitch -->
-Against the C++ original on real whole-genome data: **1.9–2.7x faster single-threaded, up to 17.8x
-with threads**, with identical mapping counts. Memory is ~6.9x lower single-threaded (2.73 GB against 18.85 GB) — but it grows with thread count, reaching 8.98 GB at the highest, so size for the run you intend.
+Against the C++ original on real whole-genome data: **1.7–2.8x faster single-threaded, up to 17.6x
+with threads**, with identical mapping counts. Memory is ~6.7x lower single-threaded (2.82 GB against 18.85 GB) — but it grows with thread count, reaching 9.06 GB at the highest, so size for the run you intend.
 <!-- END GENERATED: readme-pitch -->
 
 ---
@@ -21,12 +21,12 @@ The C++ is single-threaded by design, so `-@1` is the like-for-like column.
 <!-- BEGIN GENERATED: readme-summary -->
 | dataset | shmap-rs `-@1` | shmap-rs `-@4` | C++ `shmap` | speedup | memory |
 |---|---:|---:|---:|---:|---:|
-| HiFi, 23.2 kb, 149 438 reads | **42.7 s** | **16.3 s** | 106.3 s | **2.49x** / 6.54x | 2.58 GB vs 18.85 GB |
-| ONT, 23.8 kb, 92 220 reads | **20.3 s** | **9.1 s** | 55.6 s | **2.74x** / 6.13x | 2.65 GB vs 18.85 GB |
+| HiFi, 23.2 kb, 149 438 reads | **41.5 s** | **15.4 s** | 106.3 s | **2.56x** / 6.89x | 2.52 GB vs 18.85 GB |
+| ONT, 23.8 kb, 92 220 reads | **22.0 s** | **8.8 s** | 55.6 s | **2.53x** / 6.33x | 2.53 GB vs 18.85 GB |
 
-Across all 5 benchmarks and three metrics: **1.91–2.74x** single-threaded, **5.90–7.02x** at `-@4`. Every figure here is generated from the current result set and checked in CI — see [RESULTS.md](RESULTS.md).
+Across all 5 benchmarks and three metrics: **1.69–2.77x** single-threaded, **6.15–7.19x** at `-@4`. Every figure here is generated from the current result set and checked in CI — see [RESULTS.md](RESULTS.md).
 
-- **Scales to many threads** — up to **17.79x** whole-run at `-@ 32`; the C++ cannot use more than one core. Output is byte-identical at every thread count.
+- **Scales to many threads** — up to **17.56x** whole-run at `-@ 32`; the C++ cannot use more than one core. Output is byte-identical at every thread count.
 <!-- END GENERATED: readme-summary -->
 
 - **Memory is flat in coverage** — 2.13 GB at 1x, 2.16 GB at **100x** (311.7 Gbp of reads in one

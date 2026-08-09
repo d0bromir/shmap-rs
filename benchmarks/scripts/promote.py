@@ -17,6 +17,11 @@ how RESULTS.md previously came to carry contradictory numbers.
 The steps in order, and why each is here:
 
 1. Copy the result set over `current/`. This is what every generator reads.
+   Reference-implementation rows are carried forward when the incoming set has
+   none: `suite.toml` marks the C++ `role = "reference"` and re-measures it
+   only when the binary changes, so an ordinary run has none to copy, and
+   replacing `current/` wholesale would delete the last copy along with every
+   C++ comparison that depends on it.
 2. `report.py` -- RESULTS.md and README.md.
 3. `paper.py` -- the paper's LaTeX and TSV artifacts.
 4. `build_pdf.py` -- the typeset PDF of those artifacts.
@@ -63,6 +68,72 @@ ARTIFACT_GLOBS = ["per-read-*.tsv", "chart-*.svg", "chart-index.html"]
 DOC_ARCH = "x86_64"
 
 
+def reference_impls(suite: dict) -> list[str]:
+    """Implementations the suite treats as a reference measurement."""
+    return sorted(name for name, spec in suite.get("impl", {}).items()
+                  if spec.get("role") == "reference")
+
+
+def split_rows(tsv: Path, impls: set[str]) -> tuple[list[str], list[str], list[str]]:
+    """(header, rows for those impls, rows for everything else)."""
+    if not tsv.exists():
+        return [], [], []
+    lines = tsv.read_text().splitlines(keepends=True)
+    if not lines:
+        return [], [], []
+    head, body = lines[0], lines[1:]
+    cols = head.rstrip("\n").split("\t")
+    i = cols.index("impl")
+    mine = [l for l in body if l.split("\t")[i] in impls]
+    rest = [l for l in body if l.split("\t")[i] not in impls]
+    return [head], mine, rest
+
+
+def carry_reference_rows(suite: dict, src: Path, dst: Path) -> dict | None:
+    """Preserve the outgoing baseline's reference rows if the new set has none.
+
+    Returns provenance to record in the manifest, or None if nothing was
+    carried. Reads `dst` before it is overwritten, so this must be called
+    while the previous baseline is still in place.
+    """
+    impls = set(reference_impls(suite))
+    if not impls:
+        return None
+    _, incoming, _ = split_rows(src / "results.tsv", impls)
+    if incoming:
+        return None                      # the run measured them itself
+    _, outgoing, _ = split_rows(dst / "results.tsv", impls)
+    if not outgoing:
+        return None                      # nothing to carry
+    prev = {}
+    man = dst / "manifest.json"
+    if man.exists():
+        try:
+            prev = json.loads(man.read_text())
+        except ValueError:
+            prev = {}
+    return {
+        "impls": sorted(impls),
+        "rows": len(outgoing),
+        "from_commit": str(prev.get("commit", "?"))[:12],
+        "measured": str(prev.get("finished", "?"))[:10],
+        "why": "role=reference in suite.toml: re-measured only when the binary "
+               "changes, so the previous measurement stands. Re-measure with "
+               "run.py --impls shmap-rs,cpp-shmap.",
+        "_rows": outgoing,
+    }
+
+
+def apply_carried_rows(dst: Path, carried: dict) -> None:
+    """Append the carried reference rows to the freshly copied results.tsv."""
+    tsv = dst / "results.tsv"
+    head, _, rest = split_rows(tsv, set())
+    body = "".join(head) + "".join(rest) + "".join(carried["_rows"])
+    if not body.endswith("\n"):
+        body += "\n"
+    tsv.write_text(body)
+
+
 def run(cmd: list[str], what: str) -> None:
     print(f"\n$ {' '.join(str(c) for c in cmd)}")
     r = subprocess.run(cmd, cwd=REPO)
@@ -107,6 +178,11 @@ def main() -> int:
     print(f"  arch     {set_arch}")
     print(f"  measured {man.get('finished', '?')[:10]}")
 
+    # Read before anything is overwritten: an ordinary run does not re-measure
+    # the reference implementation, and copying over the baseline would
+    # otherwise delete the only copy of those rows.
+    carried = carry_reference_rows(suite, src, dst)
+
     # Stale files from the previous set would otherwise survive and be read by
     # the generators -- per-read files especially, since a set that did not
     # collect them simply has none rather than empty ones.
@@ -123,6 +199,25 @@ def main() -> int:
             shutil.copy2(p, dst / p.name)
             copied.append(p.name)
     print(f"  copied {len(copied)} file(s) into {dst.relative_to(REPO)}")
+
+    refs = reference_impls(suite)
+    if carried:
+        apply_carried_rows(dst, carried)
+        prov = {k: v for k, v in carried.items() if k != "_rows"}
+        man_p = dst / "manifest.json"
+        man_j = json.loads(man_p.read_text())
+        man_j["reference_rows_carried_forward"] = prov
+        man_p.write_text(json.dumps(man_j, indent=1))
+        print(f"  carried {carried['rows']} {'/'.join(carried['impls'])} row(s) forward "
+              f"from {carried['from_commit']}, measured {carried['measured']} — this run "
+              f"did not re-measure the reference, and without this the C++ comparison "
+              f"would vanish from RESULTS.md and the paper table")
+    elif refs:
+        _, have, _ = split_rows(dst / "results.tsv", set(refs))
+        if not have:
+            print(f"  NOTE: no {'/'.join(refs)} rows in this set and none to carry forward, "
+                  f"so {set_arch} has no reference comparison. Its paper table will have no "
+                  f"C++ column. Measure one with: run.py --impls shmap-rs,{','.join(refs)}")
 
     # Charts are regenerated rather than trusted as copied. Each one footers
     # the result-set directory it was drawn from, so a chart copied out of
@@ -151,7 +246,7 @@ def main() -> int:
         print(f"this machine's numbers appear beside {DOC_ARCH}'s. RESULTS.md and README.md")
         print(f"are left alone — they carry one running narrative written about {DOC_ARCH},")
         print("so restating their headline figures from another machine's numbers would")
-        print(f"misrepresent them. A {set_arch} section within that narrative is separate work.")
+        print(f"misrepresent them. A section for {set_arch} in that narrative is separate work.")
 
     print("\nverifying that everything regenerates to what is now on disk")
     run([sys.executable, "benchmarks/scripts/charts.py", "--check", "--arch", set_arch],

@@ -272,6 +272,19 @@ def tabular(colspec: str, head: list[str], body: list[list[str]],
     return "\n".join(lines)
 
 
+def repo_rel(p: Path) -> str:
+    """A path as the repository sees it.
+
+    Generated artifacts are committed, so an absolute path in one would make
+    the file depend on where the checkout happens to live -- and `--check`
+    would then fail for everyone but the machine that generated it.
+    """
+    try:
+        return p.relative_to(REPO).as_posix()
+    except ValueError:
+        return str(p)
+
+
 def pct(x: float) -> str:
     return f"{x:.1f}\\%"
 
@@ -331,7 +344,7 @@ def build_machines(c: XCtx) -> tuple[str, list[str], list[list]]:
             r"{\scriptsize\texttt{" + tex_escape(s.rs["dir"].parent.name + "/current") + "}}",
         ])
         data.append([s.arch, s.host, f.get("cores"), topo, s.commit,
-                     s.rustc or None, s.measured, str(s.rs["dir"])])
+                     s.rustc or None, s.measured, repo_rel(s.rs["dir"])])
     return tabular("llrlllll", head, body), cols, data
 
 

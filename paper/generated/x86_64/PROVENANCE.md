@@ -7,11 +7,11 @@ transformation the code does not perform.
 | | |
 |---|---|
 | result set | `current` |
-| commit | `e9aa9c98a2c7` |
+| commit | `00d8c08aa656` |
 | host | `a2` |
-| measured | 2026-08-01 |
+| measured | 2026-08-09 |
 | suite / datasets | 1.0 / 1 |
-| input digest | `sha256:78871f0f4db602c7` |
+| input digest | `sha256:c858a66763006796` |
 
 Regenerate with `python3 benchmarks/scripts/paper.py`; verify with `--check`, which fails if any
 artifact would change. Each artifact is emitted twice: a `.tex` fragment to `\input`
@@ -50,6 +50,7 @@ booktabs tabular, grouped by dataset with a rule between groups; counts use LaTe
 - External mappers were measured at --threads 32 and shmap-rs rows at -@1. The threads column carries this; the numbers are not comparable down the column.
 - Wrong Q60 is unknowable for real reads and shown as an em-dash there, not as 0.
 - The C++ reference is a median of three runs; shmap-rs rows are a single run (RESULTS.md 10 explains why, and that per-row variance reaches ~10%).
+- The C++ is re-measured only when its binary changes, so its rows may come from an earlier date than the shmap-rs rows beside them. RESULTS.md names that date when the two differ.
 
 ## table_seed_heuristic
 
