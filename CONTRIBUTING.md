@@ -42,7 +42,8 @@ defended. The same applies to unrelated cleanups — they get their own PR.
 `cargo fmt --check` · `cargo build --release --locked` · `cargo clippy -D warnings` ·
 `cargo test --release` · `cargo test` (debug) · `benchmarks/validate_suite.py` ·
 `benchmarks/test_compare.py` · `benchmarks/test_concordance.py` · `benchmarks/test_run.py` ·
-`benchmarks/report.py --check` · `benchmarks/paper.py --check`
+`benchmarks/test_charts.py` · `benchmarks/report.py --check` · `benchmarks/charts.py --check` ·
+`benchmarks/paper.py --check`
 
 Two of those are easy to trip over:
 
