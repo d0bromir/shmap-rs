@@ -14,6 +14,11 @@
 # read it: it resolves datasets through `benchmarks/data/files`, which is a
 # gitignored symlink pointing at exactly this path. The value is recorded so
 # a new host can be provisioned without anyone having to guess.
+#
+# `topology` states sockets, cores and NUMA nodes in a form a generated
+# document can print. It duplicates what `notes` says in prose because a
+# table cannot read prose, and this is the difference between the two hosts
+# that most of the findings turn on.
 
 schema = 1
 
@@ -22,6 +27,7 @@ arch        = "x86_64"
 address     = "192.168.191.2"
 user        = "mpiuser"
 cores       = 64
+topology    = "4 sockets x 16 cores, 4 NUMA nodes"
 thread_cap  = 64
 data_root   = "/home/mpiuser"
 notes       = "4x16 Xeon Gold 5218, 4 NUMA nodes, 376 GB. See results/suite-1.0/x86_64/ARCH.md."
@@ -31,6 +37,7 @@ arch        = "aarch64"
 address     = "192.168.191.12"
 user        = "mpiuser"
 cores       = 128
+topology    = "1 socket x 128 cores, 1 NUMA node"
 # Swept to 64, not 128, so both hosts sweep the same thread counts and the
 # two result trees stay directly comparable. The spare cores are a separate
 # question, not a change to the shared matrix.

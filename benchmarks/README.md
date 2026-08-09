@@ -84,12 +84,25 @@ Its exit code is the verdict — 0 ACCEPT, 1 REVIEW, 2 BLOCK, 3 not comparable �
 merge directly. The full chain a reader can walk in either direction:
 
 ```
-datasets.tsv  ->  suite.toml  ->  results/<suite>/<commit>/results.tsv
+datasets.tsv  ->  suite.toml  ->  results/<suite>/<arch>/<set>/results.tsv
                                      -> raw/ (-x reports behind each row)
-                                     -> compare.py (verdict vs current/)
+                                     -> compare.py (verdict vs that arch's current/)
                                      -> report.py  -> ../RESULTS.md
+                                     -> paper.py   -> ../paper/generated/<arch>/
                                      -> profiles.tsv -> charts.py -> chart-*.svg
+
+  every architecture's current/  ->  crossarch.py  ->  ../paper/generated/cross-arch/
 ```
+
+Everything above the last line describes one machine, by construction:
+`compare.py` refuses to diff two sets measured on different hosts, and
+`paper.py` reads a single result set. `crossarch.py` is the one place allowed
+to put two machines in one table, and it carries the caveat that makes doing
+so honest — the hosts differ in cores, sockets, NUMA topology and clock, so a
+timing ratio compares two machines rather than two instruction sets. What it
+*can* compare exactly is the algorithm's own counters, which are deterministic
+and must be identical on both for one commit; that table is the premise the
+rest of the document rests on, and it fails loudly rather than quietly.
 
 The profiling branch of that chain, spelled out, because every link is a file
 somebody can open:
@@ -100,6 +113,9 @@ shmap -x --profile-log     one JSON report per invocation        profiling
   -> profiles.tsv          one row per invocation, one col/stage  tables
   -> charts.py             reads the table, never the JSON        script
   -> chart-*.svg           + chart-index.html to browse them      graphics
+  -> crossarch.py          reads every arch's profiles.tsv        script
+  -> cross-arch/           tables, TikZ pies, artifacts.pdf       graphics
+                           + charts.html, every SVG side by side
 ```
 
 `charts.py` deliberately reads `profiles.tsv` rather than `raw/`: the table is

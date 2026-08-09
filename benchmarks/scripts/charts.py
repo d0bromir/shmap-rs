@@ -255,8 +255,20 @@ def provenance(row: dict, d: Path) -> str:
             f"{row['benchmark']}/{row['metric']}/-@{row['threads']}")
 
 
-def time_charts(row: dict, d: Path) -> dict[str, str]:
-    """The headline chart plus a per-phase zoom of each half."""
+def time_stages(row: dict) -> tuple[list[tuple[str, float, str]],
+                                    list[tuple[str, float, str]]]:
+    """(indexing, mapping) stages in pipeline order, before any folding.
+
+    The one place that decides what the stages of a run are, including the
+    unattributed remainder below, which is computed rather than read from a
+    column and is therefore the thing two independent implementations would
+    disagree about first.
+
+    Unfolded, because folding is a presentation rule for pies: a wedge under
+    5% cannot be drawn honestly, but a table cell can hold any number.
+    `crossarch.py`'s stage table takes these raw; the pies take the folded
+    form below. Both agree about the stages themselves.
+    """
     idx = [(lab, num(row, col), INDEX_COLORS[i]) for i, (col, lab) in enumerate(INDEX_STAGES)]
     mp = [(lab, num(row, col), MAP_COLORS[i]) for i, (col, lab) in enumerate(MAP_STAGES)]
 
@@ -265,8 +277,29 @@ def time_charts(row: dict, d: Path) -> dict[str, str]:
     rest = num(row, "cpu_query_mapping") - mp_sum
     if rest > 0:
         mp = mp + [("map: other (unattributed)", rest, MAP_REMAINDER_COLOR)]
+    return idx, mp
 
-    i_tot, m_tot = sum(v for _, v, _ in idx), sum(v for _, v, _ in mp)
+
+def time_slices(row: dict) -> dict[str, list[tuple[str, float, str]]]:
+    """The wedges of each time pie, folded, before anything renders them.
+
+    Two renderers read this: the SVGs below, and the TikZ pies `crossarch.py`
+    typesets into the cross-architecture PDF. One function feeding both means
+    they cannot disagree about what a wedge is.
+    """
+    idx, mp = time_stages(row)
+    return {"time": fold_small(idx + mp),
+            "time-indexing": fold_small(idx),
+            "time-mapping": fold_small(mp)}
+
+
+def time_charts(row: dict, d: Path) -> dict[str, str]:
+    """The headline chart plus a per-phase zoom of each half."""
+    sl = time_slices(row)
+    # Taken from the folded slices because folding conserves the total, so
+    # these are the same numbers the unfolded stage lists would give.
+    i_tot = sum(v for _, v, _ in sl["time-indexing"])
+    m_tot = sum(v for _, v, _ in sl["time-mapping"])
     grand = i_tot + m_tot
     nested = ", ".join(f"{lab} {num(row, col):.2f}s ({why})" for col, lab, why in NESTED)
 
@@ -283,16 +316,16 @@ def time_charts(row: dict, d: Path) -> dict[str, str]:
         f"indexing {i_tot:.2f}s ({100 * i_tot / grand:.1f}%) in blue · "
         f"mapping {m_tot:.2f}s ({100 * m_tot / grand:.1f}%) in orange · "
         f"slices under {int(MIN_SLICE * 100)}% folded into 'other'",
-        fold_small(idx + mp), "s", common)
+        sl["time"], "s", common)
     out[f"chart-{b}-time-indexing.svg"] = pie_svg(
         f"{b} — indexing phase only ({met}, -@{th})",
         f"{i_tot:.2f} CPU-seconds total · wall_indexing was {num(row, 'wall_indexing'):.2f}s "
         f"(lower: the reader and sketch workers overlap)",
-        fold_small(idx), "s", common[:2])
+        sl["time-indexing"], "s", common[:2])
     out[f"chart-{b}-time-mapping.svg"] = pie_svg(
         f"{b} — mapping phase only ({met}, -@{th})",
         f"{m_tot:.2f} CPU-seconds total · wall_mapping was {num(row, 'wall_mapping'):.2f}s",
-        fold_small(mp), "s", common)
+        sl["time-mapping"], "s", common)
     return out
 
 

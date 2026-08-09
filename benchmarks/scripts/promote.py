@@ -137,14 +137,21 @@ def main() -> int:
     run([sys.executable, "benchmarks/scripts/paper.py", "--arch", set_arch], "paper.py")
     run([sys.executable, "benchmarks/scripts/build_pdf.py", "--arch", set_arch], "build_pdf.py")
 
+    # The cross-architecture document reads every promoted set, so promoting
+    # any one of them changes it. No --arch: it is about all of them. With
+    # fewer than two promoted it writes nothing and says so, which is why this
+    # is unconditional rather than guarded by a count here.
+    run([sys.executable, "benchmarks/scripts/crossarch.py", "--pdf"], "crossarch.py")
+
     if set_arch == DOC_ARCH:
         run([sys.executable, "benchmarks/scripts/report.py", "--arch", DOC_ARCH], "report.py")
     else:
         print(f"\n{set_arch} promoted: its result tree, charts and paper artifacts are")
-        print(f"regenerated. RESULTS.md and README.md are left alone — they carry one")
-        print(f"running narrative written about {DOC_ARCH}, so restating their headline")
-        print("figures from another machine's numbers would misrepresent them. An")
-        print("aarch64 section within that narrative is separate work.")
+        print("regenerated, and so is the cross-architecture document, which is where")
+        print(f"this machine's numbers appear beside {DOC_ARCH}'s. RESULTS.md and README.md")
+        print(f"are left alone — they carry one running narrative written about {DOC_ARCH},")
+        print("so restating their headline figures from another machine's numbers would")
+        print(f"misrepresent them. A {set_arch} section within that narrative is separate work.")
 
     print("\nverifying that everything regenerates to what is now on disk")
     run([sys.executable, "benchmarks/scripts/charts.py", "--check", "--arch", set_arch],
@@ -153,6 +160,7 @@ def main() -> int:
         "paper.py --check")
     run([sys.executable, "benchmarks/scripts/build_pdf.py", "--check", "--arch", set_arch],
         "build_pdf.py --check")
+    run([sys.executable, "benchmarks/scripts/crossarch.py", "--check"], "crossarch.py --check")
     if set_arch == DOC_ARCH:
         run([sys.executable, "benchmarks/scripts/report.py", "--check", "--arch", DOC_ARCH],
             "report.py --check")
