@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">
+<rect width="760" height="420" fill="#ffffff"/>
+<text x="20" y="30" font-size="17" font-weight="bold">B02 — confidence of mapped reads (Containment, -@1)</text>
+<text x="20" y="50" font-size="12" fill="#555555">of the reads that mapped, the share reported at mapq 60</text>
+<path d="M 200.00,210.00 L 200.00,70.00 A 140.00,140.00 0 1,1 148.67,79.75 Z" fill="#2e77aa" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 148.67,79.75 A 140.00,140.00 0 0,1 200.00,70.00 Z" fill="#f7bc6d" stroke="#ffffff" stroke-width="2"/>
+<rect x="400" y="81" width="14" height="14" fill="#2e77aa" stroke="#dddddd" stroke-width="1"/>
+<text x="422" y="92" font-size="13">mapq 60</text>
+<text x="740" y="92" font-size="13" text-anchor="end" fill="#333333">117,532.00 reads · 94.0%</text>
+<rect x="400" y="104" width="14" height="14" fill="#f7bc6d" stroke="#dddddd" stroke-width="1"/>
+<text x="422" y="115" font-size="13">below mapq 60</text>
+<text x="740" y="115" font-size="13" text-anchor="end" fill="#333333">7,468.00 reads · 6.0%</text>
+<line x1="400" y1="132" x2="740" y2="132" stroke="#dddddd"/>
+<text x="400" y="150" font-size="13" font-weight="bold">total</text>
+<text x="740" y="150" font-size="13" text-anchor="end" font-weight="bold">125,000.00 reads</text>
+<text x="20" y="372" font-size="10.5" fill="#666666">source: current/profiles.tsv row B02/Containment/-@1</text>
+<text x="20" y="387" font-size="10.5" fill="#666666">n_mapq60 vs n_mapped_reads. Says nothing about reads that did not map.</text>
+</svg>

@@ -456,6 +456,25 @@ the host provenance line now states the socket topology instead of just "64-core
 change — the fix is real engineering that shouldn't be rushed into the PR that diagnosed the
 problem.
 
+**Addendum 2026-08-09 — corroborated by a second machine.** The diagnosis rested on evidence
+gathered entirely on the machine that has the problem, which is the weakest kind. `galaxy`
+(ARM Neoverse-N1, **1 NUMA node**, 128 cores) now runs the same suite at the same commit with the
+same compiler and produces bit-identical counters. Median speedup across all five benchmarks and
+three metrics:
+
+| | `-@8` | `-@16` | `-@32` | `-@64` |
+|---|---:|---:|---:|---:|
+| a2 — 4 NUMA nodes | 4.3x | **6.0x** | 5.5x | 5.8x |
+| galaxy — 1 NUMA node | 6.3x | 9.8x | 11.2x | **11.7x** |
+
+a2 peaks at exactly one socket and then goes backwards; galaxy has not turned over at 64. The
+ceiling is cross-socket memory traffic, as diagnosed — not the pipeline, and not the threading
+library. Full detail in `benchmarks/results/suite-1.0/aarch64/ARCH.md`; the tables and figures are
+generated into `paper/generated/cross-arch/`.
+
+This says nothing about whether Q5's remedy would have worked: Q5 failed on `numa_balancing` and
+mimalloc arena reuse, neither of which a single-node host can test.
+
 ---
 
 ## Q5 — Build the NUMA-aware index replication Q4 scoped but didn't ship

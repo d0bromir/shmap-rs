@@ -133,7 +133,27 @@ def block_provenance(rs: dict, reg: dict) -> str:
         f"| parameters | `-k {p['k']} -r {p['hashratio']} -t {p['threshold']} "
         f"-d {p['min_diff']} -o {p['max_overlap']}` |\n"
         f"| invocations | {m['invocations']} ({m.get('failures', 0)} failed) |\n"
+        + _carried_reference_row(m)
     )
+
+
+def _carried_reference_row(m: dict) -> str:
+    """Disclose a reference measurement older than the run it is compared with.
+
+    `suite.toml` re-measures the C++ only when its binary changes, so an
+    ordinary run carries the previous measurement forward. Every speedup ratio
+    below then has a numerator and a denominator from different days -- on a
+    host whose noise floor on identical work is over 20%, that is something the
+    reader has to be told, not something to leave in a manifest.
+    """
+    c = m.get("reference_rows_carried_forward")
+    if not c:
+        return ""
+    impls = ", ".join(f"`{i}`" for i in c.get("impls", []))
+    return (f"| reference measurement | {impls} not re-measured for this run: "
+            f"{c.get('rows', '?')} rows carried forward from `{c.get('from_commit', '?')}`, "
+            f"measured **{c.get('measured', '?')}**. The binary is unchanged, so the figures "
+            f"stand, but every speedup below divides this run's time by that day's. |\n")
 
 
 def block_summary(rs: dict) -> str:

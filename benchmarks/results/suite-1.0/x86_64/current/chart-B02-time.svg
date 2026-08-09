@@ -1,43 +1,43 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">
 <rect width="760" height="420" fill="#ffffff"/>
 <text x="20" y="30" font-size="17" font-weight="bold">B02 — where the CPU time goes (Containment, -@1)</text>
-<text x="20" y="50" font-size="12" fill="#555555">indexing 15.29s (39.0%) in blue · mapping 23.87s (61.0%) in orange · slices under 5% folded into 'other'</text>
-<path d="M 200.00,210.00 L 200.00,70.00 A 140.00,140.00 0 0,1 319.30,136.74 Z" fill="#bcd9ef" stroke="#ffffff" stroke-width="2"/>
-<path d="M 200.00,210.00 L 319.30,136.74 A 140.00,140.00 0 0,1 331.28,258.63 Z" fill="#8ec0e0" stroke="#ffffff" stroke-width="2"/>
-<path d="M 200.00,210.00 L 331.28,258.63 A 140.00,140.00 0 0,1 291.28,316.15 Z" fill="#5aa2cd" stroke="#ffffff" stroke-width="2"/>
-<path d="M 200.00,210.00 L 291.28,316.15 A 140.00,140.00 0 0,1 175.68,347.87 Z" fill="#fbd9a5" stroke="#ffffff" stroke-width="2"/>
-<path d="M 200.00,210.00 L 175.68,347.87 A 140.00,140.00 0 0,1 82.58,286.24 Z" fill="#f7bc6d" stroke="#ffffff" stroke-width="2"/>
-<path d="M 200.00,210.00 L 82.58,286.24 A 140.00,140.00 0 0,1 75.41,146.16 Z" fill="#f09a3e" stroke="#ffffff" stroke-width="2"/>
-<path d="M 200.00,210.00 L 75.41,146.16 A 140.00,140.00 0 0,1 179.14,71.56 Z" fill="#b74d10" stroke="#ffffff" stroke-width="2"/>
-<path d="M 200.00,210.00 L 179.14,71.56 A 140.00,140.00 0 0,1 200.00,70.00 Z" fill="#c2c2c2" stroke="#ffffff" stroke-width="2"/>
+<text x="20" y="50" font-size="12" fill="#555555">indexing 16.58s (41.3%) in blue · mapping 23.58s (58.7%) in orange · slices under 5% folded into 'other'</text>
+<path d="M 200.00,210.00 L 200.00,70.00 A 140.00,140.00 0 0,1 313.39,127.89 Z" fill="#bcd9ef" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 313.39,127.89 A 140.00,140.00 0 0,1 337.33,237.19 Z" fill="#8ec0e0" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 337.33,237.19 A 140.00,140.00 0 0,1 274.63,328.45 Z" fill="#5aa2cd" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 274.63,328.45 A 140.00,140.00 0 0,1 163.66,345.20 Z" fill="#fbd9a5" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 163.66,345.20 A 140.00,140.00 0 0,1 77.96,278.60 Z" fill="#f7bc6d" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 77.96,278.60 A 140.00,140.00 0 0,1 74.68,147.60 Z" fill="#f09a3e" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 74.68,147.60 A 140.00,140.00 0 0,1 179.77,71.47 Z" fill="#b74d10" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 179.77,71.47 A 140.00,140.00 0 0,1 200.00,70.00 Z" fill="#c2c2c2" stroke="#ffffff" stroke-width="2"/>
 <rect x="400" y="81" width="14" height="14" fill="#bcd9ef" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="92" font-size="13">index: reading</text>
-<text x="740" y="92" font-size="13" text-anchor="end" fill="#333333">6.36 s · 16.2%</text>
+<text x="740" y="92" font-size="13" text-anchor="end" fill="#333333">6.03 s · 15.0%</text>
 <rect x="400" y="104" width="14" height="14" fill="#8ec0e0" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="115" font-size="13">index: sketching</text>
-<text x="740" y="115" font-size="13" text-anchor="end" fill="#333333">5.64 s · 14.4%</text>
+<text x="740" y="115" font-size="13" text-anchor="end" fill="#333333">5.25 s · 13.1%</text>
 <rect x="400" y="127" width="14" height="14" fill="#5aa2cd" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="138" font-size="13">index: collecting</text>
-<text x="740" y="138" font-size="13" text-anchor="end" fill="#333333">3.15 s · 8.0%</text>
+<text x="740" y="138" font-size="13" text-anchor="end" fill="#333333">5.20 s · 12.9%</text>
 <rect x="400" y="150" width="14" height="14" fill="#fbd9a5" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="161" font-size="13">map: sketching</text>
-<text x="740" y="161" font-size="13" text-anchor="end" fill="#333333">5.51 s · 14.1%</text>
+<text x="740" y="161" font-size="13" text-anchor="end" fill="#333333">5.27 s · 13.1%</text>
 <rect x="400" y="173" width="14" height="14" fill="#f7bc6d" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="184" font-size="13">map: prepare</text>
-<text x="740" y="184" font-size="13" text-anchor="end" fill="#333333">5.11 s · 13.1%</text>
+<text x="740" y="184" font-size="13" text-anchor="end" fill="#333333">5.09 s · 12.7%</text>
 <rect x="400" y="196" width="14" height="14" fill="#f09a3e" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="207" font-size="13">map: match_seeds</text>
-<text x="740" y="207" font-size="13" text-anchor="end" fill="#333333">6.54 s · 16.7%</text>
+<text x="740" y="207" font-size="13" text-anchor="end" fill="#333333">6.23 s · 15.5%</text>
 <rect x="400" y="219" width="14" height="14" fill="#b74d10" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="230" font-size="13">map: match_rest</text>
-<text x="740" y="230" font-size="13" text-anchor="end" fill="#333333">5.91 s · 15.1%</text>
+<text x="740" y="230" font-size="13" text-anchor="end" fill="#333333">6.16 s · 15.3%</text>
 <rect x="400" y="242" width="14" height="14" fill="#c2c2c2" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="253" font-size="13">other (3 stages)</text>
-<text x="740" y="253" font-size="13" text-anchor="end" fill="#333333">0.93 s · 2.4%</text>
+<text x="740" y="253" font-size="13" text-anchor="end" fill="#333333">0.93 s · 2.3%</text>
 <line x1="400" y1="270" x2="740" y2="270" stroke="#dddddd"/>
 <text x="400" y="288" font-size="13" font-weight="bold">total</text>
-<text x="740" y="288" font-size="13" text-anchor="end" font-weight="bold">39.16 s</text>
+<text x="740" y="288" font-size="13" text-anchor="end" font-weight="bold">40.16 s</text>
 <text x="20" y="372" font-size="10.5" fill="#666666">source: current/profiles.tsv row B02/Containment/-@1</text>
 <text x="20" y="387" font-size="10.5" fill="#666666">CPU-seconds summed across threads, not wall-clock — cpu_* and wall_* are different units and are never mixed.</text>
-<text x="20" y="402" font-size="10.5" fill="#666666">not shown (nested inside a slice above, would double-count): seeding 4.18s (inside prepare), collect_kmer_info 2.94s (inside seeding), refine 2.86s (inside match_rest)</text>
+<text x="20" y="402" font-size="10.5" fill="#666666">not shown (nested inside a slice above, would double-count): seeding 4.06s (inside prepare), collect_kmer_info 2.71s (inside seeding), refine 3.01s (inside match_rest)</text>
 </svg>

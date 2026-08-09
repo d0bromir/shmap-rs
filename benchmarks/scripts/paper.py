@@ -600,6 +600,9 @@ ARTIFACTS: tuple[Artifact, ...] = (
             "Wrong Q60 is unknowable for real reads and shown as an em-dash there, not as 0.",
             "The C++ reference is a median of three runs; shmap-rs rows are a single run "
             "(RESULTS.md 10 explains why, and that per-row variance reaches ~10%).",
+            "The C++ is re-measured only when its binary changes, so its rows may come from an "
+            "earlier date than the shmap-rs rows beside them. RESULTS.md names that date when "
+            "the two differ.",
         ),
         build=build_comparison,
     ),

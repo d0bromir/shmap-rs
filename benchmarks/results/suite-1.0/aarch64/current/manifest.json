@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "suite_version": "1.0",
+  "dataset_version": 1,
+  "commit": "00d8c08aa656aa4d79d397bad0d446553b516ed0",
+  "host": "galaxy",
+  "arch": "aarch64",
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "configured_host": "a2",
+  "authorized_by": "n/a",
+  "started": "2026-08-09T16:37:17.177135+00:00",
+  "finished": "2026-08-09T17:54:03.969375+00:00",
+  "duration_s": 4606.8,
+  "invocations": 105,
+  "failures": 0,
+  "datasets": {
+    "D1-HIFI23K": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/real24k/reads_real24k.fa",
+      "rel": "real24k/reads_real24k.fa",
+      "bytes": "3470851001",
+      "records": "149438",
+      "bases": "3465413132"
+    },
+    "D2-SIM24K": {
+      "kind": "reads-sim",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/wgs24k/reads_24kbp_1x.fa",
+      "rel": "wgs24k/reads_24kbp_1x.fa",
+      "bytes": "3004619179",
+      "records": "125000",
+      "bases": "3000000000"
+    },
+    "D3-HIFI1X": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/hifi_real/hifi_1x.fa",
+      "rel": "hifi_real/hifi_1x.fa",
+      "bytes": "3122427506",
+      "records": "242534",
+      "bases": "3113721004"
+    },
+    "D4-HIFI10X": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/hifi_real/hifi_10x.fa",
+      "rel": "hifi_real/hifi_10x.fa",
+      "bytes": "31219607763",
+      "records": "2425341",
+      "bases": "31132446551"
+    },
+    "D6-ONT24K": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/ont24k/reads_ont24k.fa",
+      "rel": "ont24k/reads_ont24k.fa",
+      "bytes": "2193635779",
+      "records": "92220",
+      "bases": "2191178243"
+    },
+    "REF-HS1": {
+      "kind": "reference",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa",
+      "rel": "_paper_work/hs1.fa",
+      "bytes": "3179638084",
+      "records": "25",
+      "bases": "3117292070"
+    }
+  },
+  "binaries": {
+    "shmap-rs": "shmap 1.3.1"
+  },
+  "per_read_stats": [
+    "per-read-B01-Containment.tsv",
+    "per-read-B02-Containment.tsv",
+    "per-read-B03-Containment.tsv",
+    "per-read-B05-Containment.tsv"
+  ]
+}
