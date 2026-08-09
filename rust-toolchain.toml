@@ -6,15 +6,17 @@
 # x86_64-vs-aarch64 comparison a comparison of two architectures *and* two
 # compilers at once, with no way to attribute a difference to either.
 #
-# Pinned to what the existing x86_64 baselines in
-# benchmarks/results/suite-1.0/x86_64/ were actually measured with, so those
-# results stay valid and the new architecture is the only variable.
+# An exact version, never "stable": a floating channel would silently change
+# the compiler under a result set and make two runs incomparable for a reason
+# nothing records.
 #
-# rustup honours this automatically and fetches the toolchain on first use.
-# Raising it is a deliberate act: it invalidates cross-arch comparability
-# with every result set measured before the change, so bump it on both hosts
-# and re-measure, or not at all.
+# Raised to 1.97.1 (current stable, 2026-07-14) on both hosts together,
+# deliberately and before measuring. Note what that costs: the x86_64 result
+# sets already committed under benchmarks/results/suite-1.0/x86_64/ were
+# measured with 1.93.1, so a timing difference against those is a change of
+# compiler as much as of code. The first run on each host after this bump
+# establishes a new baseline rather than judging a change.
 
 [toolchain]
-channel = "1.93.1"
+channel = "1.97.1"
 components = ["rustfmt", "clippy"]

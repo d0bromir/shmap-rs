@@ -16,7 +16,7 @@ aarch64 is judged against aarch64.
 | RAM | 246 GB |
 | disk | 605 GB free on `/` (the corpus is ~46 GB) |
 | OS | Ubuntu 25.10, kernel 6.17.0-22-generic |
-| Rust | 1.93.1, host triple `aarch64-unknown-linux-gnu` — pinned by `rust-toolchain.toml` |
+| Rust | 1.97.1, host triple `aarch64-unknown-linux-gnu` — pinned by `rust-toolchain.toml` |
 | C++ | g++ 15.2.0 |
 | state during runs | `run.py` takes `~/.shmap-bench.lock`, so only one measurement runs at a time *on this host* |
 
@@ -37,7 +37,7 @@ this removes the possibility entirely.
 
 ## Comparability with x86_64
 
-- **Same compiler.** `rust-toolchain.toml` pins 1.93.1 on both hosts. Without
+- **Same compiler.** `rust-toolchain.toml` pins 1.97.1 on both hosts. Without
   it this machine's fresh rustup installed 1.97.1, which would have made every
   cross-architecture number a comparison of two architectures *and* two
   compilers, with no way to attribute a difference to either.

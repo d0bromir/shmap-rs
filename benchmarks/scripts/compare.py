@@ -444,7 +444,12 @@ def render(base: dict, cand: dict, res: dict, thr: dict) -> str:
         BLOCK: "**BLOCK** — do not merge.",
     }[v]
 
-    L = [f"# Benchmark comparison — {NAMES[v]}",
+    # `arch` is absent from result sets measured before the multi-architecture
+    # split; fall back rather than crash on a historical baseline.
+    b_arch, c_arch = bm.get("arch", "—"), cm.get("arch", "—")
+    where = f"{cm['host']} ({c_arch})" if c_arch != "—" else cm["host"]
+
+    L = [f"# Benchmark comparison on {where} — {NAMES[v]}",
          "",
          verdict_line,
          "",
@@ -454,6 +459,8 @@ def render(base: dict, cand: dict, res: dict, thr: dict) -> str:
          f"| suite | {bm['suite_version']} | {cm['suite_version']} |",
          f"| datasets | v{bm['dataset_version']} | v{cm['dataset_version']} |",
          f"| host | {bm['host']} | {cm['host']} |",
+         f"| arch | {b_arch} | {c_arch} |",
+         f"| rustc | {bm.get('rustc', '—')} | {cm.get('rustc', '—')} |",
          f"| measured | {bm['finished'][:19]}Z | {cm['finished'][:19]}Z |",
          f"| invocations | {bm['invocations']} | {cm['invocations']} |",
          ""]

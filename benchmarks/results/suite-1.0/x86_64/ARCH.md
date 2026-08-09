@@ -16,7 +16,7 @@ x86_64 is judged against x86_64.
 | L3 | 88 MiB (4 instances, one per socket) |
 | RAM | 376 GB |
 | OS | Ubuntu 24.04.3 LTS, kernel 6.8.0-100-generic |
-| Rust | 1.93.1, host triple `x86_64-unknown-linux-gnu` |
+| Rust | 1.97.1, host triple `x86_64-unknown-linux-gnu` |
 | state during runs | idle and exclusively locked — `run.py` takes `~/.shmap-bench.lock` |
 
 ## Things measured here that are properties of *this* machine

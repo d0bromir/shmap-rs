@@ -205,6 +205,15 @@ def load_registry() -> dict:
     return reg
 
 
+def rustc_version() -> str:
+    """`rustc -V` as it resolves here, i.e. after rust-toolchain.toml applies."""
+    try:
+        out = subprocess.run(["rustc", "-V"], capture_output=True, text=True, cwd=REPO)
+        return out.stdout.strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
 def verify_datasets(suite: dict, reg: dict) -> None:
     """Fail before measuring if an input is not what the registry says.
 
@@ -868,7 +877,7 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
 
     manifest = dict(
         schema=1, suite_version=suite["suite_version"], dataset_version=suite["dataset_version"],
-        commit=commit, host=platform.node(), arch=arch(),
+        commit=commit, host=platform.node(), arch=arch(), rustc=rustc_version(),
         configured_host=suite["run"]["host"], authorized_by=authorized_by,
         started=datetime.fromtimestamp(t0, timezone.utc).isoformat(),
         finished=datetime.now(timezone.utc).isoformat(), duration_s=round(time.time() - t0, 1),
