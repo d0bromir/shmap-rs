@@ -18,6 +18,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q8 | Can SIMD be used in some of the steps of mapping a read? | `q8-simd-mapping-steps` | #17 | merged |
 | Q9 | Software prefetching for the pruning lookups | `q9-prefetch-refine` | #18 | merged |
 | Q10 | 2-bit-packed sequence encoding for sketching | `q10-2bit-packed-sketching` | #20 | merged |
+| Q11 | Visualize the profiling data as charts | `q11-profiling-charts` | #22 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -761,6 +762,68 @@ on hashing alone and lost only once real k-mer emission was included. Sketching'
 therefore close to its floor on this hardware, and 2-bit packing's remaining merit is memory
 footprint rather than speed — largely moot here, since this port already discards the reference
 sequence after sketching ([`PORT_CHANGES.md`](PORT_CHANGES.md) §8).
+
+---
+
+## Q11 — Visualize the profiling data as charts
+
+**Asked** 2026-08-09 · **Branch** `q11-profiling-charts` · **PR** #22 · **Status** in review
+
+**Question.** *"visualize the profiling — add new scripts that are run after profiling completes as
+part of the benchmark script or standalone. The new scripts should visualize in a chart the
+profiling data from the tables we generate. The chain must be clear — profiling → script → tables →
+script → graphics. Graphics should be simple enough to visualize pie parts not less than 5%,
+everything else aggregate as others. Since currently we have profiling data, this time only run the
+scripts to generate the charts. For profiling we are most interested in time each part of
+computation took, but other relative info can be added to other pie diagrams too. Indexing and
+alignment should be clearly separable in the diagrams visually."*
+
+**Answer / change.** New [`benchmarks/charts.py`](benchmarks/charts.py), plus the 30 charts for the
+current result set. Runs at the end of a benchmark run and standalone.
+
+The chain, with every link a file that can be opened:
+
+```
+shmap -x --profile-log   one JSON report per invocation      profiling
+  -> run.py              write_profiles_tsv()                script
+  -> profiles.tsv        one row per run, one column/stage   tables
+  -> charts.py           reads the table, never the JSON     script
+  -> chart-*.svg         + chart-index.html to browse them   graphics
+```
+
+`charts.py` reads `profiles.tsv` rather than `raw/` deliberately — the table is the reviewed,
+checked-in form of the data, so every wedge traces to a row a reader can look up, and each chart
+footers the exact row it came from. Six pies per benchmark at Containment/`-@1`: the headline time
+chart, each phase alone, and three relative-composition charts (pruning, RefineCache hit rate,
+mapq). Indexing is blue and mapping orange, each occupying one *contiguous* arc rather than being
+size-sorted, so the split reads as two blocks before any label does. Under-5% wedges fold into
+"other"; a lone one is still aggregated but named.
+
+Hand-written SVG, no matplotlib: the host has neither matplotlib nor a LaTeX engine, so either
+would have to be installed everywhere this runs including CI, and SVG being text means a chart
+diffs in review like the tables do and `charts.py --check` catches a stale one byte-for-byte, the
+way `report.py --check` already guards RESULTS.md.
+
+**Two correctness rules, both from checking rather than assuming.** CPU-seconds are never mixed
+with wall-clock — `profiles.tsv` warns that `cpu_*` is summed across threads, and measurement
+confirmed indexing sums to ~2x its wall time *even at `-@1`* because its reader and sketch workers
+overlap. And only non-overlapping quantities share a pie: the stage timers nest (`seeding` inside
+`prepare`, `collect_kmer_info` inside `seeding`, `refine` inside `match_rest`), so those three are
+named in each chart's footer instead of drawn, verified numerically — the five direct children of
+`query_mapping` sum to 31.999 s against its 32.068 s on B01.
+
+**A chart deliberately not drawn.** That same rule killed a planned seeded->refined->final funnel:
+`n_final_buckets` is *not* a subset of `n_refined_buckets` — it exceeds it on B02 and B05, because
+`final_buckets` counts buckets beating the threshold while `refined_buckets` counts buckets
+entering refine, and the memo decouples them. No honest pie can be drawn from that pair. The three
+partitions that do hold are re-checked by `assert_partitions()` on every run, raising rather than
+exiting so a chart problem can never take down a ~78-minute measured run.
+
+**Outcome.** No `src/` change — this only reads artifacts the benchmark already writes, and the
+charts were generated from the existing result set with no re-run, as asked.
+[`benchmarks/test_charts.py`](benchmarks/test_charts.py) pins the aggregation rule, wedge geometry,
+the partition guard and end-to-end rendering (30 assertions); wired into CI with `charts.py
+--check`, and `promote.py` now carries `chart-*` so a promoted result set stays viewable.
 
 ---
 
