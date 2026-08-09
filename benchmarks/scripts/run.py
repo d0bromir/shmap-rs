@@ -1004,8 +1004,13 @@ def main() -> int:
         # what the tag says.
         ver = sh([str(wt / "target" / "release" / "shmap"), "--version"]).stdout.strip()
         ver = (ver.split()[-1] if ver else "unknown").replace("/", "_")
+        # Architecture is in the name because the staging root is flat: two
+        # hosts measuring the same commit on the same day would otherwise
+        # write the same directory, and copying one to the other for
+        # promotion would silently overwrite it. Sets predating this keep
+        # their shorter names; nothing parses either form.
         default_out = (RESULTS_ROOT /
-                       f"{ver}-{commit[:12]}-{datetime.now(timezone.utc):%Y-%m-%d}")
+                       f"{ver}-{arch()}-{commit[:12]}-{datetime.now(timezone.utc):%Y-%m-%d}")
         out = Path(args.out) if args.out else default_out
         try:
             rc = execute(jobs, suite, reg, commit, wt, out, authorized_by, lock)
