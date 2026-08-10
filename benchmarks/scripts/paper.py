@@ -68,7 +68,7 @@ from typing import Callable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run import REPO, load_registry, load_suite  # noqa: E402
 from compare import RESULTS, load_set  # noqa: E402
-from layout import arch, current_dir  # noqa: E402
+from layout import arch, current_dir, reference_mappers_dir  # noqa: E402
 import report  # noqa: E402
 
 # One directory per architecture: the artifacts are a pure function of a
@@ -579,7 +579,8 @@ ARTIFACTS: tuple[Artifact, ...] = (
             "results.tsv :: benchmark, impl, metric, threads, mapped, mapq60, index_s, map_s, peak_rss_kb",
             "checks.tsv :: wrong_q60 detail (numerator)",
             "benchmarks/data/datasets.tsv :: records, for the read count the 'missed' share needs",
-            "benchmarks/results/reference-mappers/manifest.json :: mapper, wall_s, peak_rss_kb, mapped",
+            "benchmarks/results/reference-mappers/<arch>/manifest.json :: mapper, wall_s, "
+            "peak_rss_kb, mapped — this architecture's corpus only",
         ),
         transform=(
             "Keep the -@1 row for each (benchmark, implementation, metric); -@1 is the "
@@ -589,8 +590,9 @@ ARTIFACTS: tuple[Artifact, ...] = (
             "wrong_q60 = numerator of the wrong_q60 check detail, present only where reads "
             "carry truth in their headers.",
             "peak_rss_gb = peak_rss_kb / 1048576.",
-            "External mappers are appended per benchmark from the cached corpus; they have no "
-            "metric and no phase split, so those cells are em-dashes.",
+            "External mappers are appended per benchmark from this architecture's cached "
+            "corpus; they have no metric and no phase split, so those cells are em-dashes. "
+            "An architecture whose corpus has not been built has no external rows at all.",
         ),
         presentation="booktabs tabular, grouped by dataset with a rule between groups; "
                      "counts use LaTeX thin spaces as thousands separators.",
@@ -873,7 +875,7 @@ def build_all(rs: dict) -> dict[str, str]:
         registry=load_registry(),
         counters=report._profiles(rs, "counters"),
         timers=report._profiles(rs, "timers_secs"),
-        external=load_external(),
+        external=load_external(rs["manifest"].get("arch")),
         per_read=load_per_read(rs),
         digest=input_digest(rs),
     )
@@ -916,13 +918,20 @@ def load_per_read(rs: dict) -> dict[str, list[dict]]:
     return out
 
 
-def load_external() -> list[dict]:
-    """The cached external-mapper corpus, if it has been built.
+def load_external(a: str | None = None) -> list[dict]:
+    """The cached external-mapper corpus for one architecture, if it exists.
 
-    Optional by design: it takes hours and a missing corpus should cost a table
-    its external rows, not fail the run.
+    Takes an architecture because the corpus records `wall_s` and
+    `peak_rss_kb`: they belong to the machine that ran the mapper, and putting
+    one machine's seconds in another's table is not a caveat, it is a wrong
+    number. An architecture whose corpus has not been built simply has no
+    external rows -- which is what its own checks.tsv already says, since
+    concordance against a mapper that was never run cannot be scored either.
+
+    Optional by design: building it takes hours and a missing corpus should
+    cost a table its external rows, not fail the run.
     """
-    p = RESULTS / "reference-mappers" / "manifest.json"
+    p = reference_mappers_dir(a) / "manifest.json"
     if not p.exists():
         return []
     try:

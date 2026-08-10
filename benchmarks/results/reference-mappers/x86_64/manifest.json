@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "generated": "2026-07-31T07:24:24.201330+00:00",
   "cache_dir": "/home/mpiuser/bench-refs",
   "entries": [
@@ -111,5 +111,8 @@
       "peak_rss_kb": 6448028,
       "measured": "2026-07-31T04:53:19.329991+00:00"
     }
-  ]
+  ],
+  "host": "a2",
+  "arch": "x86_64",
+  "provenance_note": "host and arch backfilled when the corpus was split per architecture. The original export recorded neither; they are inferred from cache_dir (/home/mpiuser/bench-refs), which exists on a2 and on no other benchmark host. Entries exported after that split record both at measurement time."
 }
