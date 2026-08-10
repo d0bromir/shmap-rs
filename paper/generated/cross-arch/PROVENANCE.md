@@ -7,9 +7,9 @@ the code does not perform.
 | | |
 |---|---|
 | `x86_64` | x86_64/current on a2 @ 00d8c08aa656 (2026-08-09) |
-| `aarch64` | aarch64/current on galaxy @ 00d8c08aa656 (2026-08-09) |
+| `aarch64` | aarch64/current on galaxy @ 00d8c08aa656 (2026-08-10) |
 | reference | `x86_64` — every delta in the document is against it |
-| input digest | `sha256:535f56c82b12f07a` |
+| input digest | `sha256:3f92ec29b39e71c8` |
 
 Regenerate with `python3 benchmarks/scripts/crossarch.py`; verify with `--check`, which
 fails if any artifact would change. Each artifact is emitted twice: a `.tex` fragment to
@@ -129,6 +129,32 @@ booktabs tabular, one row per stage, one delta column per benchmark.
 
 - cpu_* timers are summed across threads and are never mixed with wall_*. At -@1 the two are close, but they are still different units.
 - The pies fold everything under 5% into one grey wedge and this table does not, so a stage with a row here may have no wedge of its own in the figure. The numbers are the same; only the presentation rule differs.
+
+## table_crossarch_speedup
+
+**Table** — shmap-rs against the C++ \texttt{shmap}, measured separately on each machine. Unlike every other timing table here, this one is not confounded by the hosts differing: both terms of each ratio come from the same machine, so its speed cancels and what remains is a property of the two programs.
+
+Files: `table_crossarch_speedup.tex`, `table_crossarch_speedup.tsv`. LaTeX label: `tab:xarch:speedup`.
+
+**Taken from**
+
+- `benchmarks/results/suite-<v>/<arch>/current/results.tsv :: wall_s for impl=shmap-rs at -@1 and impl=cpp-shmap`
+- `...manifest.json :: reference_rows_carried_forward, when the C++ was not re-measured for that run`
+
+**Transformed by**
+
+1. speedup = cpp-shmap wall_s / shmap-rs wall_s at -@1 on the same architecture. -@1 because the C++ is single-threaded by design.
+2. The delta column is the second architecture's speedup minus the reference architecture's — a difference of ratios, not a ratio of ratios.
+3. An architecture with no cpp-shmap rows gets em-dashes; the suite re-measures the reference only when its binary changes, so a machine can legitimately have none.
+
+**Presented as**
+
+booktabs tabular grouped by benchmark, with a note naming any architecture whose C++ rows were carried forward from an earlier date.
+
+**Read with**
+
+- This cancels machine speed only if both terms were measured on the same machine at the same time. Where the C++ was carried forward the table says so, and that column should be read as approximate.
+- The C++ is a median of three runs and shmap-rs a single run, so a difference of a few hundredths is not a difference.
 
 ## fig_crossarch_thread_scaling
 

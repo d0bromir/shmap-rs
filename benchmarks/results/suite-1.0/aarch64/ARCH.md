@@ -89,6 +89,15 @@ Peak RSS over the same rows tells the same story: 14.3% spread on a2 against
 opposite of what "shared" suggests and worth knowing before anyone discounts a
 result measured here.
 
+**Measured directly, too.** Commit `00d8c08` was run twice here on 2026-08-09,
+seven hours apart — once for shmap-rs alone and once with the C++ reference —
+which is a repeatability experiment rather than a proxy for one. The second
+run's verdict was ACCEPT with no reviewable rows: whole-run wall time moved
+−0.1%, +1.0%, +1.0%, +0.5%, −1.1% on the first five (benchmark, metric) pairs,
+and the worst single thread count in the whole matrix was +5.2%. a2's rerun of
+the same commit, by contrast, produced four rows between +3.2% and +6.5% and
+single thread counts past +22%.
+
 The practical consequence is for a2, not for this host: a2's own noise floor on
 identical work is ±23%, which is larger than the 3–6% wall-time movements its
 regression gate flags for review. A single a2 row moving a few percent is not
@@ -105,6 +114,20 @@ Built here from upstream at the pinned commit
 Upstream adds it unconditionally and it costs ~8.8%; `run.py` refuses a binary
 carrying live Tracy symbols for exactly that reason. This build reports 3,
 under the threshold of 10.
+
+**Measured 2026-08-10.** shmap-rs is **1.94–2.64x** faster than it
+single-threaded here (median 2.31x), against **1.69–2.77x** (median 2.45x) on
+a2, and uses 2.55–2.66 GB against the C++'s 18.85 GB — 7.1x less. So the port's
+advantage is a few percent smaller on ARM, in 12 of 15 rows.
+
+Read that difference carefully. Both terms of this host's ratio were measured
+in the same run, while a2's C++ rows date from 2026-08-01 and its shmap-rs rows
+from 2026-08-09 — and a2's noise floor on identical work is 23%. The one row
+where ARM comes out *ahead* by a wide margin (B04/bucket\_SH, 1.97x here
+against 1.69x there) is also a2's lowest ratio in the whole table, which is
+what a stale denominator would look like. A same-day C++ re-measurement on a2
+would settle it; until then the cross-architecture speedup table marks that
+column as approximate.
 
 ## Reproducing
 

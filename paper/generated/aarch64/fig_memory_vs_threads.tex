@@ -3,8 +3,8 @@
 % result set: current
 % commit:     00d8c08aa656
 % host:       galaxy
-% measured:   2026-08-09
-% inputs:     sha256:884176aa0dedf313
+% measured:   2026-08-10
+% inputs:     sha256:c8aebd06259c4a93
 % provenance: paper/generated/PROVENANCE.md#fig_memory_vs_threads
 %
 \begin{figure}[tb]
@@ -26,16 +26,18 @@
   xtick={1,2,4,8,16,32,64},
   xticklabels={1,2,4,8,16,32,64}
 ]
-\addplot[color=blue!70!black,mark=*,thick] coordinates {(1,2.630) (2,1.915) (4,1.927) (8,1.971) (16,2.094) (32,2.453) (64,2.871)};
+\addplot[color=blue!70!black,mark=*,thick] coordinates {(1,2.651) (2,1.877) (4,2.015) (8,2.149) (16,2.069) (32,2.395) (64,2.924)};
 \addlegendentry{B01}
-\addplot[color=red!70!black,mark=square*,thick] coordinates {(1,2.590) (2,1.894) (4,1.856) (8,2.060) (16,2.241) (32,2.469) (64,2.805)};
+\addplot[color=red!70!black,mark=square*,thick] coordinates {(1,2.652) (2,1.897) (4,2.008) (8,2.071) (16,2.078) (32,2.397) (64,2.903)};
 \addlegendentry{B02}
-\addplot[color=green!45!black,mark=triangle*,thick] coordinates {(1,2.655) (2,1.909) (4,2.101) (8,2.195) (16,2.551) (32,3.478) (64,4.551)};
+\addplot[color=green!45!black,mark=triangle*,thick] coordinates {(1,2.653) (2,1.913) (4,2.019) (8,2.188) (16,2.520) (32,3.517) (64,4.678)};
 \addlegendentry{B03}
-\addplot[color=orange!85!black,mark=diamond*,thick] coordinates {(1,2.653) (2,1.902) (4,2.033) (8,2.249) (16,2.575) (32,7.212) (64,10.151)};
+\addplot[color=orange!85!black,mark=diamond*,thick] coordinates {(1,2.661) (2,1.987) (4,2.022) (8,2.190) (16,2.605) (32,7.666) (64,10.500)};
 \addlegendentry{B04}
-\addplot[color=violet,mark=pentagon*,thick] coordinates {(1,2.585) (2,1.905) (4,2.006) (8,2.000) (16,2.191) (32,2.557) (64,3.128)};
+\addplot[color=violet,mark=pentagon*,thick] coordinates {(1,2.635) (2,1.894) (4,1.950) (8,2.003) (16,2.206) (32,2.441) (64,3.139)};
 \addlegendentry{B05}
+\addplot[black,dashed,thick,mark=none] coordinates {(1,18.849) (2,18.849) (4,18.849) (8,18.849) (16,18.849) (32,18.849) (64,18.849)};
+\addlegendentry{C++ \texttt{shmap}}
 \end{axis}
 \end{tikzpicture}
 \caption{Peak resident memory against thread count, Containment, with the C++ reference as a horizontal line.}
