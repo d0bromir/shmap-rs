@@ -89,22 +89,37 @@ def split_rows(tsv: Path, impls: set[str]) -> tuple[list[str], list[str], list[s
     return [head], mine, rest
 
 
-def carry_reference_rows(suite: dict, src: Path, dst: Path) -> dict | None:
-    """Preserve the outgoing baseline's reference rows if the new set has none.
+def row_key(line: str, header: list[str]) -> tuple:
+    """(benchmark, impl, metric, threads) — what identifies a measured row."""
+    f = line.rstrip("\n").split("\t")
+    return tuple(f[header.index(c)] for c in ("benchmark", "impl", "metric", "threads"))
 
-    Returns provenance to record in the manifest, or None if nothing was
-    carried. Reads `dst` before it is overwritten, so this must be called
+
+def carry_reference_rows(suite: dict, src: Path, dst: Path) -> dict | None:
+    """Keep baseline reference rows for the keys the new set did not measure.
+
+    Per key rather than all-or-nothing, because the drift probe measures part
+    of the reference every run. An all-or-nothing rule would see those rows,
+    conclude the run had measured its own reference, and silently drop every
+    benchmark the probe does not cover.
+
+    Returns provenance to record in the manifest, or None if nothing needed
+    carrying. Reads `dst` before it is overwritten, so this must be called
     while the previous baseline is still in place.
     """
     impls = set(reference_impls(suite))
     if not impls:
         return None
-    _, incoming, _ = split_rows(src / "results.tsv", impls)
-    if incoming:
-        return None                      # the run measured them itself
-    _, outgoing, _ = split_rows(dst / "results.tsv", impls)
+    ihead, incoming, _ = split_rows(src / "results.tsv", impls)
+    ohead, outgoing, _ = split_rows(dst / "results.tsv", impls)
     if not outgoing:
         return None                      # nothing to carry
+    ih = ihead[0].rstrip("\n").split("\t") if ihead else []
+    oh = ohead[0].rstrip("\n").split("\t") if ohead else []
+    have = {row_key(l, ih) for l in incoming} if ih else set()
+    carried = [l for l in outgoing if row_key(l, oh) not in have]
+    if not carried:
+        return None                      # the run covered every key itself
     prev = {}
     man = dst / "manifest.json"
     if man.exists():
@@ -114,13 +129,15 @@ def carry_reference_rows(suite: dict, src: Path, dst: Path) -> dict | None:
             prev = {}
     return {
         "impls": sorted(impls),
-        "rows": len(outgoing),
+        "rows": len(carried),
+        "measured_in_run": len(incoming),
         "from_commit": str(prev.get("commit", "?"))[:12],
         "measured": str(prev.get("finished", "?"))[:10],
         "why": "role=reference in suite.toml: re-measured only when the binary "
-               "changes, so the previous measurement stands. Re-measure with "
-               "run.py --impls shmap-rs,cpp-shmap.",
-        "_rows": outgoing,
+               "changes, so the previous measurement stands. The drift probe "
+               "covers part of it every run; these are the keys it does not. "
+               "Re-measure all of it with run.py --impls shmap-rs,cpp-shmap.",
+        "_rows": carried,
     }
 
 
@@ -208,10 +225,11 @@ def main() -> int:
         man_j = json.loads(man_p.read_text())
         man_j["reference_rows_carried_forward"] = prov
         man_p.write_text(json.dumps(man_j, indent=1))
-        print(f"  carried {carried['rows']} {'/'.join(carried['impls'])} row(s) forward "
-              f"from {carried['from_commit']}, measured {carried['measured']} — this run "
-              f"did not re-measure the reference, and without this the C++ comparison "
-              f"would vanish from RESULTS.md and the paper table")
+        n_run = carried.get("measured_in_run", 0)
+        print(f"  {'/'.join(carried['impls'])}: {n_run} row(s) measured in this run, "
+              f"{carried['rows']} carried forward from {carried['from_commit']} "
+              f"(measured {carried['measured']}). Without the carry-forward those "
+              f"benchmarks would vanish from RESULTS.md and the paper table.")
     elif refs:
         _, have, _ = split_rows(dst / "results.tsv", set(refs))
         if not have:

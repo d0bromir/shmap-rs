@@ -150,10 +150,14 @@ def _carried_reference_row(m: dict) -> str:
     if not c:
         return ""
     impls = ", ".join(f"`{i}`" for i in c.get("impls", []))
-    return (f"| reference measurement | {impls} not re-measured for this run: "
-            f"{c.get('rows', '?')} rows carried forward from `{c.get('from_commit', '?')}`, "
-            f"measured **{c.get('measured', '?')}**. The binary is unchanged, so the figures "
-            f"stand, but every speedup below divides this run's time by that day's. |\n")
+    n_run, n_old = c.get("measured_in_run", 0), c.get("rows", "?")
+    measured_here = (f"{n_run} row(s) were measured in this run (the drift probe); "
+                     if n_run else "")
+    return (f"| reference measurement | {impls}: {measured_here}"
+            f"{n_old} carried forward from `{c.get('from_commit', '?')}`, measured "
+            f"**{c.get('measured', '?')}**. The binary is unchanged, so the figures stand, "
+            f"but a speedup below whose C++ row was carried forward divides this run's time "
+            f"by that day's. |\n")
 
 
 def block_summary(rs: dict) -> str:

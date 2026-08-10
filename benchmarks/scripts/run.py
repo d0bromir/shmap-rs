@@ -277,8 +277,23 @@ def subject_repeats(suite: dict, override: int | None = None) -> int:
     return int(suite["run"]["repeats"])
 
 
+def drift_probe_benchmarks(suite: dict) -> set[str]:
+    """Benchmarks whose reference rows are measured even when unasked.
+
+    Empty unless [run.drift_probe] enables it. These exist so compare.py has
+    reference measurements in common between two result sets; without them its
+    drift normalisation cannot run, and every subject row carries the host's
+    movement uncorrected.
+    """
+    probe = suite.get("run", {}).get("drift_probe", {})
+    if not probe.get("enabled"):
+        return set()
+    return set(probe.get("benchmarks", []))
+
+
 def plan(suite: dict, reg: dict, impls: list[str], repeats_subject: int = 1) -> list[dict]:
     jobs = []
+    probe_benches = drift_probe_benchmarks(suite)
     for b in suite["benchmark"]:
         params = suite["params"][b["params"]]
         base = [
@@ -290,9 +305,14 @@ def plan(suite: dict, reg: dict, impls: list[str], repeats_subject: int = 1) -> 
         ]
         for metric in b["metrics"]:
             for impl in b["impls"]:
-                if impl not in impls:
-                    continue
                 spec = suite["impl"][impl]
+                asked = impl in impls
+                # A reference the caller did not ask for still runs on the
+                # probe benchmarks, because drift normalisation needs it.
+                probe = (not asked and spec["role"] == "reference"
+                         and b["id"] in probe_benches)
+                if not asked and not probe:
+                    continue
                 threads = b["threads"] if spec.get("supports_threads") else b["reference_impl_threads"]
                 repeats = (suite["run"]["reference_impl"]["repeats"]
                            if spec["role"] == "reference" else repeats_subject)
@@ -303,6 +323,9 @@ def plan(suite: dict, reg: dict, impls: list[str], repeats_subject: int = 1) -> 
                             # Carried so the progress line can say rep 2/3 for
                             # whichever implementation is actually repeating.
                             repeats=repeats,
+                            # True when this row exists only to measure host
+                            # drift. It is a real measurement either way.
+                            drift_probe=probe,
                             reference=reg[b["reference"]]["path"], reads=reg[b["reads"]]["path"],
                             reference_id=b["reference"], reads_id=b["reads"],
                             params_id=b["params"], base=base,
@@ -927,6 +950,7 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
         repeats=dict(subject=repeats_subject,
                      reference=suite["run"]["reference_impl"]["repeats"],
                      reduce="median"),
+        drift_probe=sorted({j["benchmark"] for j in jobs if j.get("drift_probe")}),
         datasets={d: reg[d] for d in sorted({j[k] for j in jobs for k in ("reference_id", "reads_id")})},
         binaries={k: sh([v, "--version"]).stdout.strip() or v for k, v in binaries.items()},
         per_read_stats=sorted(per_read_files),
@@ -1027,6 +1051,10 @@ def main() -> int:
     if repeats_subject > 1:
         print(f"measuring each {SUBJECT_NOTE} row {repeats_subject}x and taking the median "
               f"({platform.node()} is configured for it in hosts.toml)")
+    probed = sorted({j["benchmark"] for j in jobs if j.get("drift_probe")})
+    if probed:
+        print(f"drift probe: also measuring the reference on {', '.join(probed)}, so "
+              f"compare.py can normalise host drift")
     if args.only:
         keep = set(args.only.split(","))
         jobs = [j for j in jobs if j["benchmark"] in keep]

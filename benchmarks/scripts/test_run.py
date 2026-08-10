@@ -42,8 +42,13 @@ def check_repeats() -> list[str]:
     fail = []
     suite, reg = load_suite(), load_registry()
 
-    one = len(plan(suite, reg, ["shmap-rs"], 1))
-    three = len(plan(suite, reg, ["shmap-rs"], 3))
+    # Subject rows only: the drift probe contributes reference jobs that do not
+    # scale with this count, and counting them would make the identity false
+    # for a reason that has nothing to do with repeats.
+    def n_subject(n):
+        return sum(1 for j in plan(suite, reg, ["shmap-rs"], n) if j["impl"] == "shmap-rs")
+
+    one, three = n_subject(1), n_subject(3)
     if three != one * 3:
         fail.append(f"repeats=3 planned {three} jobs, expected {one * 3}")
     print(f"  [{'ok  ' if three == one * 3 else 'FAIL'}] repeats multiply the subject matrix"
@@ -70,6 +75,114 @@ def check_repeats() -> list[str]:
         fail.append("--repeats override ignored")
     print(f"  [{'ok  ' if subject_repeats(suite, 1) == 1 else 'FAIL'}] "
           f"--repeats overrides the host{'':22} 1")
+    return fail
+
+
+def check_drift_probe() -> list[str]:
+    """The probe runs the reference unasked, and only where configured.
+
+    Two failures to guard against. One: the probe silently not running, which
+    looks exactly like normal operation and leaves compare.py unable to
+    normalise drift -- the state this was written to fix. Two: the probe firing
+    when the caller asked for the reference anyway, which would measure it
+    twice.
+    """
+    from run import drift_probe_benchmarks, load_registry, load_suite, plan
+    fail = []
+    suite, reg = load_suite(), load_registry()
+    want = drift_probe_benchmarks(suite)
+
+    jobs = plan(suite, reg, ["shmap-rs"], 1)
+    probed = {j["benchmark"] for j in jobs if j.get("drift_probe")}
+    if probed != want:
+        fail.append(f"probe covered {sorted(probed)}, configured for {sorted(want)}")
+    print(f"  [{'ok  ' if probed == want else 'FAIL'}] the reference runs unasked on the "
+          f"probe set{'':6} {sorted(probed)}")
+
+    keys = {(j["benchmark"], j["metric"]) for j in jobs if j.get("drift_probe")}
+    floor = suite["thresholds"].get("drift_min_samples", 6)
+    ok = len(keys) >= floor
+    if not ok:
+        fail.append(f"probe yields {len(keys)} keys, below drift_min_samples={floor}; "
+                    f"compare.py would decline to correct")
+    print(f"  [{'ok  ' if ok else 'FAIL'}] it yields at least drift_min_samples keys"
+          f"{'':7} {len(keys)} >= {floor}")
+
+    both = plan(suite, reg, ["shmap-rs", "cpp-shmap"], 1)
+    dup = sum(1 for j in both if j.get("drift_probe"))
+    if dup:
+        fail.append(f"{dup} probe jobs added when the reference was asked for explicitly")
+    print(f"  [{'ok  ' if not dup else 'FAIL'}] no probe when the reference was asked for"
+          f"{'':6} {dup}")
+    return fail
+
+
+def check_carry_forward() -> list[str]:
+    """Reference rows are carried per key, not all-or-nothing.
+
+    The drift probe means an ordinary run now has *some* reference rows. An
+    all-or-nothing rule would read those as "this run measured its reference"
+    and drop every benchmark the probe does not cover -- silently, because a
+    table with fewer rows still renders.
+    """
+    import shutil
+    import tempfile
+    from promote import carry_reference_rows
+    from run import load_suite
+    fail = []
+    suite = load_suite()
+    impl_ref = "cpp-shmap"
+
+    head = ("benchmark\timpl\tmetric\tthreads\trepeat\treference_id\treads_id\tparams_id\t"
+            "rc\twall_s\tindex_s\tmap_s\tpeak_rss_kb\tmapped\tmapq60\tcmd\n")
+
+    def row(b, impl, m):
+        return (f"{b}\t{impl}\t{m}\t1\t0\tREF\tRD\tpaper\t0\t10.0\t1.0\t9.0\t"
+                f"1000\t10\t9\tcmd\n")
+
+    benches = ["B01", "B02", "B05"]
+    metrics = ["Containment", "Jaccard"]
+    with tempfile.TemporaryDirectory() as t:
+        t = Path(t)
+        dst = t / "cur"
+        dst.mkdir()
+        (dst / "results.tsv").write_text(
+            head + "".join(row(b, "shmap-rs", m) for b in benches for m in metrics)
+            + "".join(row(b, impl_ref, m) for b in benches for m in metrics))
+        (dst / "manifest.json").write_text('{"commit": "b" * 3, "finished": "2026-01-01T00:00:00"}'
+                                           .replace('"b" * 3', '"bbb"'))
+
+        # A probe run: reference rows for B05 only.
+        src = t / "probe"
+        src.mkdir()
+        (src / "results.tsv").write_text(
+            head + "".join(row(b, "shmap-rs", m) for b in benches for m in metrics)
+            + "".join(row("B05", impl_ref, m) for m in metrics))
+        shutil.copy(dst / "manifest.json", src / "manifest.json")
+
+        c = carry_reference_rows(suite, src, dst)
+        got = sorted({l.split("\t")[0] for l in c["_rows"]}) if c else []
+        want = ["B01", "B02"]
+        if got != want:
+            fail.append(f"carried {got}, expected {want}")
+        print(f"  [{'ok  ' if got == want else 'FAIL'}] a probe run carries only the "
+              f"uncovered keys{'':2} {got}")
+        n = c.get("measured_in_run") if c else None
+        if n != len(metrics):
+            fail.append(f"measured_in_run {n}, expected {len(metrics)}")
+        print(f"  [{'ok  ' if n == len(metrics) else 'FAIL'}] and records how many it "
+              f"measured itself{'':4} {n}")
+
+        # A run that measured every reference key carries nothing.
+        full = t / "full"
+        full.mkdir()
+        shutil.copy(dst / "results.tsv", full / "results.tsv")
+        shutil.copy(dst / "manifest.json", full / "manifest.json")
+        none = carry_reference_rows(suite, full, dst)
+        if none is not None:
+            fail.append(f"a full reference run carried {none.get('rows')} rows")
+        print(f"  [{'ok  ' if none is None else 'FAIL'}] a full reference run carries "
+              f"nothing{'':8} {none}")
     return fail
 
 
@@ -113,13 +226,19 @@ def main() -> int:
         print("\nrepeat plumbing:")
         FAIL.extend(check_repeats())
 
+        print("\ndrift probe:")
+        FAIL.extend(check_drift_probe())
+
+        print("\nreference carry-forward:")
+        FAIL.extend(check_carry_forward())
+
         print()
         if FAIL:
             for f in FAIL:
                 print(f"  {f}")
             print(f"{len(FAIL)} failure(s)")
             return 1
-        print("OK — one_read_fasta isolates one record, and repeats stay per host")
+        print("OK — one record, per-host repeats, a live drift probe, per-key carry-forward")
         return 0
 
 
