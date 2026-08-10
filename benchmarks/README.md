@@ -132,8 +132,22 @@ Five benchmarks (B01–B05), three metrics each, seven thread counts, against bo
 
 | | invocations | wall |
 |---|---:|---:|
-| PR run — shmap-rs only, C++ from cache | 105 | ~78 min |
+| PR run on a host with `repeats = 1` | 105 | ~78 min |
+| PR run on `a2` (`repeats = 3`, see below) | 315 | ~4.2 h |
 | C++ re-measure — 3x for a median, only when it is rebuilt | 45 | ~187 min |
+
+`repeats` is per host, in `data/hosts.toml`, because run-to-run noise is a
+property of the machine. Two runs of the identical commit on `a2` a day apart
+disagreed on 73 of 105 rows by more than the 3% the gate reviews at, with
+per-benchmark median |change| of 3.1–8.0% and a worst row of 21.1%; galaxy over
+the same comparison moved about 1%. So `a2` measures each subject row three
+times and takes the median, and galaxy measures once.
+
+This improves the estimate. It does not make the 3% threshold meaningful on
+`a2`: the median of three has roughly 0.67x the spread of a single sample, so
+expect typical run-to-run movement around 4.3% rather than 6.4%. Getting under
+3% would take about seven repeats and ten hours. Whether the threshold should
+move instead is a separate decision.
 
 One tier, no fast/slow split: a gate that gets skipped catches nothing, and a2 is idle and free.
 B04 (10x depth) is ~52 min of the PR run on its own and stays anyway — it is the only benchmark
