@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-from layout import BENCH, DATASETS_TSV, REPO, RESULTS, SUITE_TOML  # noqa: E402
+from layout import BENCH, DATASETS_TSV, HOSTS_TOML, REPO, RESULTS, SUITE_TOML  # noqa: E402
 from layout import arch, current_dir, resolve_dataset  # noqa: E402
 LOCKFILE = Path.home() / ".shmap-bench.lock"
 WORKROOT = Path.home() / "bench-work"
@@ -242,7 +242,42 @@ def verify_datasets(suite: dict, reg: dict) -> None:
 # planning
 # --------------------------------------------------------------------------
 
-def plan(suite: dict, reg: dict, impls: list[str]) -> list[dict]:
+SUBJECT_NOTE = "subject"
+
+
+def host_config(name: str | None = None) -> dict:
+    """This machine's entry in hosts.toml, or {} if it has none.
+
+    Operational configuration only -- how many cores to sweep, how many times
+    to repeat a measurement. Never what is measured: that is suite.toml's job
+    and has to be identical everywhere.
+    """
+    if not HOSTS_TOML.exists():
+        return {}
+    try:
+        doc = tomllib.loads(HOSTS_TOML.read_text())
+    except (OSError, ValueError):
+        return {}
+    entry = doc.get(name or platform.node())
+    return entry if isinstance(entry, dict) else {}
+
+
+def subject_repeats(suite: dict, override: int | None = None) -> int:
+    """How many times to measure each subject row on this host.
+
+    hosts.toml overrides suite.toml's default, because run-to-run noise is a
+    property of the machine. An unknown host falls back to the suite default
+    rather than guessing.
+    """
+    if override:
+        return max(1, override)
+    n = host_config().get("repeats")
+    if isinstance(n, int) and n >= 1:
+        return n
+    return int(suite["run"]["repeats"])
+
+
+def plan(suite: dict, reg: dict, impls: list[str], repeats_subject: int = 1) -> list[dict]:
     jobs = []
     for b in suite["benchmark"]:
         params = suite["params"][b["params"]]
@@ -259,11 +294,15 @@ def plan(suite: dict, reg: dict, impls: list[str]) -> list[dict]:
                     continue
                 spec = suite["impl"][impl]
                 threads = b["threads"] if spec.get("supports_threads") else b["reference_impl_threads"]
-                repeats = suite["run"]["reference_impl"]["repeats"] if spec["role"] == "reference" else suite["run"]["repeats"]
+                repeats = (suite["run"]["reference_impl"]["repeats"]
+                           if spec["role"] == "reference" else repeats_subject)
                 for t in threads:
                     for rep in range(repeats):
                         jobs.append(dict(
                             benchmark=b["id"], impl=impl, metric=metric, threads=t, repeat=rep,
+                            # Carried so the progress line can say rep 2/3 for
+                            # whichever implementation is actually repeating.
+                            repeats=repeats,
                             reference=reg[b["reference"]]["path"], reads=reg[b["reads"]]["path"],
                             reference_id=b["reference"], reads_id=b["reads"],
                             params_id=b["params"], base=base,
@@ -815,7 +854,7 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
                 sh(["bash", "-c", f"cat {shlex.quote(p)} > /dev/null"])
         grows = []
         for j in gjobs:
-            rep = f" rep{j['repeat']+1}/{suite['run']['reference_impl']['repeats']}" if j["impl"] != "shmap-rs" else ""
+            rep = f" rep{j['repeat']+1}/{j['repeats']}" if j.get("repeats", 1) > 1 else ""
             lock.note(f"commit={commit[:12]} {bid}/{metric} {j['impl']} -@{j['threads']}{rep} ({n}/{len(groups)})")
             r = measure(j, binaries[j["impl"]], raw, suite)
             if r["rc"] != 0:
@@ -882,6 +921,12 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
         started=datetime.fromtimestamp(t0, timezone.utc).isoformat(),
         finished=datetime.now(timezone.utc).isoformat(), duration_s=round(time.time() - t0, 1),
         invocations=len(rows), failures=failed,
+        # How each row was estimated. A set measured with repeats>1 carries
+        # medians, and a reader comparing it with a single-sample set should
+        # know that without having to infer it from the repeat column.
+        repeats=dict(subject=repeats_subject,
+                     reference=suite["run"]["reference_impl"]["repeats"],
+                     reduce="median"),
         datasets={d: reg[d] for d in sorted({j[k] for j in jobs for k in ("reference_id", "reads_id")})},
         binaries={k: sh([v, "--version"]).stdout.strip() or v for k, v in binaries.items()},
         per_read_stats=sorted(per_read_files),
@@ -935,6 +980,9 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--impls", default="shmap-rs",
                     help="comma-separated; add cpp-shmap to re-measure the reference (~187 min)")
+    ap.add_argument("--repeats", type=int, default=None,
+                    help="measure each subject row this many times and take the median "
+                         "(default: this host's `repeats` in hosts.toml, else suite.toml)")
     ap.add_argument("--only", help="comma-separated benchmark ids, e.g. B05")
     ap.add_argument("--out", help="result set directory (default: results/suite-<v>/<commit>-<date>)")
     ap.add_argument("--no-compare", action="store_true",
@@ -974,7 +1022,11 @@ def main() -> int:
         commit = subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"],
                                 capture_output=True, text=True).stdout.strip()
 
-    jobs = plan(suite, reg, impls)
+    repeats_subject = subject_repeats(suite, args.repeats)
+    jobs = plan(suite, reg, impls, repeats_subject)
+    if repeats_subject > 1:
+        print(f"measuring each {SUBJECT_NOTE} row {repeats_subject}x and taking the median "
+              f"({platform.node()} is configured for it in hosts.toml)")
     if args.only:
         keep = set(args.only.split(","))
         jobs = [j for j in jobs if j["benchmark"] in keep]

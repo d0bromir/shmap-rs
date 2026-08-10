@@ -30,6 +30,49 @@ def check(name: str, got, want):
         FAIL.append(f"{name}: got {got!r}, want {want!r}")
 
 
+def check_repeats() -> list[str]:
+    """Repeats are per host, and only the subject's count moves.
+
+    The failure this guards against is a host silently measuring once when it
+    is configured for three, or -- worse -- repeats leaking into the reference
+    implementation, whose count is fixed in suite.toml and whose median of
+    three is what every published speedup divides by.
+    """
+    from run import host_config, load_registry, load_suite, plan, subject_repeats
+    fail = []
+    suite, reg = load_suite(), load_registry()
+
+    one = len(plan(suite, reg, ["shmap-rs"], 1))
+    three = len(plan(suite, reg, ["shmap-rs"], 3))
+    if three != one * 3:
+        fail.append(f"repeats=3 planned {three} jobs, expected {one * 3}")
+    print(f"  [{'ok  ' if three == one * 3 else 'FAIL'}] repeats multiply the subject matrix"
+          f"{'':14} {one} -> {three}")
+
+    both = plan(suite, reg, ["shmap-rs", "cpp-shmap"], 3)
+    ref = {j["repeats"] for j in both if j["impl"] == "cpp-shmap"}
+    want = {suite["run"]["reference_impl"]["repeats"]}
+    if ref != want:
+        fail.append(f"reference repeats {ref}, expected {want} — suite.toml owns that number")
+    print(f"  [{'ok  ' if ref == want else 'FAIL'}] the reference keeps suite.toml's own count"
+          f"{'':11} {sorted(ref)}")
+
+    # An unknown host must fall back to the suite default, not to a guess.
+    n = subject_repeats(suite, None)
+    known = host_config().get("repeats")
+    expect = known if isinstance(known, int) else int(suite["run"]["repeats"])
+    if n != expect:
+        fail.append(f"subject_repeats returned {n}, expected {expect}")
+    print(f"  [{'ok  ' if n == expect else 'FAIL'}] this host resolves its own repeat count"
+          f"{'':13} {n}")
+
+    if subject_repeats(suite, 1) != 1:
+        fail.append("--repeats override ignored")
+    print(f"  [{'ok  ' if subject_repeats(suite, 1) == 1 else 'FAIL'}] "
+          f"--repeats overrides the host{'':22} 1")
+    return fail
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
@@ -67,13 +110,16 @@ def main() -> int:
         check("same cached path returned", out2, out1)
         check("cached content unaffected by the source changing after", out2.read_text(), ">r1\nAAAA\n")
 
+        print("\nrepeat plumbing:")
+        FAIL.extend(check_repeats())
+
         print()
         if FAIL:
             for f in FAIL:
                 print(f"  {f}")
             print(f"{len(FAIL)} failure(s)")
             return 1
-        print("OK — one_read_fasta isolates exactly the first record")
+        print("OK — one_read_fasta isolates one record, and repeats stay per host")
         return 0
 
 

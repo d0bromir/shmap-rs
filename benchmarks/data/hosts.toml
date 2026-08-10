@@ -10,6 +10,14 @@
 # not misfile anything (the runner never reads `arch` to decide where to
 # write) — it just makes this file wrong, so keep it honest.
 #
+# `repeats` is how many times the *subject* implementation is measured for each
+# (benchmark, metric, thread count); the runner takes the median. It lives here
+# rather than in suite.toml because run-to-run noise is a property of the
+# machine, and suite.toml has to define the same matrix everywhere for results
+# to mean anything. More samples of one measurement improve the estimate
+# without changing what is estimated. The reference implementation has its own
+# count in suite.toml and is unaffected.
+#
 # `data_root` documents where that host's corpus lives. The runner does not
 # read it: it resolves datasets through `benchmarks/data/files`, which is a
 # gitignored symlink pointing at exactly this path. The value is recorded so
@@ -29,6 +37,16 @@ user        = "mpiuser"
 cores       = 64
 topology    = "4 sockets x 16 cores, 4 NUMA nodes"
 thread_cap  = 64
+# Three, because this host cannot resolve a few percent. Two runs of the
+# identical commit a day apart disagreed on 73 of 105 rows by more than the 3%
+# the gate reviews at; per-benchmark median |change| ran 3.1-8.0% and the worst
+# row moved 21.1%. Every benchmark is affected, including the largest, and -@1
+# has the highest median of any thread count, so there is no subset worth
+# exempting. Costs ~3x the wall time of a run: about 4.2 h rather than 85 min.
+# It improves the estimate without making the 3% threshold meaningful — median
+# of three has ~0.67x the spread of one sample, so expect ~4.3% rather than
+# ~6.4%. See results/suite-1.0/x86_64/ARCH.md.
+repeats     = 3
 data_root   = "/home/mpiuser"
 notes       = "4x16 Xeon Gold 5218, 4 NUMA nodes, 376 GB. See results/suite-1.0/x86_64/ARCH.md."
 
@@ -42,5 +60,9 @@ topology    = "1 socket x 128 cores, 1 NUMA node"
 # two result trees stay directly comparable. The spare cores are a separate
 # question, not a change to the shared matrix.
 thread_cap  = 64
+# One. Two runs of the identical commit here agreed within ~1% on every row,
+# and the indexing spread over a single run is 1.6% CV against a2's 7.0%.
+# Repeats would buy this host almost nothing and cost it the same 3x.
+repeats     = 1
 data_root   = "/home/mpiuser"
 notes       = "ARM Neoverse-N1, 1 socket, 1 NUMA node, 246 GB. The single NUMA node makes this the control for the Q4/Q5 findings. See results/suite-1.0/aarch64/ARCH.md."
