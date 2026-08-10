@@ -144,10 +144,30 @@ rather than hidden:
   per-architecture split missed and `paper.py` read it unconditionally — so the
   table listed mappers this architecture's own checks record it never ran.
 
-Build it here with `benchmarks/scripts/reference_mappers.py --run`, which takes
-hours and needs the mapper binaries installed. Until then aarch64 has accuracy
-evidence from B02's ground truth and agreement with the C++, but no
-third-party concordance.
+Winnowmap2 2.03 is built here and its corpus is being measured; mapquik is not,
+and cannot be.
+
+**Winnowmap2 needed a build fix.** `src/Makefile` has an ARM branch
+(`arm_neon=1 aarch64=1`, bundled `sse2neon`) that never takes effect, because
+the top-level Makefile does `export CPPFLAGS=` and then `$(MAKE) -e -C src`,
+and `-e` makes the environment beat the sub-makefile's `CPPFLAGS+=`. The ARM
+additions are dropped and `chain.c` fails on `{-1, ...}` in a `char` array,
+which is only an error because `char` is unsigned by default here. Passing
+`CPPFLAGS` on the command line fixes it, and `-fsigned-char` makes char
+semantics match x86 — which is what we want anyway if the two hosts' binaries
+are to be compared.
+
+**mapquik cannot be built here.** Its k-min-mer crate exports an AVX-512-only
+ntHash iterator behind `#![feature(stdarch_x86_avx512)]`, compiled
+unconditionally. Forcing the `--nosimd` path is not a way out: measured on a2,
+it re-places 26.8% of reads relative to the default path (39 701 of 148 224 on
+B01) and drops one read entirely, while two runs of the identical default
+command agree on 100.00% of records. It is a different tool, not a portable
+build of the same one. See the commentary on `[external.mapquik]` in
+`suite.toml`.
+
+So this architecture will have Winnowmap2 concordance — the `role = "gold"`
+mapper, and the one that matters — and no mapquik column.
 
 ## Reproducing
 

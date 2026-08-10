@@ -332,6 +332,27 @@ role = "peer"
 #   awk '/^>/ {if (NR>1) printf "\n"; print; next} {printf "%s", $0} END {printf "\n"}' \
 #       hs1.fa > ~/bench-refs/REF-HS1.oneline.fa
 reference_override = "~/bench-refs/{reference_id}.oneline.fa"
+# x86-ONLY, AND ITS SIMD PATH IS NOT INTERCHANGEABLE WITH ITS SCALAR ONE.
+# mapquik's k-min-mer crate (rust-seq2kminmers) exports an AVX-512 ntHash
+# iterator behind #![feature(stdarch_x86_avx512)], compiled unconditionally, so
+# the crate does not build off x86 and needs a nightly toolchain on it. mapquik
+# has a --nosimd switch, which looks like the way to get an aarch64 build.
+# Measured on a2 (2026-08-10, B01, 148 225 reads):
+#
+#   two runs of the identical default command   148 225 records, 100.00% equal
+#   default vs --nosimd                         39 701 records differ (26.8%),
+#                                               and one read maps only under
+#                                               the default path
+#
+# The control being exact is what makes that conclusive: mapquik is
+# deterministic in content -- two default runs differ only in record order,
+# because it writes from 32 threads -- so every one of those differences is
+# the SIMD path's. --nosimd is a different tool, not a portable build of the
+# same one, and an aarch64 corpus built that way could not be compared with
+# this one. It would need a NEON ntHash reproducing the AVX-512 one exactly.
+#
+# The corollary for these numbers: they are specific to a host with AVX-512.
+#
 # The closest published analogue to shmap-rs: sketch-based, minimizer-space,
 # PAF out, no base-level alignment. Its paper states performance degrades
 # markedly below 97% read-reference identity — the same wall shmap-rs hits on
