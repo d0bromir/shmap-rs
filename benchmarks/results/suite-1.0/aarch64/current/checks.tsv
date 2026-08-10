@@ -50,3 +50,18 @@ impl_agreement	B05	Jaccard	True	5647/5956 = 0.9481
 thread_determinism	B05	bucket_SH	True	identical across all thread counts
 validate_paf	B05	bucket_SH	True	all structural and score invariants hold
 impl_agreement	B05	bucket_SH	True	40170/41115 = 0.9770
+concordance_winnowmap2	B01	Containment	True	good=0.9633 recall=0.9988 agreement=0.9644 ref=149376
+concordance_winnowmap2	B01	Jaccard	True	good=0.9455 recall=0.9782 agreement=0.9666 ref=149376
+concordance_winnowmap2	B01	bucket_SH	True	good=0.9621 recall=0.9991 agreement=0.9630 ref=149376
+concordance_winnowmap2	B02	Containment	True	good=0.9916 recall=1.0000 agreement=0.9916 ref=125000
+concordance_winnowmap2	B02	Jaccard	True	good=0.9896 recall=1.0000 agreement=0.9896 ref=125000
+concordance_winnowmap2	B02	bucket_SH	True	good=0.9871 recall=1.0000 agreement=0.9871 ref=125000
+concordance_winnowmap2	B03	Containment	True	good=0.9667 recall=0.9990 agreement=0.9677 ref=242232
+concordance_winnowmap2	B03	Jaccard	True	good=0.9641 recall=0.9960 agreement=0.9680 ref=242232
+concordance_winnowmap2	B03	bucket_SH	True	good=0.9655 recall=0.9992 agreement=0.9662 ref=242232
+concordance_winnowmap2	B04	Containment	True	good=0.9662 recall=0.9990 agreement=0.9671 ref=2422135
+concordance_winnowmap2	B04	Jaccard	True	good=0.9632 recall=0.9956 agreement=0.9675 ref=2422135
+concordance_winnowmap2	B04	bucket_SH	True	good=0.9645 recall=0.9993 agreement=0.9653 ref=2422135
+concordance_winnowmap2	B05	Containment	True	good=0.4621 recall=0.4724 agreement=0.9783 ref=83853
+concordance_winnowmap2	B05	Jaccard	True	good=0.0666 recall=0.0710 agreement=0.9372 ref=83853
+concordance_winnowmap2	B05	bucket_SH	True	good=0.4794 recall=0.4903 agreement=0.9776 ref=83853

@@ -129,23 +129,33 @@ what a stale denominator would look like. A same-day C++ re-measurement on a2
 would settle it; until then the cross-architecture speedup table marks that
 column as approximate.
 
-## What this host does not have
+## The external-mapper corpus
 
-**No external-mapper corpus.** `suite.toml`'s `[external]` mappers — mapquik
-and Winnowmap2 — are cached per host under `~/bench-refs`, and that directory
-exists on a2 and not here. Two consequences, both visible in the result set
-rather than hidden:
+Built here on 2026-08-10 with Winnowmap2 2.03, the `role = "gold"` mapper.
+mapquik is absent and cannot be built; see below. `checks.tsv` therefore
+carries 15 `concordance_winnowmap2` rows and no `concordance_mapquik` — an
+absent check rather than a passing one, which is the honest shape.
 
-- `checks.tsv` carries no `concordance_mapquik` and no `concordance_winnowmap2`
-  rows. a2's carries 12 and 15. Concordance against a mapper that was never run
-  cannot be scored, so the checks are absent rather than passing.
-- `paper/generated/aarch64/table_mapper_comparison` has no external rows. It
-  used to show a2's, because the corpus was the one measurement directory the
-  per-architecture split missed and `paper.py` read it unconditionally — so the
-  table listed mappers this architecture's own checks record it never ran.
+**Winnowmap2 gives the same answer on both architectures.** Each host built
+its own corpus from the same source at the same commit, and:
 
-Winnowmap2 2.03 is built here and its corpus is being measured; mapquik is not,
-and cannot be.
+| | |
+|---|---|
+| mapped reads, all five benchmarks | **identical** — 189 022 / 129 488 / 280 093 / 2 808 979 / 99 107 |
+| B01 records, read by read | 149 376 reads on both, none unique to either |
+| reads with identical record sets | 149 372 — **99.997%** |
+| reads differing | 4, all with the *same placement*; only `mapq`/`matches`/`alnlen` move |
+| reads placed differently | **0** |
+| concordance figures vs a2 | **identical to 4 decimal places**, all 15 rows |
+
+That last row is the one that matters. Each machine ran shmap-rs, ran
+Winnowmap2, and scored one against the other entirely independently, and got
+the same numbers. A concordance figure measured here means the same thing as
+one measured on a2, so the two trees can be read against each other.
+
+Runtime is the only real difference: 24.9, 18.7, 18.6, 173.9 and 5.5 minutes
+here against 22.1, 16.8, 16.6, 150.3 and 5.5 on a2 — about 1.12x, matching what
+shmap-rs itself shows. Peak RSS is within 1%.
 
 **Winnowmap2 needed a build fix.** `src/Makefile` has an ARM branch
 (`arm_neon=1 aarch64=1`, bundled `sse2neon`) that never takes effect, because
@@ -157,17 +167,19 @@ which is only an error because `char` is unsigned by default here. Passing
 semantics match x86 — which is what we want anyway if the two hosts' binaries
 are to be compared.
 
-**mapquik cannot be built here.** Its k-min-mer crate exports an AVX-512-only
-ntHash iterator behind `#![feature(stdarch_x86_avx512)]`, compiled
-unconditionally. Forcing the `--nosimd` path is not a way out: measured on a2,
-it re-places 26.8% of reads relative to the default path (39 701 of 148 224 on
-B01) and drops one read entirely, while two runs of the identical default
-command agree on 100.00% of records. It is a different tool, not a portable
-build of the same one. See the commentary on `[external.mapquik]` in
-`suite.toml`.
+**mapquik cannot be built here, and forcing it would not be the same tool.**
+Its k-min-mer crate exports an AVX-512-only ntHash iterator behind
+`#![feature(stdarch_x86_avx512)]`, compiled unconditionally. The obvious escape
+is its `--nosimd` switch. Measured on a2 (B01, 148 225 reads): two runs of the
+identical default command agree on 100.00% of records, while default against
+`--nosimd` differs on 39 701 of 148 224 — 26.8% — and drops one read entirely.
+The control being exact is what makes that conclusive. See the commentary on
+`[external.mapquik]` in `suite.toml`.
 
-So this architecture will have Winnowmap2 concordance — the `role = "gold"`
-mapper, and the one that matters — and no mapquik column.
+The two mappers therefore land on opposite sides of the same question. The
+`sse2neon` translation preserves Winnowmap2's results to 99.997%; mapquik's
+scalar path re-places a quarter of the reads. "It has a SIMD path" says
+nothing on its own about whether a port is faithful.
 
 ## Reproducing
 

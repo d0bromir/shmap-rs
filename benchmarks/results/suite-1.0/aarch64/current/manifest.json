@@ -78,5 +78,38 @@
     "per-read-B02-Containment.tsv",
     "per-read-B03-Containment.tsv",
     "per-read-B05-Containment.tsv"
+  ],
+  "rechecks": [
+    {
+      "at": "2026-08-10T12:17:15.927342+00:00",
+      "suite_version": "1.0",
+      "re_evaluated": [
+        "ground_truth",
+        "validate_paf",
+        "wrong_q60",
+        "concordance_*"
+      ],
+      "preserved": [
+        "thread_determinism",
+        "impl_agreement"
+      ],
+      "changed": [
+        "concordance_winnowmap2 B01/Containment",
+        "concordance_winnowmap2 B01/Jaccard",
+        "concordance_winnowmap2 B01/bucket_SH",
+        "concordance_winnowmap2 B02/Containment",
+        "concordance_winnowmap2 B02/Jaccard",
+        "concordance_winnowmap2 B02/bucket_SH",
+        "concordance_winnowmap2 B03/Containment",
+        "concordance_winnowmap2 B03/Jaccard",
+        "concordance_winnowmap2 B03/bucket_SH",
+        "concordance_winnowmap2 B04/Containment",
+        "concordance_winnowmap2 B04/Jaccard",
+        "concordance_winnowmap2 B04/bucket_SH",
+        "concordance_winnowmap2 B05/Containment",
+        "concordance_winnowmap2 B05/Jaccard",
+        "concordance_winnowmap2 B05/bucket_SH"
+      ]
+    }
   ]
 }
