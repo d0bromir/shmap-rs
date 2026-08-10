@@ -62,6 +62,7 @@ PREFERRED_ORDER = [
     "table_crossarch_machines",
     "table_crossarch_agreement",
     "table_crossarch_headline",
+    "table_crossarch_speedup",
     "table_crossarch_stages",
     "fig_crossarch_thread_scaling",
     "fig_crossarch_stages",

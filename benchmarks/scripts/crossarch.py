@@ -71,6 +71,7 @@ from paper import Artifact, dash, fnum, tex_escape  # noqa: E402
 OUT = REPO / "paper" / "generated" / "cross-arch"
 
 SUBJECT = "shmap-rs"
+REFERENCE = "cpp-shmap"
 METRIC_ORDER = ["Containment", "Jaccard", "bucket_SH"]
 
 # One benchmark carries the two figures. B01 is D1-HIFI23K, the real-HiFi read
@@ -134,6 +135,16 @@ class ArchSet:
         # em-dash rather than a guess, because "which compiler" is exactly the
         # question a reader asks when two runs of one commit differ.
         return str(self.rs["manifest"].get("rustc") or "")
+
+    @property
+    def carried_reference(self) -> dict | None:
+        """Set when this run did not measure the reference itself.
+
+        promote.py carries the previous measurement forward, which keeps the
+        C++ comparison alive but means its rows can predate the shmap-rs rows
+        beside them.
+        """
+        return self.rs["manifest"].get("reference_rows_carried_forward")
 
     def row(self, bid: str, metric: str, threads: int, impl: str = SUBJECT) -> dict | None:
         for r in self.rs["rows"]:
@@ -588,6 +599,72 @@ def build_thread_scaling(c: XCtx) -> tuple[str, list[str], list[list]]:
     return tex, cols, data
 
 
+def build_speedup(c: XCtx) -> tuple[str, list[str], list[list]]:
+    """shmap-rs against the C++, measured on each machine separately.
+
+    The only performance number here that is not confounded by the hosts
+    differing: both terms of the ratio come from the same machine, so its
+    speed cancels. What is left is how much the port wins by, which is a
+    property of the two programs rather than of the hardware they ran on.
+    """
+    cols = ["benchmark", "metric"]
+    for s_ in c.sets:
+        cols.append(f"speedup_{s_.arch}")
+    cols.append("delta")
+    head = [r"Benchmark", r"Metric"]
+    for s_ in c.sets:
+        head.append(r"\texttt{" + tex_escape(s_.arch) + "}")
+    head.append(r"$\Delta$")
+
+    body, data = [], []
+    for bid in c.benchmarks():
+        for metric in c.metrics(bid):
+            cells, raw = [tex_escape(bid), tex_escape(metric)], [bid, metric]
+            sps = []
+            for s_ in c.sets:
+                rs = s_.row(bid, metric, 1)
+                cpp = next((r for r in s_.rs["rows"]
+                            if r["benchmark"] == bid and r["metric"] == metric
+                            and r["impl"] == REFERENCE), None)
+                if rs and cpp and rs["wall_s"]:
+                    x = cpp["wall_s"] / rs["wall_s"]
+                    sps.append(x)
+                    cells.append(fnum(x) + r"$\times$")
+                    raw.append(round(x, 2))
+                else:
+                    sps.append(None)
+                    cells.append(dash())
+                    raw.append(None)
+            if len(sps) >= 2 and sps[0] and sps[1]:
+                cells.append(signed(sps[1] - sps[0], 2))
+                raw.append(round(sps[1] - sps[0], 2))
+            else:
+                cells.append(dash())
+                raw.append(None)
+            body.append(cells)
+            data.append(raw)
+
+    spec = "ll" + "r" * len(c.sets) + "r"
+    lines = [r"\begin{tabular}{" + spec + "}", r"\toprule",
+             " & ".join(head) + r" \\", r"\midrule"]
+    for i, row in enumerate(body):
+        if i and row[0] != body[i - 1][0]:
+            lines.append(r"\midrule")
+        lines.append(" & ".join(row) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}"]
+
+    # Provenance that changes how the table should be read, stated in it.
+    notes = [s_ for s_ in c.sets if s_.carried_reference]
+    if notes:
+        who = ", ".join(f"\\texttt{{{tex_escape(s_.arch)}}} "
+                        f"({s_.carried_reference.get('measured', '?')})" for s_ in notes)
+        lines.append(r"\\[0.4em]{\footnotesize The C++ rows for " + who +
+                     r" were carried forward from an earlier run, so that column divides "
+                     r"two measurement days and its cancellation of machine speed is only "
+                     r"approximate.}")
+    return "\n".join(lines), cols, data
+
+
 # ---------------------------------------------------------------------------
 # TikZ pies
 # ---------------------------------------------------------------------------
@@ -797,6 +874,39 @@ ARTIFACTS: tuple[Artifact, ...] = (
             "are the same; only the presentation rule differs.",
         ),
         build=build_stages,
+    ),
+    Artifact(
+        name="table_crossarch_speedup",
+        kind="table",
+        caption="shmap-rs against the C++ \\texttt{shmap}, measured separately on each machine. "
+                "Unlike every other timing table here, this one is not confounded by the hosts "
+                "differing: both terms of each ratio come from the same machine, so its speed "
+                "cancels and what remains is a property of the two programs.",
+        label="tab:xarch:speedup",
+        sources=(
+            "benchmarks/results/suite-<v>/<arch>/current/results.tsv :: wall_s for "
+            "impl=shmap-rs at -@1 and impl=cpp-shmap",
+            "...manifest.json :: reference_rows_carried_forward, when the C++ was not "
+            "re-measured for that run",
+        ),
+        transform=(
+            "speedup = cpp-shmap wall_s / shmap-rs wall_s at -@1 on the same architecture. "
+            "-@1 because the C++ is single-threaded by design.",
+            "The delta column is the second architecture's speedup minus the reference "
+            "architecture's — a difference of ratios, not a ratio of ratios.",
+            "An architecture with no cpp-shmap rows gets em-dashes; the suite re-measures the "
+            "reference only when its binary changes, so a machine can legitimately have none.",
+        ),
+        presentation="booktabs tabular grouped by benchmark, with a note naming any "
+                     "architecture whose C++ rows were carried forward from an earlier date.",
+        caveats=(
+            "This cancels machine speed only if both terms were measured on the same machine "
+            "at the same time. Where the C++ was carried forward the table says so, and that "
+            "column should be read as approximate.",
+            "The C++ is a median of three runs and shmap-rs a single run, so a difference of a "
+            "few hundredths is not a difference.",
+        ),
+        build=build_speedup,
     ),
     Artifact(
         name="fig_crossarch_thread_scaling",

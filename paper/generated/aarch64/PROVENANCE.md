@@ -9,9 +9,9 @@ transformation the code does not perform.
 | result set | `current` |
 | commit | `00d8c08aa656` |
 | host | `galaxy` |
-| measured | 2026-08-09 |
+| measured | 2026-08-10 |
 | suite / datasets | 1.0 / 1 |
-| input digest | `sha256:884176aa0dedf313` |
+| input digest | `sha256:c8aebd06259c4a93` |
 
 Regenerate with `python3 benchmarks/scripts/paper.py`; verify with `--check`, which fails if any
 artifact would change. Each artifact is emitted twice: a `.tex` fragment to `\input`

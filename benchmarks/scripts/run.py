@@ -1009,8 +1009,19 @@ def main() -> int:
         # write the same directory, and copying one to the other for
         # promotion would silently overwrite it. Sets predating this keep
         # their shorter names; nothing parses either form.
-        default_out = (RESULTS_ROOT /
-                       f"{ver}-{arch()}-{commit[:12]}-{datetime.now(timezone.utc):%Y-%m-%d}")
+        stem = f"{ver}-{arch()}-{commit[:12]}-{datetime.now(timezone.utc):%Y-%m-%d}"
+        default_out = RESULTS_ROOT / stem
+        # Measuring one commit twice on one host in one day is a normal thing
+        # to do -- re-running with --impls to add the reference, for instance --
+        # and the name alone does not distinguish the two, so the second run
+        # would land on top of the first. Suffix instead of overwrite: a result
+        # set costs a few megabytes and takes hours to produce.
+        n = 2
+        while default_out.exists() and any(default_out.iterdir()):
+            default_out = RESULTS_ROOT / f"{stem}-run{n}"
+            n += 1
+        if default_out.name != stem:
+            print(f"{stem} already exists; writing {default_out.name} instead")
         out = Path(args.out) if args.out else default_out
         try:
             rc = execute(jobs, suite, reg, commit, wt, out, authorized_by, lock)

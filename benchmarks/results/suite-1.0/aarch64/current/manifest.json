@@ -8,10 +8,10 @@
   "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
   "configured_host": "a2",
   "authorized_by": "n/a",
-  "started": "2026-08-09T16:37:17.177135+00:00",
-  "finished": "2026-08-09T17:54:03.969375+00:00",
-  "duration_s": 4606.8,
-  "invocations": 105,
+  "started": "2026-08-09T19:44:59.711537+00:00",
+  "finished": "2026-08-10T00:40:36.700294+00:00",
+  "duration_s": 17737.0,
+  "invocations": 150,
   "failures": 0,
   "datasets": {
     "D1-HIFI23K": {
@@ -70,7 +70,8 @@
     }
   },
   "binaries": {
-    "shmap-rs": "shmap 1.3.1"
+    "shmap-rs": "shmap 1.3.1",
+    "cpp-shmap": "/home/mpiuser/Pesho/shmap/release/shmap"
   },
   "per_read_stats": [
     "per-read-B01-Containment.tsv",
