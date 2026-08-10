@@ -55,6 +55,50 @@ numbers that would look inexplicable on any other host.
   something physical — read count, thread count, a code path that actually
   changed — before believing it.
 
+## Its own thresholds, and how to re-derive them
+
+`hosts.toml` gives this host `wall_regression_review = 0.06` and
+`wall_regression_block = 0.12` instead of suite.toml's 3% and 10%. Accuracy
+thresholds are not overridden and cannot be: `compare.py` refuses any host
+override outside the wall-time set, because a drop in mapped reads is a
+regression on any machine.
+
+The number comes from the statistic the gate actually applies it to — the
+geometric mean of the per-thread-count ratios for each (benchmark, metric),
+not individual rows. Two runs of `00d8c08`, a day apart, on this host:
+
+| | |
+|---|---|
+| range of the 15 geometric means | **−7.66% … +3.07%** |
+| median absolute | 4.87% |
+| standard deviation | 3.32% |
+| rows over the old 3% line | **11 of 15** |
+
+Six per cent would have flagged 5 of those 15 rather than 11, and with
+`repeats = 3` it should flag one or two. Twelve keeps a margin over the worst
+case seen.
+
+**It is provisional in two ways.** The scaling to `repeats = 3` is arithmetic
+— the median of three has about 0.67x the spread of one sample — not
+measurement. And the between-run difference is not all scatter: those fifteen
+geometric means average **−3.90%**, and indexing, which does identical work in
+every row, moved **−4.18%** the same way. That component is the machine
+drifting between runs, and repeats cannot remove it, because all three sit
+inside a single run.
+
+To re-derive honestly: measure one commit twice with `repeats = 3`
+(2 × 4.2 h), and take the spread of the fifteen geometric means from
+`compare.py` between them.
+
+**The better fix is not a threshold at all.** `compare.py` already has
+`drift_normalize`, designed to divide out exactly this common-mode movement,
+and it has never fired: it needs reference measurements in common, and an
+ordinary PR run measures only the subject. Measuring a handful of cheap C++
+rows every run purely as a drift probe — B05 at `-@1` is ~52 s per
+measurement — would attack the −3.9% directly and let the threshold come back
+down. That changes what every run measures, so it is written here as a
+proposal rather than done.
+
 ## Reproducing
 
 ```sh

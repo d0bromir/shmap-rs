@@ -28,12 +28,13 @@ import math
 import re
 import statistics
 import sys
+import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run import REPO, load_suite  # noqa: E402
 
-from layout import RESULTS, current_dir  # noqa: E402
+from layout import HOSTS_TOML, RESULTS, current_dir  # noqa: E402
 
 ACCEPT, REVIEW, BLOCK, ERROR = 0, 1, 2, 3
 NAMES = {ACCEPT: "ACCEPT", REVIEW: "REVIEW", BLOCK: "BLOCK", ERROR: "ERROR"}
@@ -81,6 +82,42 @@ def load_set(d: Path) -> dict:
         for c in checks:
             c["passed"] = c["passed"].strip().lower() == "true"
     return dict(dir=d, manifest=man, rows=rows, checks=checks)
+
+
+# Only these may be overridden per host. Everything else in [thresholds]
+# describes the code -- a drop in mapped reads is a regression on any machine --
+# and letting a host relax those would let a noisy box hide a real defect.
+HOST_OVERRIDABLE = {"wall_regression_review", "wall_regression_block",
+                    "peak_rss_regression_review"}
+
+
+def host_thresholds(suite: dict, host: str | None) -> tuple[dict, str | None]:
+    """suite.toml's thresholds, with this host's wall-time overrides applied.
+
+    Returns (thresholds, host-name-if-anything-was-overridden). The host comes
+    from the candidate's manifest rather than from whoever is running the
+    comparison: the noise belongs to the machine that measured, and a
+    comparison run on a laptop must still judge an a2 set by a2's numbers.
+    """
+    thr = dict(suite["thresholds"])
+    if not host or not HOSTS_TOML.exists():
+        return thr, None
+    try:
+        entry = tomllib.loads(HOSTS_TOML.read_text()).get(host) or {}
+    except (OSError, ValueError):
+        return thr, None
+    applied = False
+    for k in HOST_OVERRIDABLE:
+        if k in entry:
+            thr[k] = entry[k]
+            applied = True
+    for k in entry:
+        if k in thr and k not in HOST_OVERRIDABLE:
+            sys.exit(f"{ERROR}: hosts.toml [{host}] overrides {k}, which is not "
+                     f"host-overridable. Accuracy thresholds describe the code, not the "
+                     f"machine; allowing a host to relax one would let a noisy box hide a "
+                     f"real regression.")
+    return thr, (host if applied else None)
 
 
 def key(r: dict) -> tuple:
@@ -523,7 +560,8 @@ def render(base: dict, cand: dict, res: dict, thr: dict) -> str:
         L += ["## Notes", ""] + [f"- {n}" for n in res["notes"]] + [""]
 
     L += ["---", "",
-          f"Rules: [VERSIONING.md](../VERSIONING.md). Thresholds from `suite.toml`: "
+          f"Rules: [VERSIONING.md](../VERSIONING.md). Thresholds from "
+          f"{'`hosts.toml` for `' + res['threshold_host'] + '`' if res.get('threshold_host') else '`suite.toml`'}: "
           f"wall review >{thr['wall_regression_review']*100:.0f}%, "
           f"block >{thr['wall_regression_block']*100:.0f}%; any drop in mapped reads, "
           f"mapq-60 reads or C++ agreement blocks.",
@@ -578,7 +616,7 @@ def main() -> int:
         base = load_set(d)
 
     suite = load_suite()
-    thr = suite["thresholds"]
+    thr, thr_host = host_thresholds(suite, cand["manifest"].get("host"))
 
     bad = guard(base, cand)
     if bad:
@@ -588,6 +626,7 @@ def main() -> int:
         return ERROR
 
     res = compare(base, cand, thr, a.allow_output_change)
+    res["threshold_host"] = thr_host
     md = render(base, cand, res, thr)
     print(md)
     if a.out:
