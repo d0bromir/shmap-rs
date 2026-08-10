@@ -45,11 +45,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run import HERE, HostLock, load_registry, load_suite, parse_time_v, sh  # noqa: E402
+from layout import arch, reference_mappers_dir  # noqa: E402
 
 # Keys under [external] that configure the corpus rather than name a mapper.
 NOT_A_MAPPER = {"enabled", "cache_dir", "concordance_min_overlap", "presets"}
 
-EXPORT = HERE / "results" / "reference-mappers" / "manifest.json"
+# Per architecture: the manifest carries wall_s and peak_rss_kb, which belong
+# to the machine that measured them. One shared path also meant the second host
+# to export would overwrite the first.
+def export_path(a: str | None = None) -> Path:
+    return reference_mappers_dir(a) / "manifest.json"
 
 
 def expand(p: str) -> str:
@@ -172,7 +177,12 @@ def run_one(entry: dict, version: str) -> bool:
 
 
 def export_manifest(suite: dict, reg: dict, cache: Path) -> int:
-    out = {"schema": 1, "generated": datetime.now(timezone.utc).isoformat(),
+    import platform
+    # host and arch are recorded because the timings below are properties of
+    # this machine. Without them a reader cannot tell whose seconds these are,
+    # and paper.py cannot avoid putting them beside another machine's.
+    out = {"schema": 2, "generated": datetime.now(timezone.utc).isoformat(),
+           "host": platform.node(), "arch": arch(),
            "cache_dir": str(cache), "entries": []}
     for name, spec in sorted(mappers(suite).items()):
         version = binary_version(spec)
@@ -186,9 +196,10 @@ def export_manifest(suite: dict, reg: dict, cache: Path) -> int:
             if got:
                 row.update({k: got.get(k) for k in ("mapped", "wall_s", "peak_rss_kb", "measured")})
             out["entries"].append(row)
-    EXPORT.parent.mkdir(parents=True, exist_ok=True)
-    EXPORT.write_text(json.dumps(out, indent=2) + "\n")
-    print(f"wrote {EXPORT} ({len(out['entries'])} entries)")
+    dest = export_path()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(out, indent=2) + "\n")
+    print(f"wrote {dest} ({len(out['entries'])} entries) for {out['host']} ({out['arch']})")
     return 0
 
 

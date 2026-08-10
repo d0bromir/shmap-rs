@@ -31,7 +31,7 @@ Files: `table_mapper_comparison.tex`, `table_mapper_comparison.tsv`. LaTeX label
 - `results.tsv :: benchmark, impl, metric, threads, mapped, mapq60, index_s, map_s, peak_rss_kb`
 - `checks.tsv :: wrong_q60 detail (numerator)`
 - `benchmarks/data/datasets.tsv :: records, for the read count the 'missed' share needs`
-- `benchmarks/results/reference-mappers/manifest.json :: mapper, wall_s, peak_rss_kb, mapped`
+- `benchmarks/results/reference-mappers/<arch>/manifest.json :: mapper, wall_s, peak_rss_kb, mapped — this architecture's corpus only`
 
 **Transformed by**
 
@@ -39,7 +39,7 @@ Files: `table_mapper_comparison.tex`, `table_mapper_comparison.tsv`. LaTeX label
 2. missed_pct = 100 * (records - mapq60) / records, using the registry's record count rather than the PAF's, since unmapped reads are absent from a PAF.
 3. wrong_q60 = numerator of the wrong_q60 check detail, present only where reads carry truth in their headers.
 4. peak_rss_gb = peak_rss_kb / 1048576.
-5. External mappers are appended per benchmark from the cached corpus; they have no metric and no phase split, so those cells are em-dashes.
+5. External mappers are appended per benchmark from this architecture's cached corpus; they have no metric and no phase split, so those cells are em-dashes. An architecture whose corpus has not been built has no external rows at all.
 
 **Presented as**
 

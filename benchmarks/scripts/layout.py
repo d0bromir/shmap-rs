@@ -94,6 +94,17 @@ def current_dir(suite_version: str, a: str | None = None) -> Path:
     return arch_dir(suite_version, a) / "current"
 
 
+def reference_mappers_dir(a: str | None = None) -> Path:
+    """`results/reference-mappers/<arch>/` — one external corpus per machine.
+
+    The corpus records `wall_s` and `peak_rss_kb`, which are properties of the
+    host that ran the mapper, so it is split by architecture for exactly the
+    reason result sets are. Its PAFs are machine-independent and could be
+    shared; its timings cannot, and they are what reaches the paper.
+    """
+    return RESULTS / "reference-mappers" / (a or arch())
+
+
 def available_arches(suite_version: str) -> list[str]:
     """Architectures that actually have results checked in, in a stable order."""
     root = RESULTS / f"suite-{suite_version}"

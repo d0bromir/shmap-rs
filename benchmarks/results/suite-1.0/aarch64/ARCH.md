@@ -129,6 +129,26 @@ what a stale denominator would look like. A same-day C++ re-measurement on a2
 would settle it; until then the cross-architecture speedup table marks that
 column as approximate.
 
+## What this host does not have
+
+**No external-mapper corpus.** `suite.toml`'s `[external]` mappers — mapquik
+and Winnowmap2 — are cached per host under `~/bench-refs`, and that directory
+exists on a2 and not here. Two consequences, both visible in the result set
+rather than hidden:
+
+- `checks.tsv` carries no `concordance_mapquik` and no `concordance_winnowmap2`
+  rows. a2's carries 12 and 15. Concordance against a mapper that was never run
+  cannot be scored, so the checks are absent rather than passing.
+- `paper/generated/aarch64/table_mapper_comparison` has no external rows. It
+  used to show a2's, because the corpus was the one measurement directory the
+  per-architecture split missed and `paper.py` read it unconditionally — so the
+  table listed mappers this architecture's own checks record it never ran.
+
+Build it here with `benchmarks/scripts/reference_mappers.py --run`, which takes
+hours and needs the mapper binaries installed. Until then aarch64 has accuracy
+evidence from B02's ground truth and agreement with the C++, but no
+third-party concordance.
+
 ## Reproducing
 
 ```sh
