@@ -36,6 +36,32 @@ stdout = "file"                   # PAF is written, not discarded — checks nee
 repeats = 3
 reduce = "median"
 
+# Drift probe: measure part of the reference implementation on every run, even
+# when --impls does not ask for it.
+#
+# compare.py normalises host drift against the reference, whose binary does not
+# change between our commits, so its movement between two result sets is the
+# host and nothing else. That was written assuming every run measured the C++.
+# Once --impls defaulted to shmap-rs alone -- rightly, the full C++ matrix is
+# 197 minutes -- there were never any reference measurements in common, so the
+# correction never applied and said so in a note nobody was reading.
+#
+# Uncorrected drift is not small. Two runs of one commit on a2 differ by -3.90%
+# in the geometric mean compare.py thresholds, and indexing, which does
+# identical work in every row, moved -4.18% the same way.
+#
+# B05 and B02 are the two cheapest benchmarks: 8.5 and 15.3 minutes at three
+# repeats, and six (benchmark, metric) keys between them, which is
+# drift_min_samples. B04 alone would be 137 minutes.
+#
+# These rows are real measurements and are kept in the result set. Promotion
+# merges them into the baseline's reference rows per key, so the benchmarks the
+# probe does not cover keep their last full measurement rather than being
+# dropped.
+[run.drift_probe]
+enabled = true
+benchmarks = ["B05", "B02"]
+
 # ---------------------------------------------------------------------------
 # Implementations
 # ---------------------------------------------------------------------------

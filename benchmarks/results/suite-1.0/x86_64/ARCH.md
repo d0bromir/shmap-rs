@@ -90,14 +90,17 @@ To re-derive honestly: measure one commit twice with `repeats = 3`
 (2 × 4.2 h), and take the spread of the fifteen geometric means from
 `compare.py` between them.
 
-**The better fix is not a threshold at all.** `compare.py` already has
-`drift_normalize`, designed to divide out exactly this common-mode movement,
-and it has never fired: it needs reference measurements in common, and an
-ordinary PR run measures only the subject. Measuring a handful of cheap C++
-rows every run purely as a drift probe — B05 at `-@1` is ~52 s per
-measurement — would attack the −3.9% directly and let the threshold come back
-down. That changes what every run measures, so it is written here as a
-proposal rather than done.
+**The drift probe now exists.** `[run.drift_probe]` in `suite.toml` measures
+the reference on B05 and B02 every run — six `(benchmark, metric)` keys, which
+is `drift_min_samples`, for about 24 minutes — so `compare.py` has the common
+measurements its drift normalisation always needed and never had. That attacks
+the −3.9% directly rather than tolerating it.
+
+It does not make the correction free of error. The C++ varies ~8% run to run
+here, so six keys each medianed over three repeats give a drift estimate with a
+standard error near 2%. **Do not tighten the threshold on the strength of that
+arithmetic** — measure two runs of one commit with the probe in place and take
+the spread of the fifteen geometric means, as above.
 
 ## Reproducing
 

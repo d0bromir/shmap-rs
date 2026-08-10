@@ -132,9 +132,18 @@ Five benchmarks (B01–B05), three metrics each, seven thread counts, against bo
 
 | | invocations | wall |
 |---|---:|---:|
-| PR run on a host with `repeats = 1` | 105 | ~78 min |
-| PR run on `a2` (`repeats = 3`, see below) | 315 | ~4.2 h |
+| PR run on a host with `repeats = 1` | 105 + 18 | ~78 min + ~24 min |
+| PR run on `a2` (`repeats = 3`, see below) | 315 + 18 | ~4.2 h + ~24 min |
 | C++ re-measure — 3x for a median, only when it is rebuilt | 45 | ~187 min |
+
+The `+ 18` is the drift probe: the reference implementation on B05 and B02,
+three repeats each. `compare.py` normalises host drift against the reference,
+whose binary does not change between our commits, and that correction had never
+once run — it needs reference measurements in common, and an ordinary PR run
+measured only the subject. Uncorrected, that is worth −3.9% on a2 between two
+runs of one commit. B05 and B02 are the two cheapest benchmarks and give six
+`(benchmark, metric)` keys, which is `drift_min_samples`; B04 alone would be
+137 minutes.
 
 `repeats` is per host, in `data/hosts.toml`, because run-to-run noise is a
 property of the machine. Two runs of the identical commit on `a2` a day apart
