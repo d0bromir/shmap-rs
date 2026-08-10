@@ -11,7 +11,7 @@ transformation the code does not perform.
 | host | `galaxy` |
 | measured | 2026-08-10 |
 | suite / datasets | 1.0 / 1 |
-| input digest | `sha256:c8aebd06259c4a93` |
+| input digest | `sha256:af5e0a9e92bdd7e6` |
 
 Regenerate with `python3 benchmarks/scripts/paper.py`; verify with `--check`, which fails if any
 artifact would change. Each artifact is emitted twice: a `.tex` fragment to `\input`

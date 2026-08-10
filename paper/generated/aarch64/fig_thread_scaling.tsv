@@ -4,7 +4,7 @@
 # commit:     00d8c08aa656
 # host:       galaxy
 # measured:   2026-08-10
-# inputs:     sha256:c8aebd06259c4a93
+# inputs:     sha256:af5e0a9e92bdd7e6
 # provenance: paper/generated/PROVENANCE.md#fig_thread_scaling
 benchmark	threads	wall_s	speedup_vs_1
 B01	1	43.02	1.0

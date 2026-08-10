@@ -1,0 +1,101 @@
+{
+  "schema": 2,
+  "generated": "2026-08-10T12:13:44.911134+00:00",
+  "host": "galaxy",
+  "arch": "aarch64",
+  "cache_dir": "/home/mpiuser/bench-refs",
+  "entries": [
+    {
+      "mapper": "mapquik",
+      "benchmark": "B01",
+      "role": "peer",
+      "status": "missing",
+      "version": "",
+      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/shmap-rs/benchmarks/data/files/real24k/reads_real24k.fa --reference /home/mpiuser/bench-refs/REF-HS1.oneline.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B01"
+    },
+    {
+      "mapper": "mapquik",
+      "benchmark": "B02",
+      "role": "peer",
+      "status": "missing",
+      "version": "",
+      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/shmap-rs/benchmarks/data/files/wgs24k/reads_24kbp_1x.fa --reference /home/mpiuser/bench-refs/REF-HS1.oneline.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B02"
+    },
+    {
+      "mapper": "mapquik",
+      "benchmark": "B03",
+      "role": "peer",
+      "status": "missing",
+      "version": "",
+      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/shmap-rs/benchmarks/data/files/hifi_real/hifi_1x.fa --reference /home/mpiuser/bench-refs/REF-HS1.oneline.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B03"
+    },
+    {
+      "mapper": "mapquik",
+      "benchmark": "B04",
+      "role": "peer",
+      "status": "missing",
+      "version": "",
+      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/shmap-rs/benchmarks/data/files/hifi_real/hifi_10x.fa --reference /home/mpiuser/bench-refs/REF-HS1.oneline.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B04"
+    },
+    {
+      "mapper": "winnowmap2",
+      "benchmark": "B01",
+      "role": "gold",
+      "status": "cached",
+      "version": "2.03",
+      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa /home/mpiuser/shmap-rs/benchmarks/data/files/real24k/reads_real24k.fa",
+      "mapped": 189022,
+      "wall_s": 1493.4,
+      "peak_rss_kb": 10308856,
+      "measured": "2026-08-10T08:37:05.747092+00:00"
+    },
+    {
+      "mapper": "winnowmap2",
+      "benchmark": "B02",
+      "role": "gold",
+      "status": "cached",
+      "version": "2.03",
+      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa /home/mpiuser/shmap-rs/benchmarks/data/files/wgs24k/reads_24kbp_1x.fa",
+      "mapped": 129488,
+      "wall_s": 1123.8,
+      "peak_rss_kb": 9931412,
+      "measured": "2026-08-10T08:55:49.559029+00:00"
+    },
+    {
+      "mapper": "winnowmap2",
+      "benchmark": "B03",
+      "role": "gold",
+      "status": "cached",
+      "version": "2.03",
+      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa /home/mpiuser/shmap-rs/benchmarks/data/files/hifi_real/hifi_1x.fa",
+      "mapped": 280093,
+      "wall_s": 1113.1,
+      "peak_rss_kb": 8621772,
+      "measured": "2026-08-10T09:14:22.724738+00:00"
+    },
+    {
+      "mapper": "winnowmap2",
+      "benchmark": "B04",
+      "role": "gold",
+      "status": "cached",
+      "version": "2.03",
+      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa /home/mpiuser/shmap-rs/benchmarks/data/files/hifi_real/hifi_10x.fa",
+      "mapped": 2808979,
+      "wall_s": 10434.7,
+      "peak_rss_kb": 8878276,
+      "measured": "2026-08-10T12:08:17.783786+00:00"
+    },
+    {
+      "mapper": "winnowmap2",
+      "benchmark": "B05",
+      "role": "gold",
+      "status": "cached",
+      "version": "2.03",
+      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-ont /home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa /home/mpiuser/shmap-rs/benchmarks/data/files/ont24k/reads_ont24k.fa",
+      "mapped": 99107,
+      "wall_s": 327.1,
+      "peak_rss_kb": 6405764,
+      "measured": "2026-08-10T12:13:44.910778+00:00"
+    }
+  ]
+}
