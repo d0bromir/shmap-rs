@@ -10,6 +10,11 @@
 # not misfile anything (the runner never reads `arch` to decide where to
 # write) — it just makes this file wrong, so keep it honest.
 #
+# A host may also override any wall-time threshold from suite.toml's
+# [thresholds] by naming it here. Only the wall ones: accuracy thresholds
+# describe the code and must not vary by machine, and compare.py enforces that
+# by refusing any override outside its allow-list.
+#
 # `repeats` is how many times the *subject* implementation is measured for each
 # (benchmark, metric, thread count); the runner takes the median. It lives here
 # rather than in suite.toml because run-to-run noise is a property of the
@@ -47,6 +52,17 @@ thread_cap  = 64
 # of three has ~0.67x the spread of one sample, so expect ~4.3% rather than
 # ~6.4%. See results/suite-1.0/x86_64/ARCH.md.
 repeats     = 3
+# Wall-time thresholds this host can actually meet. suite.toml's 3% review line
+# assumes a machine that can resolve 3%; two runs of one commit here put the
+# geometric mean compare.py thresholds between -7.66% and +3.07%, flagging 11
+# of 15 rows with nothing changed. 6% would have flagged 5, and with repeats=3
+# should flag one or two. Accuracy thresholds are NOT overridden and never
+# should be: a drop in mapped or mapq-60 reads blocks on any host.
+# Provisional — see results/suite-1.0/x86_64/ARCH.md for how to re-derive it,
+# and note that ~4 points of the movement is between-run drift that repeats
+# cannot remove.
+wall_regression_review = 0.06
+wall_regression_block  = 0.12
 data_root   = "/home/mpiuser"
 notes       = "4x16 Xeon Gold 5218, 4 NUMA nodes, 376 GB. See results/suite-1.0/x86_64/ARCH.md."
 

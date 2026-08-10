@@ -31,7 +31,10 @@ COLS = ["benchmark", "impl", "metric", "threads", "repeat", "reference_id", "rea
 
 
 def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_version=1,
-             host="a2", commit="a" * 40, fail_check=None, agreement=0.9792,
+             # Deliberately a host with no hosts.toml entry: these cases pin the
+             # suite-default rules from VERSIONING.md. Naming a real host would
+             # make them assert that host's local threshold overrides instead.
+             host="testhost", commit="a" * 40, fail_check=None, agreement=0.9792,
              rc=0, drop_config=None, rss_scale=1.0, ground_truth=0.992064, wrong_q60=0,
              concordance=0.9633, ref_wall_scale=1.0, ref_binary="shmap 1.0.0-cpp",
              map_scale=1.0, index_frac=0.5, rss_outlier=1.0):
