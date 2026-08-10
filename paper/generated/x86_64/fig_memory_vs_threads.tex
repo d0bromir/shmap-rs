@@ -3,8 +3,8 @@
 % result set: current
 % commit:     00d8c08aa656
 % host:       a2
-% measured:   2026-08-09
-% inputs:     sha256:c858a66763006796
+% measured:   2026-08-10
+% inputs:     sha256:fcf13eb7c33ff017
 % provenance: paper/generated/PROVENANCE.md#fig_memory_vs_threads
 %
 \begin{figure}[tb]
@@ -26,15 +26,15 @@
   xtick={1,2,4,8,16,32,64},
   xticklabels={1,2,4,8,16,32,64}
 ]
-\addplot[color=blue!70!black,mark=*,thick] coordinates {(1,2.523) (2,1.863) (4,1.969) (8,2.105) (16,2.096) (32,2.331) (64,2.861)};
+\addplot[color=blue!70!black,mark=*,thick] coordinates {(1,2.468) (2,1.900) (4,2.054) (8,2.039) (16,2.100) (32,2.354) (64,2.830)};
 \addlegendentry{B01}
-\addplot[color=red!70!black,mark=square*,thick] coordinates {(1,2.486) (2,1.867) (4,1.851) (8,2.041) (16,2.073) (32,2.366) (64,2.846)};
+\addplot[color=red!70!black,mark=square*,thick] coordinates {(1,2.586) (2,1.837) (4,1.945) (8,1.921) (16,2.085) (32,2.388) (64,2.837)};
 \addlegendentry{B02}
-\addplot[color=green!45!black,mark=triangle*,thick] coordinates {(1,2.572) (2,1.891) (4,2.008) (8,2.175) (16,2.476) (32,3.205) (64,4.293)};
+\addplot[color=green!45!black,mark=triangle*,thick] coordinates {(1,2.662) (2,1.874) (4,1.986) (8,2.165) (16,2.482) (32,3.247) (64,4.251)};
 \addlegendentry{B03}
-\addplot[color=orange!85!black,mark=diamond*,thick] coordinates {(1,2.592) (2,1.946) (4,1.979) (8,2.184) (16,2.542) (32,7.967) (64,7.526)};
+\addplot[color=orange!85!black,mark=diamond*,thick] coordinates {(1,2.614) (2,1.969) (4,2.001) (8,2.184) (16,2.519) (32,6.179) (64,7.455)};
 \addlegendentry{B04}
-\addplot[color=violet,mark=pentagon*,thick] coordinates {(1,2.531) (2,1.883) (4,1.953) (8,2.047) (16,2.194) (32,2.413) (64,3.084)};
+\addplot[color=violet,mark=pentagon*,thick] coordinates {(1,2.674) (2,1.892) (4,1.874) (8,2.091) (16,2.172) (32,2.452) (64,3.078)};
 \addlegendentry{B05}
 \addplot[black,dashed,thick,mark=none] coordinates {(1,18.851) (2,18.851) (4,18.851) (8,18.851) (16,18.851) (32,18.851) (64,18.851)};
 \addlegendentry{C++ \texttt{shmap}}
