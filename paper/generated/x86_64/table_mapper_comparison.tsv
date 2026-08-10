@@ -13,7 +13,7 @@ B01	shmap-rs	bucket_SH	1	149236	138250	7.49		6.902	25.032	2.66
 B01	cpp-shmap	Containment	1	149194	139309	6.78				18.85
 B01	cpp-shmap	Jaccard	1	146120	138421	7.37				18.85
 B01	cpp-shmap	bucket_SH	1	149236	138250	7.49				18.85
-B01	mapquik		32	48913					19.5	19.37
+B01	mapquik		32	148225					18.0	18.14
 B01	winnowmap2		32	189022					1328.3	9.78
 B02	shmap-rs	Containment	1	125000	117532	5.97	0	7.653	25.447	2.49
 B02	shmap-rs	Jaccard	1	125000	119065	4.75	6	7.131	38.874	2.79
@@ -21,7 +21,7 @@ B02	shmap-rs	bucket_SH	1	125000	116800	6.56	1	6.942	22.329	2.82
 B02	cpp-shmap	Containment	1	125000	117532	5.97				18.85
 B02	cpp-shmap	Jaccard	1	125000	119065	4.75				18.85
 B02	cpp-shmap	bucket_SH	1	125000	116802	6.56				18.85
-B02	mapquik		32	39965					19.2	19.38
+B02	mapquik		32	124221					19.4	18.09
 B02	winnowmap2		32	129488					1006.4	9.4
 B03	shmap-rs	Containment	1	241991	227521	6.19		6.842	40.292	2.57
 B03	shmap-rs	Jaccard	1	241265	228887	5.63		8.265	55.464	2.45
@@ -29,7 +29,7 @@ B03	shmap-rs	bucket_SH	1	242050	226931	6.43		8.567	34.594	2.49
 B03	cpp-shmap	Containment	1	241991	227521	6.19				18.85
 B03	cpp-shmap	Jaccard	1	241265	228886	5.63				18.85
 B03	cpp-shmap	bucket_SH	1	242050	226934	6.43				18.85
-B03	mapquik		32	89559					20.9	19.42
+B03	mapquik		32	239539					18.1	18.17
 B03	winnowmap2		32	280093					997.0	8.04
 B04	shmap-rs	Containment	1	2419796	2273122	6.28		7.357	397.878	2.59
 B04	shmap-rs	Jaccard	1	2411461	2286085	5.74		7.287	543.448	2.6
@@ -37,7 +37,7 @@ B04	shmap-rs	bucket_SH	1	2420331	2267229	6.52		7.24	373.362	2.51
 B04	cpp-shmap	Containment	1	2419796	2273121	6.28				18.85
 B04	cpp-shmap	Jaccard	1	2411461	2286083	5.74				18.85
 B04	cpp-shmap	bucket_SH	1	2420331	2267238	6.52				18.85
-B04	mapquik		32	897326					44.8	19.36
+B04	mapquik		32	2394360					43.9	18.11
 B04	winnowmap2		32	2808979					9019.5	8.38
 B05	shmap-rs	Containment	1	39608	37839	58.97		7.183	14.341	2.53
 B05	shmap-rs	Jaccard	1	5956	5409	94.13		7.147	17.505	2.63

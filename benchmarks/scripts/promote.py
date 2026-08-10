@@ -248,6 +248,15 @@ def main() -> int:
         print("so restating their headline figures from another machine's numbers would")
         print(f"misrepresent them. A section for {set_arch} in that narrative is separate work.")
 
+    # The external-mapper manifest is generated and committed like everything
+    # else, but it is generated from a host-local cache rather than from the
+    # result set -- so nothing in the cheap tier can see it drift. It did:
+    # mapquik's numbers in the paper table were three times too low for months,
+    # because the corpus was re-run after a reference fix and never re-exported.
+    print("\nchecking the external-mapper manifest against this host's corpus")
+    run([sys.executable, "benchmarks/scripts/reference_mappers.py", "--check"],
+        "reference_mappers.py --check")
+
     print("\nverifying that everything regenerates to what is now on disk")
     run([sys.executable, "benchmarks/scripts/charts.py", "--check", "--arch", set_arch],
         "charts.py --check")
