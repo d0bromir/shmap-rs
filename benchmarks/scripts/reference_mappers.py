@@ -117,6 +117,31 @@ def plan_entry(name: str, spec: dict, bench: dict, suite: dict, reg: dict, cache
     )
 
 
+def portable_key(key: dict) -> dict:
+    """The part of a cache key that is about the data rather than the disk.
+
+    Every absolute path in the command line is reduced to its basename. What
+    remains still distinguishes everything that changes a result -- a different
+    reference file, a different preset, a different thread count, a different
+    mapper version -- because those all change either an argument or a
+    basename. What it stops distinguishing is where the corpus happens to live,
+    which changed for all nine entries when the datasets moved behind
+    `benchmarks/data/files/` and invalidated 3.5 hours of Winnowmap2 that
+    nothing about the data had touched.
+
+    The identity triples in the key are untouched: content changes are still
+    caught by (bytes, records, bases), which is the check that actually
+    matters and which a path can neither prove nor fake.
+    """
+    out = dict(key)
+    cmd = out.get("cmd")
+    if isinstance(cmd, str):
+        out["cmd"] = " ".join(
+            (tok.rsplit("/", 1)[-1] if tok.startswith("/") else tok)
+            for tok in cmd.split())
+    return out
+
+
 def cached_key(entry: dict) -> dict | None:
     j = entry["out_dir"] / f"{entry['benchmark']}.json"
     if not (j.exists() and entry["paf"].exists()):
@@ -132,7 +157,7 @@ def status_of(entry: dict, version: str) -> str:
     if got is None:
         return "missing"
     want = dict(entry["key"], version=version)
-    if got.get("key") != want:
+    if portable_key(got.get("key") or {}) != portable_key(want):
         return "stale"
     return "cached"
 
@@ -203,6 +228,58 @@ def export_manifest(suite: dict, reg: dict, cache: Path) -> int:
     return 0
 
 
+def check_manifest(suite: dict, reg: dict, cache: Path) -> int:
+    """Fail if the committed manifest disagrees with this host's cache.
+
+    The manifest is a generated, committed artifact and had no check, so it
+    drifted from the cache it summarises and published a wrong mapped count
+    for months. This is the same guard `report.py --check` and
+    `paper.py --check` provide for every other generated file here.
+
+    A host with no cache cannot judge, and says so rather than passing
+    silently or failing loudly: CI runners have no corpus and must not be made
+    to look like they verified one.
+    """
+    dest = export_path()
+    if not dest.exists():
+        print(f"no committed manifest at {dest}; nothing to check")
+        return 0
+    if not cache.is_dir():
+        print(f"no corpus at {cache} on this host, so the manifest cannot be "
+              f"verified here. Run this on a host that has one.")
+        return 0
+
+    committed = json.loads(dest.read_text())
+    have = {(e["mapper"], e["benchmark"]): e for e in committed.get("entries", [])}
+    bad = []
+    for name, spec in sorted(mappers(suite).items()):
+        version = binary_version(spec)
+        for bench in suite["benchmark"]:
+            e = plan_entry(name, spec, bench, suite, reg, cache)
+            if e is None:
+                continue
+            got = cached_key(e)
+            if not got:
+                continue
+            was = have.get((name, e["benchmark"]))
+            if was is None:
+                bad.append(f"{name}/{e['benchmark']}: cached here, absent from the manifest")
+                continue
+            for field in ("mapped", "wall_s", "peak_rss_kb"):
+                if was.get(field) != got.get(field):
+                    bad.append(f"{name}/{e['benchmark']}: {field} "
+                               f"manifest={was.get(field)} cache={got.get(field)}")
+    if bad:
+        print(f"the committed manifest disagrees with {cache} ({len(bad)}):", file=sys.stderr)
+        for b in bad:
+            print(f"  {b}", file=sys.stderr)
+        print("re-export with: python3 benchmarks/scripts/reference_mappers.py --export",
+              file=sys.stderr)
+        return 1
+    print(f"the committed manifest matches the corpus in {cache}")
+    return 0
+
+
 def main() -> int:
     sys.stdout.reconfigure(line_buffering=True)
     ap = argparse.ArgumentParser(description=__doc__,
@@ -210,18 +287,23 @@ def main() -> int:
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--export", action="store_true")
+    ap.add_argument("--check", action="store_true",
+                    help="fail if the committed manifest disagrees with this host's cache")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--only", help="comma-separated benchmark ids")
     ap.add_argument("--mapper", help="comma-separated mapper names")
     ap.add_argument("--no-wait", action="store_true")
     a = ap.parse_args()
-    if not (a.list or a.run or a.export):
-        ap.error("one of --list, --run or --export is required")
+    if not (a.list or a.run or a.export or a.check):
+        ap.error("one of --list, --run, --export or --check is required")
 
     suite, reg = load_suite(), load_registry()
     if not suite.get("external", {}).get("enabled"):
         sys.exit("[external] is disabled in suite.toml")
     cache = Path(expand(suite["external"]["cache_dir"]))
+
+    if a.check:
+        return check_manifest(suite, reg, cache)
 
     want_b = set(a.only.split(",")) if a.only else None
     want_m = set(a.mapper.split(",")) if a.mapper else None

@@ -1,6 +1,8 @@
 {
   "schema": 2,
-  "generated": "2026-07-31T07:24:24.201330+00:00",
+  "generated": "2026-08-10T09:19:27.342461+00:00",
+  "host": "a2",
+  "arch": "x86_64",
   "cache_dir": "/home/mpiuser/bench-refs",
   "entries": [
     {
@@ -9,11 +11,11 @@
       "role": "peer",
       "status": "cached",
       "version": "mapquik 0.1.0",
-      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/real24k/reads_real24k.fa --reference /home/mpiuser/_paper_work/hs1.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B01",
-      "mapped": 48913,
-      "wall_s": 19.5,
-      "peak_rss_kb": 20310052,
-      "measured": "2026-07-31T03:50:22.796026+00:00"
+      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/shmap-rs-refx/benchmarks/data/files/real24k/reads_real24k.fa --reference /home/mpiuser/bench-refs/REF-HS1.oneline.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B01",
+      "mapped": 148225,
+      "wall_s": 18.0,
+      "peak_rss_kb": 19019992,
+      "measured": "2026-07-31T14:44:17.454295+00:00"
     },
     {
       "mapper": "mapquik",
@@ -21,11 +23,11 @@
       "role": "peer",
       "status": "cached",
       "version": "mapquik 0.1.0",
-      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/wgs24k/reads_24kbp_1x.fa --reference /home/mpiuser/_paper_work/hs1.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B02",
-      "mapped": 39965,
-      "wall_s": 19.2,
-      "peak_rss_kb": 20323988,
-      "measured": "2026-07-31T03:50:41.993454+00:00"
+      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/shmap-rs-refx/benchmarks/data/files/wgs24k/reads_24kbp_1x.fa --reference /home/mpiuser/bench-refs/REF-HS1.oneline.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B02",
+      "mapped": 124221,
+      "wall_s": 19.4,
+      "peak_rss_kb": 18969560,
+      "measured": "2026-07-31T14:44:36.867843+00:00"
     },
     {
       "mapper": "mapquik",
@@ -33,11 +35,11 @@
       "role": "peer",
       "status": "cached",
       "version": "mapquik 0.1.0",
-      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/hifi_real/hifi_1x.fa --reference /home/mpiuser/_paper_work/hs1.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B03",
-      "mapped": 89559,
-      "wall_s": 20.9,
-      "peak_rss_kb": 20365136,
-      "measured": "2026-07-31T03:51:02.898402+00:00"
+      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/shmap-rs-refx/benchmarks/data/files/hifi_real/hifi_1x.fa --reference /home/mpiuser/bench-refs/REF-HS1.oneline.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B03",
+      "mapped": 239539,
+      "wall_s": 18.1,
+      "peak_rss_kb": 19048504,
+      "measured": "2026-07-31T14:44:55.069052+00:00"
     },
     {
       "mapper": "mapquik",
@@ -45,11 +47,11 @@
       "role": "peer",
       "status": "cached",
       "version": "mapquik 0.1.0",
-      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/hifi_real/hifi_10x.fa --reference /home/mpiuser/_paper_work/hs1.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B04",
-      "mapped": 897326,
-      "wall_s": 44.8,
-      "peak_rss_kb": 20305120,
-      "measured": "2026-07-31T04:54:04.307010+00:00"
+      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/shmap-rs-refx/benchmarks/data/files/hifi_real/hifi_10x.fa --reference /home/mpiuser/bench-refs/REF-HS1.oneline.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B04",
+      "mapped": 2394360,
+      "wall_s": 43.9,
+      "peak_rss_kb": 18988792,
+      "measured": "2026-07-31T14:45:39.423782+00:00"
     },
     {
       "mapper": "winnowmap2",
@@ -57,7 +59,7 @@
       "role": "gold",
       "status": "cached",
       "version": "2.03",
-      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/_paper_work/hs1.fa /home/mpiuser/real24k/reads_real24k.fa",
+      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/shmap-rs-refx/benchmarks/data/files/_paper_work/hs1.fa /home/mpiuser/shmap-rs-refx/benchmarks/data/files/real24k/reads_real24k.fa",
       "mapped": 189022,
       "wall_s": 1328.3,
       "peak_rss_kb": 10253088,
@@ -69,7 +71,7 @@
       "role": "gold",
       "status": "cached",
       "version": "2.03",
-      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/_paper_work/hs1.fa /home/mpiuser/wgs24k/reads_24kbp_1x.fa",
+      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/shmap-rs-refx/benchmarks/data/files/_paper_work/hs1.fa /home/mpiuser/shmap-rs-refx/benchmarks/data/files/wgs24k/reads_24kbp_1x.fa",
       "mapped": 129488,
       "wall_s": 1006.4,
       "peak_rss_kb": 9853232,
@@ -81,7 +83,7 @@
       "role": "gold",
       "status": "cached",
       "version": "2.03",
-      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/_paper_work/hs1.fa /home/mpiuser/hifi_real/hifi_1x.fa",
+      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/shmap-rs-refx/benchmarks/data/files/_paper_work/hs1.fa /home/mpiuser/shmap-rs-refx/benchmarks/data/files/hifi_real/hifi_1x.fa",
       "mapped": 280093,
       "wall_s": 997.0,
       "peak_rss_kb": 8433384,
@@ -93,7 +95,7 @@
       "role": "gold",
       "status": "cached",
       "version": "2.03",
-      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/_paper_work/hs1.fa /home/mpiuser/hifi_real/hifi_10x.fa",
+      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-pb /home/mpiuser/shmap-rs-refx/benchmarks/data/files/_paper_work/hs1.fa /home/mpiuser/shmap-rs-refx/benchmarks/data/files/hifi_real/hifi_10x.fa",
       "mapped": 2808979,
       "wall_s": 9019.5,
       "peak_rss_kb": 8787604,
@@ -105,14 +107,11 @@
       "role": "gold",
       "status": "cached",
       "version": "2.03",
-      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-ont /home/mpiuser/_paper_work/hs1.fa /home/mpiuser/ont24k/reads_ont24k.fa",
+      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x map-ont /home/mpiuser/shmap-rs-refx/benchmarks/data/files/_paper_work/hs1.fa /home/mpiuser/shmap-rs-refx/benchmarks/data/files/ont24k/reads_ont24k.fa",
       "mapped": 99107,
       "wall_s": 331.5,
       "peak_rss_kb": 6448028,
       "measured": "2026-07-31T04:53:19.329991+00:00"
     }
-  ],
-  "host": "a2",
-  "arch": "x86_64",
-  "provenance_note": "host and arch backfilled when the corpus was split per architecture. The original export recorded neither; they are inferred from cache_dir (/home/mpiuser/bench-refs), which exists on a2 and on no other benchmark host. Entries exported after that split record both at measurement time."
+  ]
 }

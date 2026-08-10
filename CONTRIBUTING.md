@@ -176,6 +176,11 @@ python3 benchmarks/scripts/build_pdf.py --check # fail if the committed PDF is s
 python3 benchmarks/scripts/crossarch.py         # every architecture in one document
 python3 benchmarks/scripts/crossarch.py --pdf   # ...and typeset it
 python3 benchmarks/scripts/crossarch.py --check # what CI runs
+
+# Only on a benchmark host: the external-mapper manifest is generated from a
+# host-local corpus, so CI cannot verify it and does not try.
+python3 benchmarks/scripts/reference_mappers.py --check   # manifest vs corpus
+python3 benchmarks/scripts/reference_mappers.py --export  # after re-running any mapper
 make paper                              # regenerate and typeset
 ```
 
