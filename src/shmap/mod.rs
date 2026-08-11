@@ -130,6 +130,12 @@ const PER_READ_COUNTERS: &[&str] = &[
     // threshold, so on its own it says nothing about what refining costs.
     "refined_buckets",
     "refine_memo_hits",
+    // Seeds consumed by `seed_heuristic_pass`'s per-bucket extension, summed
+    // over every bucket of the read. The other half of the seed heuristic's
+    // cost: `total_matches` counts only what seeding enumerated up front, so
+    // without this the work seeding *deferred* to the pruning pass — which is
+    // exactly what grows when `S` shrinks — cannot be seen at all.
+    "pruning_extends",
     // Rungs of the descending-threshold ladder this read actually climbed
     // (see `theta_ladder`). 1 means it mapped — or was proved unmappable — at
     // the first threshold tried; the run-wide total over `reads` is the
@@ -892,6 +898,25 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.counters.inc("kmers_seeds", s as i64);
         self.counters.inc("seeded_buckets", sorted_buckets.len() as i64);
         self.counters.inc("theta_levels", levels);
+
+        // The sweep is allowed to stop a bucket's pruning walk early (see
+        // `seed_heuristic_pass`'s `cap`), which leaves `sh` an upper bound
+        // rather than the value. That is fine for every bucket the read throws
+        // away and wrong for the one or two it reports, so those are finished
+        // here — the whole point being that it is one or two rather than every
+        // candidate. `complete_sh` is idempotent, so an uncapped walk (any
+        // metric but Containment/Jaccard) passes through it unchanged.
+        self.timers.start("match_rest");
+        for mapping in [best.as_mut(), best2.as_mut()].into_iter().flatten() {
+            let b = mapping.bucket();
+            if let Some((_, content)) = sorted_buckets.iter_mut().find(|(loc, _)| *loc == b) {
+                let from = content.i;
+                let sh = self.complete_sh(buckets, &p_unique, m, &b, content);
+                mapping.set_sh(sh);
+                self.counters.inc("pruning_extends", (content.i - from).max(0) as i64);
+            }
+        }
+        self.timers.stop("match_rest");
 
         let fptp = -1.0; // ground-truth FDR calculation is dead upstream too (calc_FDR is never called)
         self.counters.inc("lost_on_pruning", 1); // always 1 upstream: `lost_on_pruning` is never actually recomputed from a real outcome (see match_rest)

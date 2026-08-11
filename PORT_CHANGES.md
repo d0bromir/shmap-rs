@@ -16,9 +16,10 @@ paths that algorithm runs through, and adds multithreading the C++ has none of.
 
 Every optimization below, current design only — not the sequence of attempts that got there (that
 record is [`PROFILING.md`](PROFILING.md), kept deliberately chronological and never updated). Only
-row 9 is prescribed by the paper itself (it names "Optimization 2" directly); everything else is an
-engineering choice in how shmap-rs implements the algorithm the paper and the C++ both already
-specify, not a change to the algorithm.
+row 9 is prescribed by the paper itself (it names "Optimization 2" directly); rows 10 and 11 change
+*when* the algorithm's own threshold and pruning bound are evaluated, while provably computing the
+same answer; everything else is an engineering choice in how shmap-rs implements the algorithm the
+paper and the C++ both already specify.
 
 | # | Optimization | What it optimizes | Effect, measured | Exact? |
 |---|---|---|---|---|
@@ -31,7 +32,8 @@ specify, not a change to the algorithm.
 | 7 | Sketching/index hot loop: precomputed rotation tables, bounds-check-free iteration, `Entry` API, binomial-sized sketch buffers | Reference and read sketching speed | **~13-17% off `index_sketching`** is the bounds-check-free iteration alone (§7); the other three items in this row have no isolated standalone percentage in the record | Yes |
 | 8 | Lower allocation/memory traffic: `PMatches` inline for the common single-occurrence case, `Match` borrows its `Seed`, dense `diff_hist`, no `seq` field on `RefSegment`, FASTA records by value, bounded read-ahead, buffered stdout, `lto="fat"` | Peak memory, and speed via fewer allocations | **~11-13% off peak RSS** is the bounded read-ahead alone; **~5% wall** is `lto="fat"` alone (§8); the rest are allocation-*count* reductions (e.g. ~300 M fewer heap allocations for single-occurrence seeds) without an isolated standalone percentage in the record | Yes |
 | 9 | Final bucket ordering: an unstable sort on a packed key reproduces stable-sort output — the paper's own Algorithm 4 "Optimization 2" | Sort cost in `get_sorted_buckets`, and (as a side effect) determinism | Sorts 8-byte packed keys instead of 32-byte records — no isolated standalone percentage in the record, but real: moving 4x fewer bytes and skipping a stable sort's temporary allocation | Yes, and stronger than the C++: reproduces exactly what a *stable* sort by descending match count would give (the original index is packed in as the tiebreak), where the C++'s `std::sort` gives no such guarantee even between its own runs (`src/buckets.rs`'s `get_sorted_buckets` doc comment) |
-| 10 | Theta ladder — map each read at one higher threshold first, and fall back to `-t` only if that finds nothing (§10) | `match_seeds` and `bucket_merge`, i.e. the part of a read's cost that scales with the seed count `S` | `match_seeds` **-47 to -56%** and `S` **-39 to -48%**; net `query_mapping` **1.08-1.21x** (Containment), **0.98-1.09x** (Jaccard), **1.11-1.33x** (`bucket_SH`), unchanged on ONT (RESULTS.md §5c) | Yes — the reported mapping is byte-identical to the single pass over 90 000 reads across four datasets at every metric, ground truth included. Only the effort tags (`seeds`, `total_matches`, …) move, and they move because the effort really did |
+| 10 | Theta ladder — map each read at one higher threshold first, and fall back to `-t` only if that finds nothing (§10) | `match_seeds` and `bucket_merge`, i.e. the part of a read's cost that scales with the seed count `S` | `match_seeds` **-47 to -56%** and `S` **-39 to -48%** (RESULTS.md §5c) | Yes — the reported mapping is byte-identical to the single pass over 90 000 reads across four datasets at every metric, ground truth included. Only the effort tags (`seeds`, `total_matches`, …) move, and they move because the effort really did |
+| 11 | Skipping the seed heuristic's per-bucket walk once a mapping is in hand, and completing `sh` only for what gets reported (§11) | `match_rest` — specifically the `matches_in_bucket` walk, which measurement showed spends 84-92% of its steps on buckets it never prunes | Together with row 10, on the three stages either can touch: **1.05-1.28x** (Containment), **1.05-1.18x** (Jaccard), **1.28-1.60x** (`bucket_SH`); B05 Containment is the one loss at 0.90x of a component that is 29% of its `query_mapping` (RESULTS.md §5c) | Yes, and on the same evidence as row 10 — the two were validated together |
 
 Rows without an isolated standalone percentage are stated as such rather than estimated — they are
 real (each is individually documented below with its own reasoning and, where one exists, a code
@@ -931,6 +933,52 @@ falls by ~50%. RESULTS.md §5c sweeps the rung count and puts the optimum at **o
 `-t` — which is a result about the paper's `S` as much as about this change: `S` is already close
 to the optimum of that trade, and what the ladder wins is doing a first attempt at a threshold the
 read can actually clear, not seeding less in total.
+
+---
+
+## 11. The seed heuristic's per-bucket walk, which mostly should not run
+
+**What it is.** After seeding, the C++ extends each candidate bucket one seed at a time, keeping
+`sh` — the seed-heuristic upper bound — up to date and dropping the bucket the moment it falls
+under the threshold:
+
+```cpp
+// shmap/src/shmap.h:235-245  (commit 63f1103)
+                if (!no_bucket_pruning) {
+                        while (1) {
+                                *sh = hseed(m, bucket->seeds, bucket->matches);
+                                if (*sh < thr)
+                                        return false;
+                                if (bucket->i >= (qpos_t)p_unique.size())
+                                        break;
+                                matches_in_bucket(B, b, bucket, p_unique[bucket->i]);
+                                bucket->i++;
+                        }
+                }
+```
+
+Note where the loop can exit `true`: only at the end of `p_unique`. A bucket that is going to be
+scored is walked over *every* seed, always.
+
+**What the measurement says.** shmap-rs added a `pruning_extends` counter for this — §5b of
+RESULTS.md had explicitly recorded that its "examined matches" column could not see this pass —
+and it says the loop barely prunes: **84-92% of every seed it consumes is consumed by buckets that
+survive it**. Junk buckets never reach the walk at all; they fail the first `sh` test, because one
+seeded k-mer already puts them past the miss budget. The walk is not pruning cost. It is the cost
+of driving `sh` to its final value on the few buckets whose fate was decided by the first test.
+
+**And that value is barely needed.** Under `Containment`/`Jaccard`, `find_best_mapping` scores a
+bucket from its *location* and never reads the accumulator, so `sh` is only the `sh:f:` tag on a
+reported mapping. Skipping the walk lets a bucket the walk would have pruned reach refinement
+instead, which is harmless — it has `score <= sh < thr` and so cannot be admitted — and
+`complete_sh` finishes the walk for the one or two buckets a read actually reports.
+
+**Skipping it unconditionally is wrong, and the condition is not the obvious one.** A fixed step
+cap and a cost-crossover slack rule were both measured and both failed to separate HiFi (where the
+walk is waste) from ONT (where it earns its keep). What separates them is whether a mapping has
+been found yet: with no incumbent, `thr` is the user's low `-t` and the walk is the only filter
+standing between a bucket and a refinement; with an incumbent, `thr` is ~0.93 and nothing clears
+the first test except real competitors, which never prune. RESULTS.md §5c has both sweeps.
 
 ---
 

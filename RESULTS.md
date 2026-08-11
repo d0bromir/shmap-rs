@@ -634,11 +634,17 @@ So `map_read` tries a higher threshold first and falls back to `-t` only if that
 [PORT_CHANGES.md §10](PORT_CHANGES.md) for how it fits the C++ it came from). **The early stop is
 exact**: the mapping reported is the mapping `-t` alone reports, not an approximation of it.
 
+Measuring that led to a second, larger change in the same place, and the two are reported together
+below because they are measured together: the per-bucket walk the seed heuristic does *after*
+seeding turns out to prune almost nothing, and on the refining metrics it can be skipped outright
+once a mapping is in hand. It is the same kind of change — exact, and justified by what the
+threshold is actually doing.
+
 ### It is byte-identical, and that is checked rather than argued
 
 The argument is three cases and lives in the module comment. What settles it is the measurement —
-90 000 reads from four datasets, every metric, ladder against the same binary with
-`SHMAP_NO_ADAPTIVE_THETA=1`:
+90 000 reads from four datasets, every metric, both halves of the change against the same binary
+with `SHMAP_NO_ADAPTIVE_THETA=1 SHMAP_NO_PRUNE_SKIP=1`:
 
 | | B01 real HiFi 23 kb | B02 simulated 24 kb | B03 real HiFi 13 kb | B05 real ONT 24 kb |
 |---|---|---|---|---|
@@ -680,40 +686,50 @@ rung long anyway), and it is what turns the table above from "almost identical" 
 
 ### What it costs and what it saves
 
-Median of three interleaved runs per cell, `query_mapping` at `-@1`, subsets of 20-30k reads:
+Median of three interleaved runs per cell at `-@1`, subsets of 20-30k reads,
+against the same binary with both halves of the change disabled.
 
-| benchmark | metric | single pass | ladder | ratio | `match_seeds` | `match_rest` | `S` | rungs/read |
-|---|---|---:|---:|---:|---|---|---:|---:|
-| B01 | Containment | 4.367 s | 4.048 s | **1.079x** | 0.928 → 0.494 | 1.546 → 1.859 | 0.560 | 1.11 |
-| B01 | Jaccard | 6.023 s | 6.122 s | 0.984x | 0.922 → 0.541 | 3.252 → 3.874 | 0.610 | 1.21 |
-| B01 | bucket_SH | 3.143 s | 2.829 s | **1.111x** | 0.910 → 0.499 | 0.477 → 0.647 | 0.556 | 1.10 |
-| B02 | Containment | 4.464 s | 3.691 s | **1.209x** | 1.081 → 0.485 | 1.246 → 1.407 | 0.525 | 1.05 |
-| B02 | Jaccard | 6.378 s | 6.337 s | 1.006x | 1.059 → 0.485 | 3.296 → 4.106 | 0.554 | 1.11 |
-| B02 | bucket_SH | 3.925 s | 3.265 s | **1.202x** | 1.100 → 0.513 | 0.587 → 0.719 | 0.525 | 1.05 |
-| B03 | Containment | 4.741 s | 4.068 s | **1.166x** | 1.429 → 0.631 | 1.608 → 1.898 | 0.544 | 1.08 |
-| B03 | Jaccard | 7.045 s | 6.471 s | 1.089x | 1.486 → 0.692 | 3.594 → 4.116 | 0.586 | 1.17 |
-| B03 | bucket_SH | 3.644 s | 2.743 s | **1.328x** | 1.458 → 0.646 | 0.462 → 0.561 | 0.541 | 1.07 |
-| B05 | Containment | 2.572 s | 2.382 s | 1.080x | 0.198 → 0.208 | 0.391 → 0.378 | 1.000 | 1.06 |
-| B05 | Jaccard | 2.451 s | 2.668 s | 0.919x | 0.175 → 0.184 | 0.572 → 0.635 | 1.000 | 1.06 |
-| B05 | bucket_SH | 2.259 s | 2.238 s | 1.009x | 0.192 → 0.178 | 0.195 → 0.183 | 1.000 | 1.06 |
+Two columns, because one of them is misleading on B05. `query_mapping` includes
+`sketching` and `prepare`, which this change never enters and which are **70% of
+B05's** (§5) — so a B05 ratio taken over the whole stage is mostly a measurement
+of host drift. `affected` is `match_seeds + bucket_merge + match_rest`, the three
+stages the change can actually move.
 
-**Read the B05 rows as a noise measurement, not a result.** Its `S` ratio is exactly 1.000 and its
-PAF is identical down to the effort tags — the ladder does the *same work* there, because ONT at
-`k = 25` leaves only ~28% of a read's k-mers intact and the ladder is anchored on that bound, so no
-ONT read ever clears a rung above `-t 0.4`. Three cells of provably identical work spanning
-**0.919x to 1.080x** is this host's noise floor on a single 20k-read benchmark at median-of-three,
-and it is why the suite judges on geometric means across thread counts rather than on single rows.
-By that yardstick the six Containment/`bucket_SH` wins are real and the four Jaccard cells are not
-distinguishable from unchanged.
+| benchmark | metric | affected, before → after | ratio | `query_mapping` | ratio |
+|---|---|---|---:|---|---:|
+| B01 | Containment | 2.554 → 2.354 s | **1.085x** | 4.233 → 4.029 s | 1.051x |
+| B01 | Jaccard | 4.436 → 4.241 s | 1.046x | 6.121 → 5.919 s | 1.034x |
+| B01 | bucket_SH | 1.689 → 1.325 s | **1.275x** | 3.366 → 2.917 s | 1.154x |
+| B02 | Containment | 2.321 → 1.908 s | **1.216x** | 3.988 → 3.640 s | 1.096x |
+| B02 | Jaccard | 4.434 → 4.152 s | 1.068x | 6.116 → 5.832 s | 1.049x |
+| B02 | bucket_SH | 1.761 → 1.301 s | **1.353x** | 3.475 → 2.921 s | 1.190x |
+| B03 | Containment | 3.451 → 2.703 s | **1.277x** | 4.929 → 4.179 s | 1.180x |
+| B03 | Jaccard | 5.257 → 4.464 s | **1.178x** | 6.748 → 5.967 s | 1.131x |
+| B03 | bucket_SH | 2.420 → 1.511 s | **1.602x** | 3.865 → 2.987 s | 1.294x |
+| B05 | Containment | 0.653 → 0.724 s | 0.901x | 2.261 → 2.374 s | 0.952x |
+| B05 | Jaccard | 0.827 → 0.858 s | 0.964x | 2.397 → 2.450 s | 0.978x |
+| B05 | bucket_SH | 0.463 → 0.444 s | 1.044x | 2.080 → 2.037 s | 1.021x |
 
-**Why ONT costs nothing rather than costing double** is the anchor. A read cannot score above the
-fraction of its k-mers with any reference hit at all, which `unique_elements_with_info` has already
-established; below `-t` there is no higher rung to try and the ladder is one rung long. Without that
-the unmappable 57% of B05 would have paid for every rung and found nothing.
+**B05 Containment is the one cell that loses**, by ~10% of a component that is
+29% of its `query_mapping`, which is itself a minority of its wall time — call it
+~1% of the benchmark. It is the price of the second half of the change (below);
+the ladder alone leaves B05 doing byte-identical work. Everything else gains, and
+the gains are largest exactly where the suite spends its time: B03 is the shape
+of B04, which is 52 of the suite's 78 minutes.
+
+Read the B05 rows with §5c's noise floor in mind. Its `S` ratio is exactly 1.000
+and its PAF is identical down to the effort tags under the ladder alone — ONT at
+`k = 25` leaves ~28% of a read's k-mers intact and the ladder is anchored on that
+bound, so no ONT read ever clears a rung above `-t 0.4`. Three cells of provably
+identical work spanning **0.919x to 1.080x** on `query_mapping` in an earlier
+sweep is this host's noise floor on a single 20k-read benchmark at
+median-of-three, and it is why the suite judges on geometric means across thread
+counts rather than on single rows — and why the `affected` column exists here.
 
 ### The rung count is one, and the reason is a real trade
 
-The obvious design is a long descent. Measured, it is worse than a single step:
+The obvious design is a long descent. Measured, it is worse than a single step
+(`query_mapping`, median of 3, ladder only, before the walk change below):
 
 | benchmark | metric | 0 rungs (single pass) | 1 rung | 2 rungs | unbounded |
 |---|---|---:|---:|---:|---:|
@@ -724,17 +740,74 @@ The obvious design is a long descent. Measured, it is worse than a single step:
 | B03 | Jaccard | 1.000x | **1.089x** | 1.042x | 1.081x |
 | B03 | bucket_SH | 1.000x | 1.328x | **1.346x** | 1.333x |
 
-The two halves of the seed heuristic move in opposite directions as `S` falls. Seeding streams
-fewer k-mer hit lists — `match_seeds` roughly halves, and `S` with it. But `seed_heuristic_pass`
-then has to extend every bucket surviving its first check over the seeds seeding no longer covered,
-and `match_rest` rises 13-36% in exchange. Below about half of `S` the second cost overtakes the
-first.
+The two halves of the seed heuristic move in opposite directions as `S` falls.
+Seeding streams fewer k-mer hit lists — `match_seeds` roughly halves, and `S`
+with it. But `seed_heuristic_pass` then has to extend every bucket surviving its
+first check over the seeds seeding no longer covered, and `match_rest` rises
+13-36% in exchange. Below about half of `S` the second cost overtakes the first.
 
-**That is a result about the paper's `S`, not only about this change.** `S = (1-(t-d))·m+1` is
-already close to the optimum of that trade; what the ladder wins is running a first attempt at a
-threshold the read can actually clear, not seeding less in total. It is also why Jaccard gains
-least: its lower scores make `thr` ratchet slowly, so many more buckets survive the first check and
-each of them is what the extension is spent on.
+**That is a result about the paper's `S`, not only about this change.**
+`S = (1-(t-d))·m+1` is already close to the optimum of that trade; what the
+ladder wins is running a first attempt at a threshold the read can actually
+clear, not seeding less in total.
+
+### The extension is not pruning, and mostly should not run
+
+The table above was the ladder on its own. It also produced the counter that
+changed the design: `pruning_extends`, added here because §5b's "examined
+matches" explicitly could not see this work.
+
+**84-92% of every seed the per-bucket extension consumes is consumed by buckets
+that go on to survive it.** On B03 at `-@1`, the single pass spends 87.6 extends
+per read, 80.2 of them on buckets that are then scored anyway; with the ladder it
+is 235.9 and 198.7. A junk bucket never gets that far — it fails the very first
+`sh` test, before a single `matches_in_bucket` call, because one seeded k-mer
+already leaves it far past the miss budget. So the loop is not pruning cost. It
+is the cost of driving `sh` down to its final value on a handful of buckets whose
+fate was settled at the first test, and it is exactly what makes a smaller `S`
+expensive.
+
+That value is needed only twice: to *score* a bucket under `bucket_SH`/
+`bucket_LCS`, and to print `sh:f:` on a reported mapping. Under
+`Containment`/`Jaccard` refinement computes the exact score from the bucket's
+location and never reads the accumulator — so the walk can simply not happen, and
+`complete_sh` finishes it for the one or two buckets a read reports. Scoring a
+bucket the walk would have pruned is harmless: such a bucket has
+`score <= sh < thr`, so it cannot be admitted.
+
+**Skipping unconditionally is wrong, and the sweep says so.** Two rules were
+measured before the one that shipped (`query_mapping`, median of 3, ladder on):
+
+| rule | B03 Containment | B03 Jaccard | B05 Containment | B05 Jaccard |
+|---|---:|---:|---:|---:|
+| walk fully (before) | 1.000x | 1.000x | 1.000x | 1.000x |
+| step cap 4 | 1.235x | 1.108x | 0.944x | 0.970x |
+| step cap 0 (never walk) | **1.414x** | **1.155x** | 0.946x | 0.982x |
+| slack 8 misses | 1.086x | 1.087x | 0.880x | 1.063x |
+| slack 24 misses | 1.106x | 0.922x | 1.060x | 1.054x |
+
+A fixed step cap buys a lot on HiFi and loses on ONT. A slack rule — walk only
+while the bucket is within *n* misses of pruning, which is the natural
+cost-crossover — does not separate them at all: by 24 misses it has degenerated
+into the full walk everywhere, because HiFi's surviving buckets sit just above a
+`thr` that has already ratcheted up to the winner's own score.
+
+**What does separate them is whether a mapping has been found yet**, which is
+free to test:
+
+- **No incumbent.** `thr` is the user's `-t`, and the seed heuristic is the only
+  filter between a bucket and a full refinement. A low-identity read produces
+  candidates just above a low threshold in bulk, and a few steps of walking
+  retires each for a fraction of a refinement. This is the 57% of B05 that never
+  maps, and the walk is left alone for them.
+- **An incumbent exists.** `thr` is the best score so far — ~0.93 on HiFi.
+  Almost nothing clears the first `sh` test against a threshold that high except
+  real competitors at the read's own locus, and those never prune.
+
+Gating on that keeps essentially all of the HiFi win and returns most of the ONT
+loss: B03 Containment 1.161x and B05 Containment 0.966x on the affected stages,
+against 1.175x / 0.877x for skipping unconditionally. `SHMAP_NO_PRUNE_SKIP`
+restores the full walk.
 
 ### Reusing the previous rung's work, which is most of the implementation
 
@@ -766,8 +839,8 @@ and they take the plain single pass instead of a quiet approximation: `-P` (prun
 never completes; and `--rarity-weight`/`--rarity-tiebreak` (§8, both rejected there and off by
 default), which replace the plain containment the seed heuristic's guarantee is stated over.
 
-`SHMAP_NO_ADAPTIVE_THETA` disables it outright and `SHMAP_THETA_STEPS` sets the rung count, so one
-binary reproduces every row above.
+`SHMAP_NO_ADAPTIVE_THETA` disables the ladder, `SHMAP_THETA_STEPS` sets the rung count, and
+`SHMAP_NO_PRUNE_SKIP` restores the full pruning walk — so one binary reproduces every row above.
 
 ---
 

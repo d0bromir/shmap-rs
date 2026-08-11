@@ -10,9 +10,14 @@
 //! on different rungs, and unmappable reads exercise the path that runs the
 //! ladder to its end.
 //!
-//! Everything about a mapping is compared except the four tags that report how
-//! much work went into finding it, which the ladder is *meant* to change and
-//! which [`effort_tags_shrink`] checks separately in the direction it must move.
+//! Everything about a mapping is compared except the tags that report how much
+//! work went into finding it, which the ladder is *meant* to change and which
+//! [`effort_tags_shrink`] checks separately in the direction it must move.
+//!
+//! The ladder is not the only exactness claim here. `capping_the_pruning_walk_
+//! reports_the_same_thing_as_walking_it_fully` covers the other one — that on
+//! the refining metrics the sweep can skip the per-bucket pruning walk
+//! entirely — and it compares the PAF whole, effort tags included.
 
 use assert_cmd::Command;
 use std::collections::BTreeMap;
@@ -133,6 +138,16 @@ fn corpus() -> (tempfile::NamedTempFile, tempfile::NamedTempFile) {
 }
 
 fn run(reference: &tempfile::NamedTempFile, reads: &tempfile::NamedTempFile, extra: &[&str], adaptive: bool) -> String {
+    run_env(reference, reads, extra, adaptive, &[])
+}
+
+fn run_env(
+    reference: &tempfile::NamedTempFile,
+    reads: &tempfile::NamedTempFile,
+    extra: &[&str],
+    adaptive: bool,
+    env: &[(&str, &str)],
+) -> String {
     let mut cmd = Command::cargo_bin("shmap").unwrap();
     cmd.args(["-s", reference.path().to_str().unwrap()])
         .args(["-p", reads.path().to_str().unwrap()])
@@ -140,6 +155,9 @@ fn run(reference: &tempfile::NamedTempFile, reads: &tempfile::NamedTempFile, ext
         .args(extra);
     if !adaptive {
         cmd.env("SHMAP_NO_ADAPTIVE_THETA", "1");
+    }
+    for (k, v) in env {
+        cmd.env(k, v);
     }
     let assert = cmd.assert().success();
     String::from_utf8_lossy(&assert.get_output().stdout).into_owned()
@@ -156,7 +174,7 @@ fn the_ladder_reports_the_same_mappings_as_the_single_pass() {
             // `-P -m bucket_LCS` aborts a debug build before it can be
             // compared, on a `debug_assert!(content.matches >= lcs_cnt)` in
             // `find_best_mapping` — and it does so identically with and
-            // without the ladder (61 reads either way on this corpus), because
+            // without the ladder (61 times either way on this corpus), because
             // the assertion assumes a bucket whose accumulator is complete
             // while `-P` leaves it at whatever the seeded prefix reached.
             // Pre-existing and unrelated to the ladder, so it is reported
@@ -213,4 +231,55 @@ fn effort_tags_shrink() {
         let b = tag_total(&without, tag);
         assert!(a < b, "{tag} did not fall: {a} vs {b}");
     }
+}
+
+/// The ladder's other exactness claim, and the one that carries most of its
+/// speed: on `Containment`/`Jaccard` the sweep does not walk a bucket's
+/// pruning state at all (`PRUNE_EXTEND_CAP` is 0) — it tests `sh` once and
+/// sends every survivor straight to refinement, which computes the exact score
+/// regardless. Buckets the full walk would have pruned get scored instead, and
+/// scoring them cannot change the answer because `score <= sh < thr`.
+///
+/// The `sh:f:` tag is the part that could go wrong, since a truncated walk
+/// leaves it an upper bound rather than the value; `complete_sh` finishes the
+/// walk for the one or two buckets a read actually reports. Nothing here is
+/// excluded from the comparison — not even the effort tags, because the cap
+/// changes how much work is done *inside* a sweep, not which seeds it uses.
+#[test]
+fn capping_the_pruning_walk_reports_the_same_thing_as_walking_it_fully() {
+    let (reference, reads) = corpus();
+    let full = [("SHMAP_PRUNE_EXTEND_CAP", "1000000")];
+    for metric in ["Containment", "Jaccard"] {
+        for adaptive in [true, false] {
+            let capped = run_env(&reference, &reads, &["-m", metric], adaptive, &[]);
+            let walked = run_env(&reference, &reads, &["-m", metric], adaptive, &full);
+            for (query, w) in &mappings(&walked) {
+                assert_eq!(
+                    mappings(&capped).get(query),
+                    Some(w),
+                    "-m {metric} (ladder {adaptive}): {query} moved when the pruning walk was capped"
+                );
+            }
+            // `sh` is not in `EFFORT_TAGS`, so the loop above already compares
+            // it. Assert the whole line too, so a future effort tag that the
+            // cap *does* move cannot slip through unnoticed.
+            assert_eq!(
+                strip_time(&capped),
+                strip_time(&walked),
+                "-m {metric} (ladder {adaptive}): capping the walk changed the PAF"
+            );
+        }
+    }
+}
+
+fn strip_time(paf: &str) -> String {
+    paf.lines()
+        .map(|l| {
+            l.split('\t')
+                .filter(|f| !f.starts_with("t:f:"))
+                .collect::<Vec<_>>()
+                .join("\t")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

@@ -875,16 +875,22 @@ the ladder is anchored on it. On ONT at `k=25`, ~28% of k-mers survive the error
 `-t 0.4`, so those reads get a one-rung ladder and byte-identical work to today: B05 output is
 identical down to the diagnostic tags.
 
-**Two findings worth Pesho's attention**, both in RESULTS.md §5c:
+**Three findings worth Pesho's attention**, all in RESULTS.md §5c:
 
 1. **Lowering `S` is not free, and the crossover is at one rung.** The two halves of the seed
-   heuristic move in opposite directions: seeding streams fewer hit lists, but `seed_heuristic_pass`
-   then has to extend every surviving bucket over the seeds seeding no longer covered. Measured, the
-   second cost grows faster than the first shrinks — so the ladder ships with a *single* rung below
-   `-t`, not a long descent. That is a statement about the paper's `S`: it is already close to the
-   optimum of that trade, and the win comes from doing part of the work at a higher threshold, not
-   from seeding less overall.
-2. **The sweep's tie-break was order-dependent, and this is the first thing that could expose it.**
+   heuristic move in opposite directions: seeding streams fewer hit lists, but
+   `seed_heuristic_pass` then has to extend every surviving bucket over the seeds seeding no longer
+   covered. Measured, the second cost grows faster than the first shrinks — so the ladder ships with
+   a *single* rung below `-t`. That is a statement about the paper's `S`: it is already close to the
+   optimum of that trade.
+2. **The per-bucket pruning walk barely prunes.** Instrumenting it (a counter §5b said was missing)
+   showed **84-92% of every seed it consumes is consumed by buckets that survive it** — junk buckets
+   fail the first `sh` test before it ever runs. So the walk is not pruning cost; it is the cost of
+   finishing `sh` for a handful of buckets, and under Containment/Jaccard `sh` is only an output tag,
+   because refinement scores from the bucket's location. Skipping it — gated on already holding a
+   mapping, which is what separates HiFi from ONT — is the larger half of this PR's speedup, and it
+   is exact for the same reason the ladder is.
+3. **The sweep's tie-break was order-dependent, and this is the first change that could expose it.**
    Adjacent buckets overlap by design, so both can cover a read's locus with the same intersection
    and the same score; the first one swept wins. Sweep order is by match count, which moves with `S`
    — so a naive early stop changes the reported bucket on ~0.3% of HiFi reads (same score, same
@@ -892,9 +898,10 @@ identical down to the diagnostic tags.
    escalates rather than reporting a different coin flip, which is what makes byte-identity hold.
 
 **Outcome.** Pending — the benchmark has not been run against the PR yet. The probe on subsets
-(20-30k reads per dataset, median of three interleaved runs) puts `query_mapping` at **1.08-1.21x**
-on Containment, **0.98-1.09x** on Jaccard and **1.11-1.33x** on `bucket_SH`, with B05 unchanged
-(the ladder does provably identical work there, so its spread is the host's noise floor).
+(20-30k reads per dataset, median of three interleaved runs) puts the three stages either half can
+touch at **1.05-1.28x** on Containment, **1.05-1.18x** on Jaccard and **1.28-1.60x** on
+`bucket_SH`. B05 Containment is the one loss, at 0.90x of a component that is 29% of its
+`query_mapping`.
 
 ---
 

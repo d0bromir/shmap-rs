@@ -92,6 +92,39 @@ impl RefineCache {
     }
 }
 
+/// Whether the sweep may skip a bucket's pruning walk once it already holds a
+/// mapping — i.e. treat the seed heuristic as a one-shot filter and let
+/// refinement, which computes the exact score anyway, decide the rest.
+///
+/// **The condition is the whole design, and it is measured.** Skipping
+/// unconditionally is a large win on HiFi and a 5-12% loss on ONT, and the
+/// reason is what `thr` is at the time:
+///
+/// - **No incumbent yet** (`thr` is the user's `-t`, or the rung's). The seed
+///   heuristic is then the *only* filter standing between a bucket and a full
+///   refinement, and it earns its keep: a low-identity read produces candidates
+///   just above a low threshold in bulk, and a few steps of walking retires
+///   each one for a fraction of a refinement. This is every read on ONT that
+///   does not map — 57% of B05 — and for them the walk is left alone, so their
+///   work is byte-identical to before.
+/// - **An incumbent exists** (`thr` is the best score found so far, ~0.93 on
+///   HiFi). Almost nothing survives the first `sh` test against a threshold
+///   that high except real competitors at the read's own locus, and those never
+///   prune: `RESULTS.md` §5c measured 84-92% of all walking going to buckets
+///   that survived it. Walking them only drives `sh` down to a value the
+///   reported mapping needs and the others discard, so the walk is skipped and
+///   [`SHMapper::complete_sh`] finishes the one or two that are reported.
+///
+/// A fixed step cap and a threshold-slack rule were both measured first and
+/// both failed to separate these two cases — §5c records the sweeps. The
+/// incumbent does, because it *is* the difference.
+///
+/// `SHMAP_NO_PRUNE_SKIP` disables it, restoring the full walk everywhere.
+fn prune_skip_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("SHMAP_NO_PRUNE_SKIP").is_none())
+}
+
 /// What one [`SHMapper::match_rest`] sweep found.
 pub struct Sweep {
     /// The best mapping clearing the sweep's threshold, if any.
@@ -404,11 +437,38 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         // their result out of `content`, which the pruning pass mutates
         // between the two sweeps, so they must not be memoized.
         let memoizable = matches!(metric, Metric::Containment | Metric::Jaccard);
+        // ...and for the same reason, only those two may stop the pruning walk
+        // before `sh` is final. See `seed_heuristic_pass`.
+        // Only the metrics whose score ignores the bucket accumulator may skip.
+        let may_skip = memoizable && prune_skip_enabled();
 
         for (b, content) in sorted_buckets.iter_mut() {
             let b: BucketLoc = *b;
             let mut sh = 1.0;
-            if self.seed_heuristic_pass(buckets, p_unique, m, &b, content, &mut sh, thr) {
+            // Seeds this bucket is about to be extended over, read off `i`
+            // rather than counted inside the loop: `seed_heuristic_pass`
+            // advances `i` exactly once per `matches_in_bucket` call, and that
+            // loop is the mapper's innermost — it does not get a new argument.
+            //
+            // This is the work §5b of RESULTS.md says its "examined matches"
+            // column cannot see. `total_matches` counts what *seeding*
+            // enumerated and stops there, so the per-bucket pass that seeding
+            // left for later was invisible; it is the other half of the seed
+            // heuristic's cost, and the half that grows when `S` shrinks.
+            let extends_from = content.i;
+            let survived = self.seed_heuristic_pass(
+                buckets,
+                p_unique,
+                m,
+                &b,
+                content,
+                &mut sh,
+                thr,
+                may_skip && best.is_some(),
+            );
+            self.counters
+                .inc("pruning_extends", (content.i - extends_from).max(0) as i64);
+            if survived {
                 self.timers.start("refine");
 
                 // With a tie-break band a bucket scoring slightly BELOW the
