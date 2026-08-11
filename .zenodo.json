@@ -1,0 +1,40 @@
+{
+  "title": "shmap-rs 1.4.0: a Rust port of shmap, with a reproducible cross-architecture benchmark suite",
+  "description": "<p>A Rust port of <a href=\"https://github.com/pesho-ivanov/shmap\">shmap</a>, a sketch-based long-read mapper that locates a read by k-mer set overlap rather than by alignment. Mapping decisions match the C++ original; the port is faster single-threaded, uses substantially less memory, and adds threading.</p><p>This release also archives the evidence. Every published figure is generated from a committed result set and verified against it, on two architectures:</p><ul><li><strong>x86_64</strong> (Intel Xeon Gold 5218, 4 NUMA nodes) and <strong>aarch64</strong> (ARM Neoverse-N1, 1 NUMA node), measured at the same commit with the same compiler and byte-identical inputs.</li><li>Every algorithmic counter &mdash; reads mapped, mapq-60 calls, buckets seeded, refined and reported &mdash; is <strong>identical across the two architectures</strong>, and all fifteen Winnowmap2 concordance figures reproduce to four decimal places.</li><li>Thread scaling on one NUMA node reaches 11.7x at 64 threads against 6.0x at 16 on four, which is the cross-socket memory-traffic ceiling shown against hardware rather than argued.</li><li>Run-to-run noise is measured rather than assumed, and the regression gate is calibrated to it per host.</li></ul><p>New in 1.4.0: <code>--per-read-stats</code> emits one row per read so per-read cost can be plotted against the match count the seed heuristic exists to bound. Mapping output is unchanged.</p>",
+  "upload_type": "software",
+  "license": "MPL-2.0",
+  "access_right": "open",
+  "creators": [
+    {
+      "name": "Panchev, Dobromir",
+      "orcid": "0009-0000-2636-2593"
+    },
+    {
+      "name": "Ivanov, Pesho",
+      "orcid": "0000-0002-8119-3849"
+    }
+  ],
+  "keywords": [
+    "bioinformatics",
+    "sequence alignment",
+    "long-read mapping",
+    "minimizers",
+    "sketching",
+    "reproducible benchmarking",
+    "rust"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/pesho-ivanov/shmap",
+      "relation": "isDerivedFrom",
+      "resource_type": "software",
+      "scheme": "url"
+    }
+  ],
+  "contributors": [
+    {
+      "name": "Petrov, Dobromir",
+      "type": "ProjectMember"
+    }
+  ]
+}

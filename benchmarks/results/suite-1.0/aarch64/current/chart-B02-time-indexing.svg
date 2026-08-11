@@ -1,26 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">
 <rect width="760" height="420" fill="#ffffff"/>
 <text x="20" y="30" font-size="17" font-weight="bold">B02 — indexing phase only (Containment, -@1)</text>
-<text x="20" y="50" font-size="12" fill="#555555">12.44 CPU-seconds total · wall_indexing was 6.46s (lower: the reader and sketch workers overlap)</text>
-<path d="M 200.00,210.00 L 200.00,70.00 A 140.00,140.00 0 0,1 336.32,178.11 Z" fill="#bcd9ef" stroke="#ffffff" stroke-width="2"/>
-<path d="M 200.00,210.00 L 336.32,178.11 A 140.00,140.00 0 0,1 73.03,268.98 Z" fill="#8ec0e0" stroke="#ffffff" stroke-width="2"/>
-<path d="M 200.00,210.00 L 73.03,268.98 A 140.00,140.00 0 0,1 193.50,70.15 Z" fill="#5aa2cd" stroke="#ffffff" stroke-width="2"/>
-<path d="M 200.00,210.00 L 193.50,70.15 A 140.00,140.00 0 0,1 200.00,70.00 Z" fill="#c2c2c2" stroke="#ffffff" stroke-width="2"/>
+<text x="20" y="50" font-size="12" fill="#555555">12.61 CPU-seconds total · wall_indexing was 6.54s (lower: the reader and sketch workers overlap)</text>
+<path d="M 200.00,210.00 L 200.00,70.00 A 140.00,140.00 0 0,1 337.21,182.18 Z" fill="#bcd9ef" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 337.21,182.18 A 140.00,140.00 0 0,1 72.63,268.11 Z" fill="#8ec0e0" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 72.63,268.11 A 140.00,140.00 0 0,1 193.65,70.14 Z" fill="#5aa2cd" stroke="#ffffff" stroke-width="2"/>
+<path d="M 200.00,210.00 L 193.65,70.14 A 140.00,140.00 0 0,1 200.00,70.00 Z" fill="#c2c2c2" stroke="#ffffff" stroke-width="2"/>
 <rect x="400" y="81" width="14" height="14" fill="#bcd9ef" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="92" font-size="13">index: reading</text>
-<text x="740" y="92" font-size="13" text-anchor="end" fill="#333333">2.65 s · 21.3%</text>
+<text x="740" y="92" font-size="13" text-anchor="end" fill="#333333">2.75 s · 21.8%</text>
 <rect x="400" y="104" width="14" height="14" fill="#8ec0e0" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="115" font-size="13">index: sketching</text>
-<text x="740" y="115" font-size="13" text-anchor="end" fill="#333333">5.81 s · 46.7%</text>
+<text x="740" y="115" font-size="13" text-anchor="end" fill="#333333">5.84 s · 46.4%</text>
 <rect x="400" y="127" width="14" height="14" fill="#5aa2cd" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="138" font-size="13">index: collecting</text>
-<text x="740" y="138" font-size="13" text-anchor="end" fill="#333333">3.88 s · 31.2%</text>
+<text x="740" y="138" font-size="13" text-anchor="end" fill="#333333">3.92 s · 31.1%</text>
 <rect x="400" y="150" width="14" height="14" fill="#c2c2c2" stroke="#dddddd" stroke-width="1"/>
 <text x="422" y="161" font-size="13">other: index: finalizing</text>
 <text x="740" y="161" font-size="13" text-anchor="end" fill="#333333">0.09 s · 0.7%</text>
 <line x1="400" y1="178" x2="740" y2="178" stroke="#dddddd"/>
 <text x="400" y="196" font-size="13" font-weight="bold">total</text>
-<text x="740" y="196" font-size="13" text-anchor="end" font-weight="bold">12.44 s</text>
+<text x="740" y="196" font-size="13" text-anchor="end" font-weight="bold">12.61 s</text>
 <text x="20" y="372" font-size="10.5" fill="#666666">source: current/profiles.tsv row B02/Containment/-@1</text>
 <text x="20" y="387" font-size="10.5" fill="#666666">CPU-seconds summed across threads, not wall-clock — cpu_* and wall_* are different units and are never mixed.</text>
 </svg>
