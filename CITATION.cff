@@ -1,0 +1,53 @@
+cff-version: 1.2.0
+title: >-
+  shmap-rs: a Rust port of shmap, with a reproducible
+  cross-architecture benchmark suite
+message: >-
+  If you use this software or its benchmark result sets,
+  please cite it using the metadata below. The algorithm is
+  Ivanov et al.'s; please cite the original shmap as well.
+type: software
+authors:
+  - family-names: Panchev
+    given-names: Dobromir
+    email: dobromir.panchev@gmail.com
+    orcid: 'https://orcid.org/0009-0000-2636-2593'
+  - family-names: Ivanov
+    given-names: Pesho
+    orcid: 'https://orcid.org/0000-0002-8119-3849'
+repository-code: https://github.com/d0bromir/shmap-rs
+license: MPL-2.0
+version: 1.4.0
+abstract: >-
+  A Rust port of shmap, a sketch-based long-read mapper that
+  locates a read by k-mer set overlap rather than by
+  alignment. Mapping decisions match the C++ original; the
+  port is faster single-threaded, uses substantially less
+  memory, and adds threading.
+
+  The repository also carries the evidence: a versioned
+  benchmark suite whose every published figure is generated
+  from a committed result set and checked against it, run on
+  both x86_64 and aarch64, with concordance scored against
+  Winnowmap2 and every counter reproduced exactly across the
+  two architectures.
+keywords:
+  - bioinformatics
+  - sequence alignment
+  - long-read mapping
+  - minimizers
+  - sketching
+  - reproducible benchmarking
+  - rust
+references:
+  - type: software
+    title: shmap
+    repository-code: https://github.com/pesho-ivanov/shmap
+    license: MPL-2.0
+    notes: >-
+      The original C++ implementation this project ports and
+      is benchmarked against.
+    authors:
+      - family-names: Ivanov
+        given-names: Pesho
+        orcid: 'https://orcid.org/0000-0002-8119-3849'

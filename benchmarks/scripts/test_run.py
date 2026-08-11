@@ -186,6 +186,61 @@ def check_carry_forward() -> list[str]:
     return fail
 
 
+def check_manifest() -> list[str]:
+    """The manifest builds, and carries what its readers need.
+
+    Guards the failure mode that cost two release runs: a manifest that can
+    only be constructed by finishing a benchmark, so a mistake in it surfaces
+    hours after the measurements are done and cannot be fixed without redoing
+    them.
+    """
+    import time
+    from run import build_manifest, load_registry, load_suite, plan
+    fail = []
+    suite, reg = load_suite(), load_registry()
+    jobs = plan(suite, reg, ["shmap-rs"], 3)
+
+    m = build_manifest(suite=suite, reg=reg, jobs=jobs, rows=[{} for _ in jobs],
+                       failed=0, commit="a" * 40, authorized_by="test",
+                       t0=time.time(), binaries={}, per_read_files=[])
+
+    # Every field something downstream reads. compare.py guards on host, arch,
+    # suite_version and dataset_version; promote.py routes on arch and refuses
+    # on failures; report.py prints commit, finished and binaries.
+    need = {"schema", "suite_version", "dataset_version", "commit", "host", "arch",
+            "rustc", "started", "finished", "duration_s", "invocations", "failures",
+            "datasets", "binaries", "per_read_stats", "repeats", "drift_probe"}
+    missing = sorted(need - set(m))
+    if missing:
+        fail.append(f"manifest is missing {missing}")
+    print(f"  [{'ok  ' if not missing else 'FAIL'}] carries every field its readers use"
+          f"{'':11} {len(need)} keys")
+
+    if m["repeats"]["subject"] != 3:
+        fail.append(f"manifest recorded subject repeats {m['repeats']['subject']}, expected 3")
+    print(f"  [{'ok  ' if m['repeats']['subject'] == 3 else 'FAIL'}] records the repeat count "
+          f"the run actually planned  {m['repeats']['subject']}")
+
+    want_ref = suite["run"]["reference_impl"]["repeats"]
+    if m["repeats"]["reference"] != want_ref:
+        fail.append(f"reference repeats {m['repeats']['reference']}, expected {want_ref}")
+    print(f"  [{'ok  ' if m['repeats']['reference'] == want_ref else 'FAIL'}] and the "
+          f"reference's separately{'':16} {m['repeats']['reference']}")
+
+    from run import drift_probe_benchmarks
+    want_probe = sorted(drift_probe_benchmarks(suite))
+    if m["drift_probe"] != want_probe:
+        fail.append(f"drift_probe {m['drift_probe']}, expected {want_probe}")
+    print(f"  [{'ok  ' if m['drift_probe'] == want_probe else 'FAIL'}] names the benchmarks "
+          f"the probe covered{'':7} {m['drift_probe']}")
+
+    if m["invocations"] != len(jobs):
+        fail.append(f"invocations {m['invocations']}, expected {len(jobs)}")
+    print(f"  [{'ok  ' if m['invocations'] == len(jobs) else 'FAIL'}] counts the rows it was "
+          f"given{'':19} {m['invocations']}")
+    return fail
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
@@ -232,13 +287,16 @@ def main() -> int:
         print("\nreference carry-forward:")
         FAIL.extend(check_carry_forward())
 
+        print("\nmanifest:")
+        FAIL.extend(check_manifest())
+
         print()
         if FAIL:
             for f in FAIL:
                 print(f"  {f}")
             print(f"{len(FAIL)} failure(s)")
             return 1
-        print("OK — one record, per-host repeats, a live drift probe, per-key carry-forward")
+        print("OK — one record, per-host repeats, a live drift probe, carry-forward, manifest")
         return 0
 
 

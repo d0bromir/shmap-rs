@@ -6,10 +6,10 @@ the code does not perform.
 
 | | |
 |---|---|
-| `x86_64` | x86_64/current on a2 @ 00d8c08aa656 (2026-08-10) |
-| `aarch64` | aarch64/current on galaxy @ 00d8c08aa656 (2026-08-10) |
+| `x86_64` | x86_64/current on a2 @ cc90fa548767 (2026-08-10) |
+| `aarch64` | aarch64/current on galaxy @ cc90fa548767 (2026-08-10) |
 | reference | `x86_64` — every delta in the document is against it |
-| input digest | `sha256:bdc1b11159c93742` |
+| input digest | `sha256:8b6b4f5e10ff4d20` |
 
 Regenerate with `python3 benchmarks/scripts/crossarch.py`; verify with `--check`, which
 fails if any artifact would change. Each artifact is emitted twice: a `.tex` fragment to

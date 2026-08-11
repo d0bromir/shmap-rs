@@ -245,6 +245,44 @@ def verify_datasets(suite: dict, reg: dict) -> None:
 SUBJECT_NOTE = "subject"
 
 
+def build_manifest(*, suite: dict, reg: dict, jobs: list[dict], rows: list[dict],
+                   failed: int, commit: str, authorized_by: str, t0: float,
+                   binaries: dict, per_read_files) -> dict:
+    """Everything a result set needs to describe itself.
+
+    A function rather than a literal inside `execute` so it can be called
+    without running a benchmark. The version that lived inline referred to a
+    name from another scope and nothing noticed until two multi-hour runs had
+    finished measuring and had nowhere to write their manifest.
+
+    The repeat counts are read off the planned jobs, so this records what the
+    run actually did rather than what it was asked to do.
+    """
+    subject_impls = {n for n, sp in suite["impl"].items() if sp.get("role") == "subject"}
+    ref_impls = {n for n, sp in suite["impl"].items() if sp.get("role") == "reference"}
+
+    def reps(which: set[str]) -> int:
+        return max((j.get("repeats", 1) for j in jobs if j["impl"] in which), default=1)
+
+    return dict(
+        schema=1, suite_version=suite["suite_version"], dataset_version=suite["dataset_version"],
+        commit=commit, host=platform.node(), arch=arch(), rustc=rustc_version(),
+        configured_host=suite["run"]["host"], authorized_by=authorized_by,
+        started=datetime.fromtimestamp(t0, timezone.utc).isoformat(),
+        finished=datetime.now(timezone.utc).isoformat(), duration_s=round(time.time() - t0, 1),
+        invocations=len(rows), failures=failed,
+        # How each row was estimated. A set measured with repeats>1 carries
+        # medians, and a reader comparing it with a single-sample set should
+        # know that without having to infer it from the repeat column.
+        repeats=dict(subject=reps(subject_impls), reference=reps(ref_impls), reduce="median"),
+        drift_probe=sorted({j["benchmark"] for j in jobs if j.get("drift_probe")}),
+        datasets={d: reg[d] for d in sorted({j[k] for j in jobs
+                                             for k in ("reference_id", "reads_id")})},
+        binaries={k: sh([v, "--version"]).stdout.strip() or v for k, v in binaries.items()},
+        per_read_stats=sorted(per_read_files),
+    )
+
+
 def host_config(name: str | None = None) -> dict:
     """This machine's entry in hosts.toml, or {} if it has none.
 
@@ -937,24 +975,10 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
         for c in checks:
             fo.write(f"{c['check']}\t{c['benchmark']}\t{c['metric']}\t{c['passed']}\t{c['detail']}\n")
 
-    manifest = dict(
-        schema=1, suite_version=suite["suite_version"], dataset_version=suite["dataset_version"],
-        commit=commit, host=platform.node(), arch=arch(), rustc=rustc_version(),
-        configured_host=suite["run"]["host"], authorized_by=authorized_by,
-        started=datetime.fromtimestamp(t0, timezone.utc).isoformat(),
-        finished=datetime.now(timezone.utc).isoformat(), duration_s=round(time.time() - t0, 1),
-        invocations=len(rows), failures=failed,
-        # How each row was estimated. A set measured with repeats>1 carries
-        # medians, and a reader comparing it with a single-sample set should
-        # know that without having to infer it from the repeat column.
-        repeats=dict(subject=repeats_subject,
-                     reference=suite["run"]["reference_impl"]["repeats"],
-                     reduce="median"),
-        drift_probe=sorted({j["benchmark"] for j in jobs if j.get("drift_probe")}),
-        datasets={d: reg[d] for d in sorted({j[k] for j in jobs for k in ("reference_id", "reads_id")})},
-        binaries={k: sh([v, "--version"]).stdout.strip() or v for k, v in binaries.items()},
-        per_read_stats=sorted(per_read_files),
-    )
+    manifest = build_manifest(
+        suite=suite, reg=reg, jobs=jobs, rows=rows, failed=failed, commit=commit,
+        authorized_by=authorized_by, t0=t0, binaries=binaries,
+        per_read_files=per_read_files)
     (outdir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     # The paper's tables and figures, built from the set that was just measured
