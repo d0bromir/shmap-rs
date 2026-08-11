@@ -710,21 +710,29 @@ stages the change can actually move.
 | B05 | Jaccard | 0.827 → 0.858 s | 0.964x | 2.397 → 2.450 s | 0.978x |
 | B05 | bucket_SH | 0.463 → 0.444 s | 1.044x | 2.080 → 2.037 s | 1.021x |
 
-**B05 Containment is the one cell that loses**, by ~10% of a component that is
-29% of its `query_mapping`, which is itself a minority of its wall time — call it
-~1% of the benchmark. It is the price of the second half of the change (below);
-the ladder alone leaves B05 doing byte-identical work. Everything else gains, and
+**B05 Containment is the one cell that loses.** §5d settles what this section could
+not: it is a real regression and not drift, 0.939x on a paired test with a 95%
+interval of [0.916, 0.962], predicted at 0.911x by a model that was fitted
+without being told about it. It costs ~6% of a component that is 29% of that
+benchmark's `query_mapping`, so ~0.5% of its wall. It is the price of the second
+half of the change (below); the ladder alone leaves B05 doing byte-identical
+work. Everything else gains, and
 the gains are largest exactly where the suite spends its time: B03 is the shape
 of B04, which is 52 of the suite's 78 minutes.
 
-Read the B05 rows with §5c's noise floor in mind. Its `S` ratio is exactly 1.000
-and its PAF is identical down to the effort tags under the ladder alone — ONT at
-`k = 25` leaves ~28% of a read's k-mers intact and the ladder is anchored on that
-bound, so no ONT read ever clears a rung above `-t 0.4`. Three cells of provably
-identical work spanning **0.919x to 1.080x** on `query_mapping` in an earlier
-sweep is this host's noise floor on a single 20k-read benchmark at
-median-of-three, and it is why the suite judges on geometric means across thread
-counts rather than on single rows — and why the `affected` column exists here.
+Read every ratio in this section against a noise floor, and take the floor from
+§5d rather than from here: **4.89%**, the residual of a model that removes drift
+instead of averaging over it. The looser figure this section used to quote —
+three cells of provably identical work spanning 0.919x to 1.080x on
+`query_mapping` — was drift and noise together, which is why the `affected`
+column exists and why the suite judges on geometric means across thread counts
+rather than on single rows.
+
+Under the ladder alone B05's `S` ratio is exactly 1.000 and its PAF is identical
+down to the effort tags: ONT at `k = 25` leaves ~28% of a read's k-mers intact
+and the ladder is anchored on that bound, so no ONT read ever clears a rung above
+`-t 0.4`. §5d confirms it with a test — predicted 0.996x, measured
+non-significant on all three metrics.
 
 ### The rung count is one, and the reason is a real trade
 
@@ -809,6 +817,12 @@ loss: B03 Containment 1.161x and B05 Containment 0.966x on the affected stages,
 against 1.175x / 0.877x for skipping unconditionally. `SHMAP_NO_PRUNE_SKIP`
 restores the full walk.
 
+§5d puts a price on the trade that this section could only describe: one
+refinement costs 59 pruning extends at `m = 128` and 106-109 at `m ≈ 235`, so
+skipping pays exactly where it buys more extends than that. On B03 Containment it
+buys 105 per refinement spent, against a price of 59. On B05 Containment it buys
+6.7, against 109. Both signs fall out of the counters, before any timing.
+
 ### Reusing the previous rung's work, which is most of the implementation
 
 Nothing is recomputed when a read falls back to `-t`:
@@ -841,6 +855,150 @@ default), which replace the plain containment the seed heuristic's guarantee is 
 
 `SHMAP_NO_ADAPTIVE_THETA` disables the ladder, `SHMAP_THETA_STEPS` sets the rung count, and
 `SHMAP_NO_PRUNE_SKIP` restores the full pruning walk — so one binary reproduces every row above.
+
+---
+
+## 5d A cost model of a read, and what it says about §5c
+
+§5c is full of ratios taken from medians, and §5c itself admits the problem: this host drifts
+enough that a 5% difference and a real effect look alike, and one conclusion there — a "regression"
+on B05 — had to be withdrawn once it turned out to be drift in stages the change never enters.
+Ratios of medians cannot tell those apart. A model can.
+
+[`profiling/costmodel.py`](profiling/costmodel.py) fits one, to a designed experiment of **216
+runs**: 4 benchmarks × 3 metrics × 6 configurations (rungs × walk) × 3 repeats, every configuration
+visited inside each repeat so that drift is shared, and the global run order recorded so it can be
+estimated rather than averaged away.
+
+### The model
+
+Per read, the three stages either half of the change can touch are a sum of counted operations:
+
+```
+T  =  c_h·H  +  c_b·B  +  c_e·E  +  c_s·(F·m)
+```
+
+| | counter | what it counts |
+|---|---|---|
+| `H` | `total_matches` | hits streamed by `match_seeds`, one visit each |
+| `B` | `seeded_buckets` | a bucket merged out of the accumulator, sorted, given its first `sh` test |
+| `E` | `pruning_extends` | `matches_in_bucket` calls: a binary search plus a walk |
+| `F·m` | `refined_buckets` × `kmers_sketched` | a refinement scans the bucket's span, `2·halflen = 2m` positions |
+
+Every regressor is a counter the binary already reports, so the model is fitted to the very runs it
+judges. Four terms and not six: an intercept and a separate O(1)-refinement term for `bucket_SH`
+were both fitted and both dropped — neither was distinguishable from zero and neither improved the
+fit (R² 0.99338 against 0.99364), because both are collinear with the per-bucket term. Dropping the
+per-bucket term instead costs real accuracy (0.9868), and dropping the extend term costs more
+(0.9615). Drift enters as one multiplicative factor per (benchmark, repeat) block, estimated jointly
+with the costs by alternating least squares.
+
+### What it fits
+
+| | pooled estimate (95% CI) |
+|---|---:|
+| `c_h` per streamed hit | **14.2 ± 1.5 ns** |
+| `c_b` per seeded bucket | **217 ± 17 ns** |
+| `c_e` per pruning extend | **102.5 ± 4.6 ns** |
+| `c_s` per refinement per read k-mer | **47.0 ± 1.0 ns** |
+| R² | 0.9942 |
+| residual sd | **4.89%** of the mean per-read time |
+
+**That 4.89% is the honest noise floor**, and it is the first number in this file that deserves the
+name: §5c's "0.919x to 1.080x on provably identical work" was drift plus noise together, and this is
+what is left once drift is modelled. Every claim below is tested against it.
+
+The constants are machine properties, so they should not move between workloads, and they mostly do
+not: fitted per benchmark, `c_e` comes out 90 / 103 / 108 ns and `c_s` 48.5 / 45.9 / 44.3 ns on
+B01 / B02 / B03. (B05 cannot estimate `c_h` or `c_b` at all — the ladder is inert there, so those
+two counters are identical in all six of its configurations. Its row is a fit, not a measurement of
+those costs.)
+
+### The exchange rates, which are what the design turns on
+
+Dividing through:
+
+| | in streamed hits | in extends |
+|---|---:|---:|
+| one pruning extend | 7.2 | — |
+| one seeded bucket | 15.3 | — |
+| one refinement, `m` = 128 (B03) | 422 | **58.6** |
+| one refinement, `m` ≈ 235 (B01, B02, B05) | 763-788 | **106-109** |
+
+Which is the whole argument in one line: **skipping a bucket's pruning walk pays only where it
+removes more extends than a refinement costs.** Checking the two ends against the counters —
+
+- **B03 Containment**: the skip removes 115 extends per read and adds 1.1 refinements, i.e. **105
+  extends bought per refinement spent**, against a price of 58.6. It pays, and by a wide margin.
+- **B05 Containment**: it removes 2 extends and adds 0.3 refinements — **6.7 per refinement**,
+  against a price of 108.7. It loses, and by a wide margin.
+
+The model reaches that conclusion from the counters alone, before looking at a single timing.
+
+### The checks
+
+**Held out.** Refit without the shipped configuration entirely, then predict it. Across all twelve
+(benchmark, metric) pairs the prediction lands within **-9.5% to +3.5%**, every one of them inside
+1.8 residual standard deviations. The model generalises to a configuration it never saw.
+
+**Paired tests**, since the two members of each pair run back to back and share their drift:
+
+| | | the ladder (1 rung vs single pass) | | the walk skipped vs walked | |
+|---|---|---|---|---|---|
+| benchmark | metric | measured (95% CI) | model | measured (95% CI) | model |
+| B01 | Containment | **1.190x** [1.057, 1.323] | 1.137x | 1.063x [0.942, 1.184] | 1.009x |
+| B01 | Jaccard | 0.977x [0.954, 1.000] | 1.007x | 1.037x [0.953, 1.122] | 1.046x |
+| B01 | bucket_SH | **1.212x** [1.063, 1.362] | 1.263x | 1.017x [0.917, 1.117] | 1.000x |
+| B02 | Containment | 1.188x [0.861, 1.514] | 1.286x | 0.978x [0.743, 1.214] | 1.039x |
+| B02 | Jaccard | 1.043x [0.978, 1.107] | 1.057x | **1.122x** [1.070, 1.175] | 1.107x |
+| B02 | bucket_SH | **1.266x** [1.070, 1.461] | 1.383x | 1.021x [0.833, 1.209] | 1.000x |
+| B03 | Containment | **1.293x** [1.204, 1.381] | 1.320x | 1.149x [0.849, 1.449] | 1.054x |
+| B03 | Jaccard | **1.115x** [1.091, 1.139] | 1.133x | **1.121x** [1.085, 1.157] | 1.076x |
+| B03 | bucket_SH | **1.662x** [1.410, 1.913] | 1.629x | 1.025x [0.842, 1.208] | 1.000x |
+| B05 | Containment | 1.035x [0.999, 1.070] | 0.996x | **0.939x** [0.916, 0.962] | 0.911x |
+| B05 | Jaccard | 1.008x [0.861, 1.154] | 0.997x | 1.018x [0.919, 1.116] | 0.994x |
+| B05 | bucket_SH | 0.952x [0.657, 1.247] | 0.995x | 0.957x [0.911, 1.003] | 1.000x |
+
+Bold is a 95% interval excluding 1.0. Four things worth reading off it:
+
+1. **A negative control the experiment contains by construction.** The walk skip is inert under
+   `bucket_SH` — that metric scores from the accumulator, so it is excluded — and the model says so
+   exactly, predicting 1.000x. All three measurements are non-significant. Four pairs of provably
+   identical work, and the test correctly finds nothing.
+2. **The model predicts the ladder's effect on B05: none.** 0.996 / 0.997 / 0.995x, and all three
+   measurements are non-significant. That is §5c's claim, now with a test behind it rather than an
+   argument.
+3. **B05 Containment's loss to the walk skip is real.** 0.939x with a 95% interval of
+   [0.916, 0.962] that excludes 1.0, and the model predicted 0.911x from the counters. This is the
+   one place §5c's cheerful reading was wrong in the other direction: it *is* a regression, not
+   drift — of ~6% on stages that are 29% of that benchmark's `query_mapping`, so ~0.5% of its wall.
+   It is the price of the exchange rate above, and it is quantified rather than argued.
+4. **Measured and predicted agree throughout**, mostly within a few percent, on effects spanning
+   0.94x to 1.66x. That is the model earning the right to be used for the next question.
+
+**And the rung count.** Feeding each rung count's own counters through the fitted model:
+
+| benchmark | steps=0 | steps=1 | steps=2 | model's choice |
+|---|---:|---:|---:|---|
+| B01 Containment | 138.8 | **122.6** | 128.2 | 1 |
+| B02 Containment | 116.5 | **90.7** | 101.3 | 1 |
+| B03 Containment | 116.8 | **87.1** | 92.3 | 1 |
+| B03 bucket_SH | 84.4 | **52.0** | 54.2 | 1 |
+| B05 Containment | **32.0** | 32.6 | 32.6 | 0 |
+
+(predicted µs/read; the full twelve rows are in the script's output.) One rung for all nine
+HiFi/simulated pairs, and zero for all three B05 ones — where the ladder is inert and the extra rung
+is the ~1.5% the 6% of B05 reads that climb it pay for nothing. `DEFAULT_STEPS = 1` was picked from
+a median sweep in §5c; the model reaches the same answer from a different direction.
+
+### What it does not settle
+
+The model says which *rule* the design should follow — skip when a bucket's walk buys more extends
+than a refinement costs — but not how a bucket should know that about itself in advance. `c_s·m/c_e`
+is computable at runtime; "extends this walk would take" is not. A policy that measured the realised
+exchange rate over recent reads and switched on that is the obvious next step, and it is safe to
+make adaptive precisely because the *output* does not depend on the choice at all (§5c). That is
+recorded in §11 rather than built here.
 
 ---
 
@@ -1821,6 +1979,25 @@ r = 0.05, t = 0.5, o = 0.7, d = 0.15` — the same k and four different values, 
 5x denser. Since §8's headline finding is precisely that accuracy is bounded by the sampling rate,
 which set is authoritative changes what these tables are a measurement *of*. Worth settling with
 the author before any of the above is run.
+
+### An online policy for the pruning walk — the model says what it should decide, not how
+
+§5d turns the walk-skip decision into an exchange rate: skipping a bucket's pruning walk pays
+exactly when it removes more extends than a refinement costs, and a refinement costs `c_s·m/c_e`
+extends — 59 at `m = 128`, 106-109 at `m ≈ 235`, from constants measured to ±5%. What the model
+cannot supply is the other side: how many extends *this* bucket's walk would have taken, which is
+only known after taking it.
+
+The shipped rule approximates it with a free proxy — whether a mapping has been found yet, which
+separates HiFi from ONT well but not perfectly, and leaves B05 Containment paying 0.939x. The
+proxy that would not need approximating is the realised rate itself: a worker can count the
+extends it avoids and the refinements it adds, and switch the rule when their ratio crosses
+`c_s·m/c_e`. `c_s/c_e` is a machine constant, so it can be calibrated once; `m` is known per read.
+
+The unusual thing about this one is that it is **safe to make adaptive**, in a way most mapper
+heuristics are not: §5c proves the reported mapping does not depend on the choice at all, so a
+policy that varies with a worker's history changes the time a run takes and nothing else — not the
+output, and so not its determinism across thread counts, which is checked byte-for-byte.
 
 ### Selective sketch density in repeats — answered, and worth building in
 

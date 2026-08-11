@@ -1,6 +1,6 @@
 # profiling/
 
-Three live tools, plus the measurements and provenance that **cannot be regenerated**.
+Five live tools, plus the measurements and provenance that **cannot be regenerated**.
 
 Current benchmark numbers are not here — they are in [`../RESULTS.md`](../RESULTS.md), generated
 from [`../benchmarks/`](../benchmarks/). This directory used to hold ~400 files of shmap-rs
@@ -18,6 +18,7 @@ What survived is what a re-run cannot give back.
 | `validate_paf.py` | every benchmark run (`suite.toml` → `checks.validate_paf`), and blocking per [`../VERSIONING.md`](../VERSIONING.md) |
 | `adjudicate_disagreements.py` | scores shmap-rs against another mapper *where ground truth exists*, so a disagreement can be attributed instead of guessed at |
 | `selective_density.py` | drives the selective-density two-pass of [`../RESULTS.md`](../RESULTS.md) §8 using the stock binary — regions from the first pass's mapq, a dense second pass over those regions only |
+| `costmodel_run.sh` + `costmodel.py` | the designed experiment and the per-operation cost model of [`../RESULTS.md`](../RESULTS.md) §5d — what a read's time is actually spent on, and the only tool here that can tell a real effect from this host's drift |
 
 ```sh
 python3 profiling/validate_paf.py out.paf              # structural + score invariants
@@ -29,6 +30,10 @@ python3 profiling/selective_density.py regions pass1.paf dense.bed
 python3 profiling/selective_density.py mini-ref ref.fa dense.bed mini.fa
 python3 profiling/selective_density.py select pass1.paf reads.fa ambiguous.fa
 python3 profiling/selective_density.py merge pass1.paf pass2.paf merged.paf
+
+# cost model: ~50 min of measurement, then the fit and every test it supports
+READS=/tmp/q12 OUT=/tmp/q12m flock ~/.shmap-bench.lock profiling/costmodel_run.sh
+python3 profiling/costmodel.py /tmp/q12m
 ```
 
 ## other-mappers/ — kept because re-running is prohibitive
