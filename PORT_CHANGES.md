@@ -31,6 +31,7 @@ specify, not a change to the algorithm.
 | 7 | Sketching/index hot loop: precomputed rotation tables, bounds-check-free iteration, `Entry` API, binomial-sized sketch buffers | Reference and read sketching speed | **~13-17% off `index_sketching`** is the bounds-check-free iteration alone (§7); the other three items in this row have no isolated standalone percentage in the record | Yes |
 | 8 | Lower allocation/memory traffic: `PMatches` inline for the common single-occurrence case, `Match` borrows its `Seed`, dense `diff_hist`, no `seq` field on `RefSegment`, FASTA records by value, bounded read-ahead, buffered stdout, `lto="fat"` | Peak memory, and speed via fewer allocations | **~11-13% off peak RSS** is the bounded read-ahead alone; **~5% wall** is `lto="fat"` alone (§8); the rest are allocation-*count* reductions (e.g. ~300 M fewer heap allocations for single-occurrence seeds) without an isolated standalone percentage in the record | Yes |
 | 9 | Final bucket ordering: an unstable sort on a packed key reproduces stable-sort output — the paper's own Algorithm 4 "Optimization 2" | Sort cost in `get_sorted_buckets`, and (as a side effect) determinism | Sorts 8-byte packed keys instead of 32-byte records — no isolated standalone percentage in the record, but real: moving 4x fewer bytes and skipping a stable sort's temporary allocation | Yes, and stronger than the C++: reproduces exactly what a *stable* sort by descending match count would give (the original index is packed in as the tiebreak), where the C++'s `std::sort` gives no such guarantee even between its own runs (`src/buckets.rs`'s `get_sorted_buckets` doc comment) |
+| 10 | Theta ladder — map each read at one higher threshold first, and fall back to `-t` only if that finds nothing (§10) | `match_seeds` and `bucket_merge`, i.e. the part of a read's cost that scales with the seed count `S` | `match_seeds` **-47 to -56%** and `S` **-39 to -48%**; net `query_mapping` **1.08-1.21x** (Containment), **0.98-1.09x** (Jaccard), **1.11-1.33x** (`bucket_SH`), unchanged on ONT (RESULTS.md §5c) | Yes — the reported mapping is byte-identical to the single pass over 90 000 reads across four datasets at every metric, ground truth included. Only the effort tags (`seeds`, `total_matches`, …) move, and they move because the effort really did |
 
 Rows without an isolated standalone percentage are stated as such rather than estimated — they are
 real (each is individually documented below with its own reasoning and, where one exists, a code
@@ -881,6 +882,55 @@ pub struct RefSegment {
   purely from cross-crate inlining across the `needletail`/`rustc-hash` boundary that the default
   16 codegen units prevented. `panic = "unwind"` stays as-is (not `"abort"`) because the per-read
   panic isolation in §4 needs `catch_unwind`.
+
+---
+
+## 10. The theta ladder — the same answer, reached from a cheaper threshold
+
+**What it is.** The C++ maps every read once, at the threshold the user asked for. shmap-rs tries
+one *higher* threshold first and only falls back to `-t` if that finds nothing. The point is that
+theta enters `map_read` in exactly two places, and both get cheaper as it rises:
+
+```cpp
+// shmap/src/shmap.h:462-466  (commit 63f1103)
+                auto theta = params.theta;
+                //cerr << fixed << setprecision(3) << "theta: " << theta << endl;
+                //double theta2 = theta + params.min_diff;
+                double theta2 = theta - params.min_diff;
+                qpos_t S = qpos_t((1.0 - theta2) * m) + 1;          // any similar mapping includes at least 1 seed match
+```
+
+`S` is the seed count, linear in `1 - theta`; and that same `theta` is what the bucket sweep starts
+its `thr` at, so a higher one prunes candidates harder. At the paper parameters (`-t 0.4 -d 0.075`)
+`S` is 67.5% of the read's k-mer occurrences, while the median HiFi read maps at a score of 0.93 —
+so most reads are paying for a threshold far below the one they actually clear. (Note also the
+commented-out line above `theta`: upstream already reached for an adaptive threshold here, via a
+`find_theta_Containment` that this port drops as confirmed-dead. That one raised `theta` per read
+*before* mapping and would have changed which mapping is reported; this one leaves the answer
+alone.)
+
+**Why the early stop is exact rather than approximate** is set out in full in
+[`src/shmap/theta_ladder.rs`](src/shmap/theta_ladder.rs)'s module comment: every bucket the run at
+`-t` would consider is either scored identically at the higher threshold, or pruned there with a
+seed-heuristic bound already below the winning score, or not seeded — and the third case is exactly
+what the `S` above is defined to make impossible for anything scoring near the threshold. The
+runner-up sweep is bounded by the same three cases, so mapq is unchanged too.
+
+**Reuse, which is most of the implementation.** Nothing is recomputed when a read falls back:
+`match_seeds` resumes from `buckets.i`, so a k-mer is matched against the index at most once per
+read; the dense bucket accumulator (§1) is read without being drained, so a second extraction sees
+everything seeded so far; `RefineCache` (§3) is keyed by bucket instead of by sweep index, so a
+bucket scored at one rung is never scored again at the next; and when `S` does not change between
+rungs, the pruning state is resumed in place, which is not just cheaper but exactly equivalent —
+a bucket's state is a pure function of how many seeds it has consumed, and its `sh` only falls.
+
+**The measured shape of the trade, which is not the obvious one.** Lowering `S` does not simply
+move work off the clock: `seed_heuristic_pass` then has to extend every bucket surviving its first
+check over the seeds seeding no longer covered, and `match_rest` rises by 13-36% as `match_seeds`
+falls by ~50%. RESULTS.md §5c sweeps the rung count and puts the optimum at **one** rung below
+`-t` — which is a result about the paper's `S` as much as about this change: `S` is already close
+to the optimum of that trade, and what the ladder wins is doing a first attempt at a threshold the
+read can actually clear, not seeding less in total.
 
 ---
 

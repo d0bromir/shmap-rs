@@ -335,6 +335,22 @@ impl Counters {
         self.counters.iter().map(|(name, c)| (name.as_str(), c.count()))
     }
 
+    /// `counters[name] = value`, creating it on first use.
+    ///
+    /// Not an upstream operation, and deliberately rare: a counter that can be
+    /// *overwritten* stops being a running total, which is what makes the
+    /// per-thread merge in `AddAssign` meaningful. The one caller is
+    /// `map_read`, resetting a per-read counter between the rungs of the theta
+    /// ladder so that an abandoned rung's count is not carried into the
+    /// accepted one's — a reset within a read, still summed across reads.
+    pub fn set(&mut self, name: &str, value: i64) {
+        if let Some(c) = self.counters.get_mut(name) {
+            *c = Counter::new(value);
+            return;
+        }
+        self.counters.insert(name.to_string(), Counter::new(value));
+    }
+
     /// `counters[name] = max(counters[name], value)`, auto-vivifying
     /// `name` to 0 first if it isn't present yet — the one place upstream
     /// uses `Counters::operator[]` for both read and write in the same

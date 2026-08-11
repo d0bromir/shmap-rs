@@ -74,6 +74,7 @@ mod pruning;
 mod scoring;
 mod seeding;
 mod stats;
+mod theta_ladder;
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -87,8 +88,9 @@ use crate::mapping::{Mapping, MappingPaf};
 use crate::params::Params;
 use crate::profiling::Profiler;
 use crate::sketch::FracMinHash;
-use crate::types::{H2Cnt, H2Seed, QPos};
+use crate::types::{BucketContent, BucketLoc, H2Cnt, H2Seed, Metric, QPos};
 use crate::utils::{Counters, ProgressBar, Timers};
+use theta_ladder::ThetaLadder;
 
 /// The complete, corrected list of counter names `map_read` (and the
 /// methods it calls) increments — see the module doc comment for why this
@@ -128,6 +130,15 @@ const PER_READ_COUNTERS: &[&str] = &[
     // threshold, so on its own it says nothing about what refining costs.
     "refined_buckets",
     "refine_memo_hits",
+    // Rungs of the descending-threshold ladder this read actually climbed
+    // (see `theta_ladder`). 1 means it mapped — or was proved unmappable — at
+    // the first threshold tried; the run-wide total over `reads` is the
+    // ladder's average depth, which is what its overhead is proportional to.
+    "theta_levels",
+    // Reads whose rung mapped but could not be accepted, because an exact-score
+    // tie made the winner a function of sweep order and only `-t`'s own order
+    // decides it. See `scoring::Sweep::tied`.
+    "theta_ties",
 ];
 
 /// Everything a single `map_read` call would otherwise have written
@@ -658,10 +669,20 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         // hashing the same k-mer a second time. See `best_fixed_length`.
         let mut diff_hist: Vec<QPos> = vec![0; p_unique.len()];
         let mut possible_matches: i32 = 0;
+        // K-mer occurrences with at least one hit in the reference. A k-mer
+        // absent from the index cannot be inside any window of it, so this
+        // caps every metric's score: `intersection <= matchable`, and
+        // Containment divides by `m`, Jaccard by something no smaller, and
+        // `bucket_SH`'s completed `sh` is `matches / m`. It is what the theta
+        // ladder starts from — see `theta_ladder`.
+        let mut matchable: QPos = 0;
         for seed in &p_unique {
             p_ht.insert(seed.kmer.h, seed.clone());
             diff_hist[seed.seed_num as usize] = seed.occs_in_p;
             possible_matches += seed.hits_in_t;
+            if seed.hits_in_t > 0 {
+                matchable += seed.occs_in_p;
+            }
         }
 
         // Rarity weights, when asked for. `m_weight` is the total a bucket
@@ -699,14 +720,6 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         let lmax: QPos = m;
         let theta = params.theta;
         let theta2 = theta - params.min_diff;
-        // `one_sweep`'s best-effort interpretation (see the crate-level
-        // decision this port recorded): use every unique k-mer as a seed
-        // instead of the theta-derived early-cutoff count `S`.
-        let s: QPos = if OS {
-            p_unique.len() as QPos
-        } else {
-            ((1.0 - theta2) * m as f64) as QPos + 1
-        };
 
         if AP {
             buckets.set_halflen(p_seq.len() as QPos);
@@ -717,65 +730,93 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.counters.inc("kmers_sketched", m as i64);
         self.counters.inc("kmers", m as i64);
         self.counters.inc("kmers_unique", p_unique.len() as i64);
-        self.counters.inc("kmers_seeds", s as i64);
         self.timers.stop("prepare");
 
-        self.timers.start("match_seeds");
-        self.match_seeds(&p_unique, buckets, s);
-        self.timers.stop("match_seeds");
+        // The ladder's early stop preserves output only where a bucket's
+        // reported result cannot depend on how much of the read was seeded.
+        // Two configurations break that and get the plain single pass instead
+        // of being quietly approximated:
+        //
+        // - `-P` (pruning off) with `bucket_SH`/`bucket_LCS`. Those two build
+        //   their mapping straight out of the bucket accumulator, and with
+        //   pruning off nothing ever completes it — `r_min`/`r_max` (and
+        //   `bucket_SH`'s score, which `-P` leaves at a constant 1.0) are
+        //   whatever the seeded prefix happened to reach, so they move with
+        //   `S`. With pruning on, `seed_heuristic_pass` only returns `true`
+        //   after consuming *every* seed, so a scored bucket carries the same
+        //   content at any level.
+        // - `--rarity-weight` / `--rarity-tiebreak`. Both replace the plain
+        //   containment that the seed heuristic's guarantee is stated over: a
+        //   bucket can then score high off a few rare k-mers while missing
+        //   more occurrences than `S` covers, and an unseeded bucket is no
+        //   longer provably worse than a seeded one.
+        let adaptive = theta_ladder::enabled()
+            && !(NBP && matches!(params.metric, Metric::BucketSh | Metric::BucketLcs))
+            && params.rarity_weight == 0.0
+            && params.rarity_tiebreak == 0.0;
+        let score_ub = if m > 0 { matchable as f64 / m as f64 } else { 0.0 };
+        let mut ladder = ThetaLadder::new(m, theta, params.min_diff, score_ub, adaptive);
 
-        self.timers.start("bucket_merge");
-        buckets.propagate_seeds_to_buckets();
-
-        let mut sorted_buckets = buckets.get_sorted_buckets();
-        self.timers.stop("bucket_merge");
-        self.counters.inc("seeded_buckets", sorted_buckets.len() as i64);
-
-        if params.verbose >= 2 {
-            eprintln!("kmers: {m} seeds: {s}");
-            eprintln!(
-                "seeded_buckets: {} total_matches: {}",
-                self.counters.count("seeded_buckets"),
-                self.counters.count("total_matches")
-            );
-            eprintln!(
-                "B: bucket_halflen={} i={} seeds={}",
-                buckets.halflen, buckets.i, buckets.seeds
-            );
-        }
-
-        self.timers.start("match_rest");
-        self.timers.start("match_rest_for_best");
-        let memo_refine = scoring::RefineCache::enabled();
         let mut refine_cache = scoring::RefineCache::new();
-        if memo_refine {
-            refine_cache.start_recording();
-        }
-        let best = self.match_rest(
-            p_seq.len() as QPos,
-            m,
-            lmax,
-            &p_unique,
-            buckets,
-            &mut sorted_buckets,
-            &mut diff_hist,
-            &p_ht,
-            theta,
-            None,
-            params.verbose,
-            params.max_overlap,
-            params.metric,
-            params.k,
-            &mut refine_cache,
-        );
-        self.timers.stop("match_rest_for_best");
-        self.timers.start("match_rest_for_best2");
-        let best2 = if let Some(best) = &best {
-            let second_best_thr = best.score() * (1.0 - params.min_diff);
-            if memo_refine {
-                refine_cache.start_replay();
+        let mut sorted_buckets: Vec<(BucketLoc, BucketContent)> = Vec::new();
+        let mut best: Option<Mapping> = None;
+        let mut best2: Option<Mapping> = None;
+        let mut s: QPos = 0;
+        let mut seeded: QPos = 0;
+        let mut levels: i64 = 0;
+
+        while let Some(level) = ladder.next_level() {
+            levels += 1;
+            // `one_sweep`'s best-effort interpretation (see the crate-level
+            // decision this port recorded): use every unique k-mer as a seed
+            // instead of the theta-derived early-cutoff count `S`. That makes
+            // `S` the same at every level, so a `-B` ladder moves only `thr`.
+            s = if OS { p_unique.len() as QPos } else { level.s };
+
+            if s > seeded {
+                // Seeding is resumed, not redone: `match_seeds` picks up from
+                // `buckets.i`/`buckets.seeds`, so each seed is matched against
+                // the index exactly once no matter how many levels a read
+                // climbs. Only the merge and the sweep are repeated.
+                self.timers.start("match_seeds");
+                self.match_seeds(&p_unique, buckets, s);
+                self.timers.stop("match_seeds");
+
+                self.timers.start("bucket_merge");
+                buckets.propagate_seeds_to_buckets();
+                sorted_buckets = buckets.get_sorted_buckets();
+                self.timers.stop("bucket_merge");
+                seeded = s;
             }
-            self.match_rest(
+            // When `S` did not grow there is nothing to re-merge, and reusing
+            // `sorted_buckets` in place is not just cheaper but strictly
+            // better: a bucket's pruning state is a pure function of how many
+            // seeds it has consumed, and `sh` only falls as it consumes more,
+            // so resuming where the last level stopped lands on exactly the
+            // state a fresh sweep at this level's lower `thr` would reach.
+
+            if params.verbose >= 2 {
+                eprintln!("kmers: {m} seeds: {s} theta: {}", level.theta);
+                eprintln!(
+                    "seeded_buckets: {} total_matches: {}",
+                    sorted_buckets.len(),
+                    self.counters.count("total_matches")
+                );
+                eprintln!(
+                    "B: bucket_halflen={} i={} seeds={}",
+                    buckets.halflen, buckets.i, buckets.seeds
+                );
+            }
+
+            // Only the accepted level's `final_buckets` describes the reported
+            // mapping, so an abandoned level's must not be left added to it.
+            // `refined_buckets`/`refine_memo_hits` do accumulate on purpose:
+            // they measure work done, and the abandoned levels really did it.
+            self.counters.set("final_buckets", 0);
+
+            self.timers.start("match_rest");
+            self.timers.start("match_rest_for_best");
+            let sweep = self.match_rest(
                 p_seq.len() as QPos,
                 m,
                 lmax,
@@ -784,19 +825,73 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 &mut sorted_buckets,
                 &mut diff_hist,
                 &p_ht,
-                second_best_thr,
-                Some(best),
+                level.theta,
+                None,
                 params.verbose,
                 params.max_overlap,
                 params.metric,
                 params.k,
                 &mut refine_cache,
-            )
-        } else {
-            None
-        };
-        self.timers.stop("match_rest_for_best2");
-        self.timers.stop("match_rest");
+            );
+            self.timers.stop("match_rest_for_best");
+            best = sweep.best;
+
+            self.timers.start("match_rest_for_best2");
+            let sweep2 = match &best {
+                Some(best) => {
+                    let second_best_thr = best.score() * (1.0 - params.min_diff);
+                    self.match_rest(
+                        p_seq.len() as QPos,
+                        m,
+                        lmax,
+                        &p_unique,
+                        buckets,
+                        &mut sorted_buckets,
+                        &mut diff_hist,
+                        &p_ht,
+                        second_best_thr,
+                        Some(best),
+                        params.verbose,
+                        params.max_overlap,
+                        params.metric,
+                        params.k,
+                        &mut refine_cache,
+                    )
+                }
+                None => scoring::Sweep {
+                    best: None,
+                    tied: false,
+                },
+            };
+            self.timers.stop("match_rest_for_best2");
+            self.timers.stop("match_rest");
+            best2 = sweep2.best;
+
+            if level.last {
+                break;
+            }
+            if best.is_none() {
+                continue;
+            }
+            // A rung that mapped, but whose winner (or runner-up) was picked
+            // out of an exact-score tie by sweep order, is *not* accepted: this
+            // rung's order is not `-t`'s order, so accepting it would report a
+            // different member of the tie than the user's own threshold does.
+            // Jumping straight to that threshold is both correct and the right
+            // shortcut — a tie between two buckets covering the same locus does
+            // not go away by seeding a little more, so trying the rungs in
+            // between would pay for them and land here anyway.
+            if sweep.tied || sweep2.tied {
+                self.counters.inc1("theta_ties");
+                ladder.escalate_to_last();
+                continue;
+            }
+            break;
+        }
+
+        self.counters.inc("kmers_seeds", s as i64);
+        self.counters.inc("seeded_buckets", sorted_buckets.len() as i64);
+        self.counters.inc("theta_levels", levels);
 
         let fptp = -1.0; // ground-truth FDR calculation is dead upstream too (calc_FDR is never called)
         self.counters.inc("lost_on_pruning", 1); // always 1 upstream: `lost_on_pruning` is never actually recomputed from a real outcome (see match_rest)

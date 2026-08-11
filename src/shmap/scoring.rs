@@ -11,101 +11,104 @@ use crate::mapping::Mapping;
 use crate::sketch::RefSegment;
 use crate::types::{BucketContent, BucketLoc, H2Seed, Kmer, Metric, QPos, RPos, Seeds, codirection_kmer_kmer};
 
-/// Per-read memo of [`SHMapper::find_best_mapping`] results across the two
-/// [`SHMapper::match_rest`] passes a read makes (best, then second-best).
+/// Per-read memo of [`SHMapper::find_best_mapping`] results, across every
+/// [`SHMapper::match_rest`] sweep a read makes: the best and second-best pass
+/// of each rung of the theta ladder.
 ///
-/// Both passes sweep the *same* `sorted_buckets` slice in the same order,
-/// and on the `Containment`/`Jaccard` path `find_best_mapping` reduces to
+/// On the `Containment`/`Jaccard` path `find_best_mapping` reduces to
 /// `best_fixed_length(segm, buckets.begin(b), buckets.end(b), p_ht,
 /// diff_hist, p_sz - k, lmax, metric)` — every argument of which is either a
 /// per-read constant or a pure function of `b`. In particular it does not
-/// read `content` (which the pruning pass mutates between the two calls),
-/// and it leaves `diff_hist` exactly as it found it: the `l` loop undoes
-/// every decrement the `r` loop made, which is what that function's closing
-/// `debug_assert_eq!(intersection, 0)` pins. So the second pass recomputes
-/// bit-identical results for every bucket the first pass already scored, and
+/// read `content` (which the pruning pass mutates between sweeps), and it
+/// leaves `diff_hist` exactly as it found it: the `l` loop undoes every
+/// decrement the `r` loop made, which is what that function's closing
+/// `debug_assert_eq!(intersection, 0)` pins. So a later sweep recomputes
+/// bit-identical results for every bucket an earlier one already scored, and
 /// memoizing them is output-preserving rather than an approximation. Only
-/// `sh` differs between the passes, and that is stamped on after the fact.
+/// `sh` differs between sweeps, and that is stamped on after the fact.
 ///
-/// The two passes' refined sets overlap but neither contains the other: pass
-/// 1's `thr` ratchets upward as `best` improves, so a bucket pruned late in
-/// pass 1 can still clear pass 2's flat `best * (1 - min_diff)`. Misses are
-/// therefore normal and are simply recomputed.
+/// Two sweeps' refined sets overlap but neither contains the other: a pass's
+/// `thr` ratchets upward as `best` improves, so a bucket pruned late in one
+/// can still clear the next one's lower threshold. Misses are normal and are
+/// simply recomputed.
 ///
-/// Entries are pushed in `sorted_buckets` order, so replay is a monotone
-/// cursor rather than a lookup structure — no hashing, and the whole thing
-/// is one reusable `Vec`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-enum Mode {
-    /// Neither recording nor replaying — every bucket is scored from
-    /// scratch, exactly as before the memo existed. This is what
-    /// `SHMAP_NO_REFINE_MEMO` selects, so one binary can A/B the memo with
-    /// nothing else differing.
-    #[default]
-    Off,
-    Record,
-    Replay,
-}
-
+/// **Keyed by the bucket, not by its index in the sweep.** It used to be the
+/// index: the two passes of one sweep walk the same `sorted_buckets` in the
+/// same order, so replay was a monotone cursor over a `Vec` — no hashing at
+/// all. The theta ladder ends that. `sorted_buckets` is ordered by match
+/// count, match count depends on how many seeds have been consumed, and each
+/// rung consumes more — so index `i` is a different bucket from one rung to
+/// the next, and the memo has to say *which* bucket it holds. That is also
+/// what makes it worth more than it was: re-scoring what an abandoned rung
+/// already scored is the ladder's largest single cost, measured at +47% of
+/// `refine` before this was keyed this way.
 #[derive(Default)]
 pub struct RefineCache {
-    entries: Vec<(u32, Mapping)>,
-    cursor: usize,
-    mode: Mode,
+    entries: rustc_hash::FxHashMap<BucketLoc, Mapping>,
+    /// False under `SHMAP_NO_REFINE_MEMO`: every bucket is then scored from
+    /// scratch, exactly as before the memo existed, so one binary can A/B it
+    /// with nothing else differing.
+    on: bool,
 }
 
 impl RefineCache {
+    /// A fresh, empty memo. Built once per read by `map_read` and dropped
+    /// with it, which is the whole lifetime the entries are valid for:
+    /// `diff_hist`, `p_ht` and `lmax` are all read-scoped, so a `Mapping`
+    /// scored for one read means nothing to the next.
     pub fn new() -> Self {
-        Self::default()
+        RefineCache {
+            entries: rustc_hash::FxHashMap::default(),
+            on: Self::enabled(),
+        }
     }
 
     /// Whether the memo is compiled-in *and* enabled for this run. Read
     /// once per process, not per read.
-    pub fn enabled() -> bool {
+    fn enabled() -> bool {
         static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *ENABLED.get_or_init(|| std::env::var_os("SHMAP_NO_REFINE_MEMO").is_none())
     }
 
-    /// Begins the first pass: forget the previous read and record results.
-    pub fn start_recording(&mut self) {
-        self.entries.clear();
-        self.cursor = 0;
-        self.mode = Mode::Record;
-    }
-
-    /// Begins the second pass: replay what the first pass recorded, and
-    /// stop recording (there is no third pass to serve).
-    pub fn start_replay(&mut self) {
-        self.cursor = 0;
-        self.mode = Mode::Replay;
-    }
-
-    /// Index of the memoized result for `sorted_buckets[idx]`, if the
-    /// recording pass scored that bucket.
-    fn lookup(&mut self, idx: u32) -> Option<usize> {
-        if self.mode != Mode::Replay {
+    /// The memoized score for `b`, if some earlier sweep of this read scored
+    /// it. Separate from [`Self::get`] so the common case — a bucket that
+    /// loses to `thr` — never materializes the `Mapping`, which owns its
+    /// segment name and so allocates on clone.
+    fn score_of(&self, b: &BucketLoc) -> Option<f64> {
+        if !self.on {
             return None;
         }
-        // `idx` increases across the sweep and `entries` is in the same
-        // order, so this advance is amortized O(1).
-        while self.cursor < self.entries.len() && self.entries[self.cursor].0 < idx {
-            self.cursor += 1;
-        }
-        match self.entries.get(self.cursor) {
-            Some(&(at, _)) if at == idx => Some(self.cursor),
-            _ => None,
-        }
+        self.entries.get(b).map(|m| m.score())
     }
 
-    fn get(&self, i: usize) -> &Mapping {
-        &self.entries[i].1
+    fn get(&self, b: &BucketLoc) -> &Mapping {
+        &self.entries[b]
     }
 
-    fn record(&mut self, idx: u32, mapping: &Mapping) {
-        if self.mode == Mode::Record {
-            self.entries.push((idx, mapping.clone()));
+    fn record(&mut self, b: BucketLoc, mapping: &Mapping) {
+        if self.on {
+            self.entries.insert(b, mapping.clone());
         }
     }
+}
+
+/// What one [`SHMapper::match_rest`] sweep found.
+pub struct Sweep {
+    /// The best mapping clearing the sweep's threshold, if any.
+    pub best: Option<Mapping>,
+    /// Whether some other bucket scored *exactly* what `best` scores, so that
+    /// which of them is reported came down to which was swept first.
+    ///
+    /// This happens on real data — adjacent buckets overlap by design, so both
+    /// can cover a read's locus and find windows with the same intersection —
+    /// and on the reference HiFi set it decides ~0.3% of reads. The sweep has
+    /// always broken those ties by order and still does. What makes the flag
+    /// necessary is that the theta ladder is the first thing that can *change*
+    /// that order: `sorted_buckets` is ordered by match count, and match count
+    /// depends on how many seeds have been consumed. So a rung whose winner
+    /// was decided this way is not safe to accept, and `map_read` escalates
+    /// instead of reporting a different coin flip than `-t` alone would.
+    pub tied: bool,
 }
 
 impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, OS, AP> {
@@ -362,7 +365,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     /// [`Self::seed_heuristic_pass`] and scoring survivors via
     /// [`Self::find_best_mapping`]; returns the best mapping clearing
     /// `thr` (and, if `forbidden` is given, not overlapping it by more
-    /// than `max_overlap`).
+    /// than `max_overlap`), together with whether that winner was decided by
+    /// sweep order — see [`Sweep::tied`].
     #[allow(clippy::too_many_arguments)]
     pub fn match_rest(
         &mut self,
@@ -381,7 +385,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         metric: Metric,
         k: QPos,
         cache: &mut RefineCache,
-    ) -> Option<Mapping> {
+    ) -> Sweep {
         // Both inert upstream: `lost_on_seeding` is a hardcoded 0 (`int
         // lost_on_seeding = (0);`), and `lost_on_pruning` (threaded through
         // as an out-parameter here in the C++) is never actually written
@@ -393,6 +397,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.counters.inc("lost_on_seeding", 0);
 
         let mut best: Option<Mapping> = None;
+        let mut tied = false;
 
         // `find_best_mapping` is only a pure function of the bucket location
         // on the fixed-length metrics; `BucketSh`/`BucketLcs` both build
@@ -400,7 +405,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         // between the two sweeps, so they must not be memoized.
         let memoizable = matches!(metric, Metric::Containment | Metric::Jaccard);
 
-        for (idx, (b, content)) in sorted_buckets.iter_mut().enumerate() {
+        for (b, content) in sorted_buckets.iter_mut() {
             let b: BucketLoc = *b;
             let mut sh = 1.0;
             if self.seed_heuristic_pass(buckets, p_unique, m, &b, content, &mut sh, thr) {
@@ -414,20 +419,16 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 } else {
                     thr
                 };
-                let memo = if memoizable { cache.lookup(idx as u32) } else { None };
-                let best_in_bucket = match memo {
-                    Some(i) => {
+                let memo = if memoizable { cache.score_of(&b) } else { None };
+                let (score, best_in_bucket) = match memo {
+                    Some(score) => {
                         self.counters.inc1("refine_memo_hits");
-                        // Cloning a `Mapping` allocates (it owns its segment
-                        // name), and the large majority of scored buckets
-                        // lose to `thr` — so check the memoized score first
-                        // and only materialize a winner.
-                        if cache.get(i).score() > admit {
-                            let mut winner = cache.get(i).clone();
+                        if score > admit {
+                            let mut winner = cache.get(&b).clone();
                             winner.set_sh(sh);
-                            Some(winner)
+                            (score, Some(winner))
                         } else {
-                            None
+                            (score, None)
                         }
                     }
                     None => {
@@ -435,11 +436,27 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         let scored =
                             self.find_best_mapping(buckets, b, content, p_ht, diff_hist, p_sz, m, lmax, sh, metric, k);
                         if memoizable {
-                            cache.record(idx as u32, &scored);
+                            cache.record(b, &scored);
                         }
-                        if scored.score() > admit { Some(scored) } else { None }
+                        let score = scored.score();
+                        if score > admit {
+                            (score, Some(scored))
+                        } else {
+                            (score, None)
+                        }
                     }
                 };
+
+                // A second bucket scoring *exactly* what the incumbent scores
+                // is not admitted — `> admit` fails — so it silently loses on
+                // sweep order alone. Recorded rather than resolved: the sweep
+                // itself keeps the first-swept winner it has always kept, and
+                // it is the theta ladder that needs to know, because sweep
+                // order is the one thing about a read that its rung changes.
+                // See `theta_ladder`.
+                if best.as_ref().is_some_and(|cur| score == cur.score()) {
+                    tied = true;
+                }
 
                 if let Some(best_in_bucket) = best_in_bucket {
                     if verbose >= 2 {
@@ -485,7 +502,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             }
         }
 
-        best
+        Sweep { best, tied }
     }
 }
 

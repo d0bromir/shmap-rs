@@ -19,6 +19,7 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). Keep entries short — the
 | Q9 | Software prefetching for the pruning lookups | `q9-prefetch-refine` | #18 | merged |
 | Q10 | 2-bit-packed sequence encoding for sketching | `q10-2bit-packed-sketching` | #20 | merged |
 | Q11 | Visualize the profiling data as charts | `q11-profiling-charts` | #22 | in review |
+| Q12 | Adaptively lower theta; stop at the first threshold that maps | `q12-adaptive-theta` | #39 | in review |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
@@ -843,6 +844,57 @@ charts were generated from the existing result set with no re-run, as asked.
 [`benchmarks/scripts/test_charts.py`](benchmarks/scripts/test_charts.py) pins the aggregation rule, wedge geometry,
 the partition guard and end-to-end rendering (30 assertions); wired into CI with `charts.py
 --check`, and `promote.py` now carries `chart-*` so a promoted result set stays viewable.
+
+---
+
+## Q12 — Adaptively lower theta; stop at the first threshold that maps
+
+**Asked** 2026-08-11 · **Branch** `q12-adaptive-theta` · **PR** #39 · **Status** in review
+
+**Question.** *"an exact algorithmic optimization: try adaptively lowering theta (the threshold).
+once it finds a mapping, the computation can stop. otherwise, try a lower theta. consider reusing
+previous computation when lowering theta."*
+
+**Answer / change.** Built, and it is exact in the strong sense — the reported mapping is
+byte-identical to the single pass at `-t`, verified over 90 000 reads from four datasets at every
+metric — mapping, scores, mapq, winning bucket, mapped and mapq-60 counts, and B02's ground truth
+all unchanged. New [`src/shmap/theta_ladder.rs`](src/shmap/theta_ladder.rs) plus the loop in
+`map_read`; the evidence and the design's two surprises are in [RESULTS.md §5c](RESULTS.md).
+
+Theta enters mapping in exactly two places — the seed count `S = (1-(t-d))·m+1` and the bucket
+sweep's initial `thr` — and both get cheaper as theta rises, so a read is tried at a higher
+threshold first and only falls back to `-t` if that finds nothing. **Reuse is the whole design**, as
+asked: seeding resumes from `buckets.i` rather than restarting, so no k-mer is matched against the
+index twice however many rungs a read climbs; the refine memo now keys on the bucket instead of the
+sweep index, so no bucket is scored twice either; and when `S` does not change, the pruning state is
+resumed in place rather than rebuilt.
+
+**Where it starts is what makes it free on reads that do not map.** A read cannot score above the
+fraction of its own k-mers that have any hit in the reference at all — already known by then, and
+the ladder is anchored on it. On ONT at `k=25`, ~28% of k-mers survive the error rate, well under
+`-t 0.4`, so those reads get a one-rung ladder and byte-identical work to today: B05 output is
+identical down to the diagnostic tags.
+
+**Two findings worth Pesho's attention**, both in RESULTS.md §5c:
+
+1. **Lowering `S` is not free, and the crossover is at one rung.** The two halves of the seed
+   heuristic move in opposite directions: seeding streams fewer hit lists, but `seed_heuristic_pass`
+   then has to extend every surviving bucket over the seeds seeding no longer covered. Measured, the
+   second cost grows faster than the first shrinks — so the ladder ships with a *single* rung below
+   `-t`, not a long descent. That is a statement about the paper's `S`: it is already close to the
+   optimum of that trade, and the win comes from doing part of the work at a higher threshold, not
+   from seeding less overall.
+2. **The sweep's tie-break was order-dependent, and this is the first thing that could expose it.**
+   Adjacent buckets overlap by design, so both can cover a read's locus with the same intersection
+   and the same score; the first one swept wins. Sweep order is by match count, which moves with `S`
+   — so a naive early stop changes the reported bucket on ~0.3% of HiFi reads (same score, same
+   intersection, same mapq, position shifted under a read length). The ladder detects that case and
+   escalates rather than reporting a different coin flip, which is what makes byte-identity hold.
+
+**Outcome.** Pending — the benchmark has not been run against the PR yet. The probe on subsets
+(20-30k reads per dataset, median of three interleaved runs) puts `query_mapping` at **1.08-1.21x**
+on Containment, **0.98-1.09x** on Jaccard and **1.11-1.33x** on `bucket_SH`, with B05 unchanged
+(the ladder does provably identical work there, so its spread is the host's noise floor).
 
 ---
 

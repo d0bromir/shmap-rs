@@ -358,13 +358,31 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
     /// Decides whether this read can use the dense accumulator and, if so,
     /// lays out `seg_base` and makes sure `dense` is long enough.
     ///
-    /// Deliberately does *not* re-zero the array per read. Extraction resets
-    /// every slot it takes, so `dense` is already all-empty between reads, and
-    /// re-zeroing would cost O(slots) per read — ~50 s of pure `memset` on a
-    /// 240 000-read whole-genome run. The one case that can leave it dirty, a
-    /// read abandoned after adding but before extracting, is handled precisely
-    /// by clearing just that read's touched slots.
+    /// Deliberately does *not* re-zero the array per read: re-zeroing would
+    /// cost O(slots) per read — ~50 s of pure `memset` on a 240 000-read
+    /// whole-genome run — and only the slots a read touched can be non-empty.
+    /// Clearing exactly those, here, is the whole cleanup.
+    ///
+    /// It happens at the *start* of the next read rather than at the end of
+    /// this one because extraction is no longer a one-shot drain:
+    /// [`SHMapper::map_read`]'s theta ladder can seed a read further and
+    /// extract again, and each extraction has to see everything seeded so far,
+    /// not just what arrived since the last one. Deferring the reset also
+    /// costs nothing — it is the same O(touched) work either way — and it
+    /// subsumes the case that used to need it on its own, a read abandoned
+    /// after adding but before extracting.
     fn plan_dense(&mut self) {
+        // Before anything that can change `dense`'s length or drop it: the
+        // indices in `touched` are only valid against the array they were
+        // recorded from.
+        if self.dense_dirty {
+            for &g in &self.touched {
+                self.dense[g as usize] = EMPTY_SLOT;
+            }
+            self.dense_dirty = false;
+        }
+        self.touched.clear();
+
         let tidx = self.tidx;
         let halflen = self.halflen as i64;
         self.seg_base.clear();
@@ -382,13 +400,6 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
                 return;
             }
         }
-        if self.dense_dirty {
-            for &g in &self.touched {
-                self.dense[g as usize] = EMPTY_SLOT;
-            }
-            self.dense_dirty = false;
-        }
-        self.touched.clear();
         // Grown, never shrunk: the tail beyond `total` stays empty and unused,
         // so a later read needing more slots only pays for the difference.
         if self.dense.len() < total as usize {
@@ -396,9 +407,9 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         }
         self.dense_slots = total as usize;
         self.dense_on = true;
-        // Set once here rather than on every add: this read is assumed to
-        // leave state behind until extraction says otherwise, which keeps a
-        // store off a path that runs billions of times per run.
+        // Set once here rather than on every add, which keeps a store off a
+        // path that runs billions of times per run: this read is assumed to
+        // leave state behind, and the next `plan_dense` clears it.
         self.dense_dirty = true;
     }
 
@@ -424,15 +435,24 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
     }
 
     /// Moves every touched slot into `entries` in ascending global-id order,
-    /// resetting each as it goes. Because global ids are ordered by
+    /// leaving each in place. Because global ids are ordered by
     /// `(segm_id, b)`, sorting the touched list yields exactly the sorted,
     /// deduplicated `entries` the sparse path builds with a radix sort plus a
     /// dedup scan — but over the buckets a read actually touched, rather than
     /// over every raw contribution *or* every slot in the reference.
+    ///
+    /// **Reads the accumulator, does not drain it.** A read can extract more
+    /// than once — [`SHMapper::map_read`]'s theta ladder seeds further and
+    /// extracts again — and every extraction must see every contribution the
+    /// read has made so far, not only the ones since the last. So this rebuilds
+    /// `entries` from scratch each time and leaves `dense` alone; `plan_dense`
+    /// clears the slots at the start of the next read. (The sparse path needed
+    /// no equivalent change: `merge_entries` folds new contributions into the
+    /// already-merged ones, and summing is associative.)
     fn extract_dense(&mut self) {
         self.entries.clear();
-        // Taken out so the loops can hold `&touched` while mutating `dense`
-        // and `entries`; handed back at the end to keep the allocation.
+        // Taken out so the loops can hold `&touched` while pushing into
+        // `entries`; handed back at the end to keep the allocation.
         let mut touched = std::mem::take(&mut self.touched);
 
         // Two ways to produce the same ascending-global-id output, and which
@@ -449,7 +469,6 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
                 }
                 let slot = self.dense[g];
                 if slot.matches > 0 {
-                    self.dense[g] = EMPTY_SLOT;
                     self.entries.push(BucketEntry {
                         loc: BucketLoc::new(sid as SegmId, (g - self.seg_base[sid] as usize) as RPos),
                         matches: slot.matches,
@@ -470,7 +489,6 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
                     sid += 1;
                 }
                 let slot = self.dense[g];
-                self.dense[g] = EMPTY_SLOT;
                 debug_assert!(slot.matches > 0, "a touched slot should never be empty");
                 self.entries.push(BucketEntry {
                     loc: BucketLoc::new(sid as SegmId, (g - self.seg_base[sid] as usize) as RPos),
@@ -482,9 +500,11 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
             }
         }
 
-        touched.clear();
+        // Kept, not cleared: these slots still hold this read's contributions,
+        // and a later extraction for the same read has to find them again.
+        // `dense_dirty` stays set for the same reason — the slots are live
+        // until `plan_dense` retires them.
         self.touched = touched;
-        self.dense_dirty = false;
     }
 
     pub fn begin(&self, b: &BucketLoc) -> RPos {
