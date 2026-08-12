@@ -39,6 +39,16 @@ Contents, in fixed order:
 [10 Limitations](#10-limitations) ·
 [11 What to try next](#11-what-to-try-next)
 
+**Charts.** The same profiling tables drawn as pie charts, regenerated with every result set and
+checked in CI. Open
+[`benchmarks/results/suite-1.0/x86_64/current/chart-index.html`](benchmarks/results/suite-1.0/x86_64/current/chart-index.html)
+to browse all of them, or
+[`aarch64/current/chart-index.html`](benchmarks/results/suite-1.0/aarch64/current/chart-index.html)
+for the ARM host; both architectures side by side are in
+[`paper/generated/cross-arch/charts.html`](paper/generated/cross-arch/charts.html). Individual
+charts are linked from the sections they illustrate. Each one footers the exact `profiles.tsv` row
+it was drawn from.
+
 ---
 
 ## 1 Summary
@@ -513,6 +523,16 @@ Shares of `query_mapping`, single-threaded. Indented rows are part of the row ab
 | `index_collecting` (s) | 3.3 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 <!-- END GENERATED: stage-breakdown -->
 
+**As charts.** These shares drawn as pie charts, per benchmark:
+[B01](benchmarks/results/suite-1.0/x86_64/current/chart-B01-time.svg) ·
+[B02](benchmarks/results/suite-1.0/x86_64/current/chart-B02-time.svg) ·
+[B03](benchmarks/results/suite-1.0/x86_64/current/chart-B03-time.svg) ·
+[B04](benchmarks/results/suite-1.0/x86_64/current/chart-B04-time.svg) ·
+[B05](benchmarks/results/suite-1.0/x86_64/current/chart-B05-time.svg), with indexing and mapping
+split out as `chart-B0N-time-indexing.svg` and `chart-B0N-time-mapping.svg` beside them, and the
+`RefineCache` hit rate as `chart-B0N-refine-memo.svg`. They are CPU-seconds, not wall clock — at
+`-@1` indexing already sums to ~2x its wall time because its reader and workers overlap.
+
 **What refinement costs.** `refine` is ~0.3% of `query_mapping` under `bucket_SH` and 20-38% under
 the refining metrics — that is the whole difference between the metrics, and it is why Jaccard is
 the slowest: its lower scores make `thr` rise more slowly through the bucket sweep, pruning is
@@ -581,6 +601,13 @@ in a benchmark reports the same two columns.
 | B05 | bucket_SH | 67 358 | 306 | 53 | **219.6x** | 5.7x | 84.8 | 1.00 |
 | | | | | | | | | |
 <!-- END GENERATED: seed-heuristic -->
+
+**As charts.** The examined-against-possible split per benchmark:
+[B01](benchmarks/results/suite-1.0/x86_64/current/chart-B01-pruning.svg) ·
+[B02](benchmarks/results/suite-1.0/x86_64/current/chart-B02-pruning.svg) ·
+[B03](benchmarks/results/suite-1.0/x86_64/current/chart-B03-pruning.svg) ·
+[B04](benchmarks/results/suite-1.0/x86_64/current/chart-B04-pruning.svg) ·
+[B05](benchmarks/results/suite-1.0/x86_64/current/chart-B05-pruning.svg).
 
 **The heuristic examines 2-3% of the matches that exist**, and on ONT 0.5%. That is the whole
 reason no k-mer needs blacklisting: `-M` exists (§8 sweeps it) but the default keeps every k-mer,
@@ -725,6 +752,13 @@ blocking one stops a merge.
 | wrong_q60 | B02 | bucket_SH | pass | 1/116800 = 0.000009 |
 <!-- END GENERATED: checks -->
 
+**As charts.** The mapq distribution each run produces:
+[B01](benchmarks/results/suite-1.0/x86_64/current/chart-B01-mapq.svg) ·
+[B02](benchmarks/results/suite-1.0/x86_64/current/chart-B02-mapq.svg) ·
+[B03](benchmarks/results/suite-1.0/x86_64/current/chart-B03-mapq.svg) ·
+[B04](benchmarks/results/suite-1.0/x86_64/current/chart-B04-mapq.svg) ·
+[B05](benchmarks/results/suite-1.0/x86_64/current/chart-B05-mapq.svg).
+
 Ground truth is the only entry above that measures *accuracy*; the rest measure self-consistency
 or agreement. The three metrics sit at legitimately different levels because `bucket_SH` does no
 refinement and so reports the coarse bucket extent — mean target span 30 941 bp against 23 866
@@ -749,7 +783,7 @@ holds exactly for the default metric; for the other two it is 0.005% and 0.001% 
 mappings, which is small but not the same statement. The C++ measured on the same reads gives 0, 6
 and 4, so this is a property of the algorithm rather than of either implementation.
 
-The test suite runs 53 tests in both release and debug. Running debug matters: it activates the
+The test suite runs 58 tests in both release and debug. Running debug matters: it activates the
 `debug_assert`s that pin the risky designs — that `best_fixed_length` restores `diff_hist` exactly
 (`intersection == 0`), that the parallel reader's second pass writes precisely what its first pass
 counted, and that a segment's parts tile its buffer with no gaps.
@@ -1161,6 +1195,104 @@ below 97% read-reference identity, which is why it is skipped on ONT rather than
 
 ---
 
+## 9 Error tolerance
+
+Measured with `simulate/sweep_error_rates.py`: 20 000 reads of 24 kb sampled from `hs1.fa` at each
+error profile, `-k 25 -r 0.01 -t 0.4`, scored against known true positions.
+
+**First, what D2 actually is.** Measured, not taken from its description
+(`simulate/measure_error_rate.py`): **0.498% error, length delta +0.004%**. Substitutions, with
+essentially no indels — so every accuracy figure in §7 is a substitution-only figure.
+
+The first block holds the error rate identical across reads, which is what makes the
+substitution-versus-indel comparison controlled. The second block adds the per-read spread and
+homopolymer clustering that real data has; the two blocks are not comparable with each other and
+are not meant to be.
+
+| profile | sub | indel | spread | hp | mapped | correct of 20 000 | span error |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| clean | 0% | 0% | — | — | 20 000 | 99.51% | 0.93% |
+| sub 0.5% *(= D2)* | 0.5% | 0% | — | — | 20 000 | 99.08% | 2.78% |
+| sub 1% | 1% | 0% | — | — | 20 000 | 98.85% | 3.79% |
+| sub 2% | 2% | 0% | — | — | 19 996 | 98.32% | 5.07% |
+| **sub 5%** | 5% | 0% | — | — | **43** | **0.08%** | 23.24% |
+| indel 0.5% | 0% | 0.5% | — | — | 20 000 | 99.24% | 2.76% |
+| indel 1% | 0% | 1% | — | — | 20 000 | 98.97% | 3.73% |
+| indel 2% | 0% | 2% | — | — | 19 993 | 98.66% | 4.99% |
+| deletions only | 0% | 1% | — | — | 20 000 | 99.06% | 3.88% |
+| insertions only | 0% | 1% | — | — | 20 000 | 98.98% | 3.76% |
+| HiFi realistic | 0.4% | 0.1% | 0.4 | 5x | 20 000 | 99.12% | 2.97% |
+| ONT 5%, uniform | 3% | 2% | — | — | **43** | **0.11%** | 23.11% |
+| ONT 5%, spread | 3% | 2% | 0.5 | 5x | 3 240 | **15.84%** | 5.21% |
+| ONT 5%, wide spread | 3% | 2% | 0.8 | 5x | 6 501 | **32.02%** | 4.60% |
+
+### Indels are not worse than substitutions
+
+The expectation going in was that they would be: shmap scores a bucket over a window bounded by the
+read's own k-mer count, which assumes read and reference interval are about the same length, and
+indels break that while substitutions do not.
+
+They are consistently **slightly better** — 98.97% against 98.85% at 1%, 98.66% against 98.32% at
+2% — and insertion-only, deletion-only and mixed all land within 0.1% of each other. The span
+assumption is not what governs this.
+
+The reason is that shmap compares k-mer *sets*, where position carries no information. An indel and
+a substitution each destroy about `k` k-mers, so they cost the same; a deletion destroys `k-1`
+rather than `k`, which is the small edge. **Anything that degrades k-mer survival at a given rate
+costs the same, whatever its biological form.** That is a useful robustness property and the
+opposite of what chain-based mappers experience.
+
+### The cliff is a threshold crossing, and it is predictable
+
+Between 2% and 5% substitutions the mapper does not degrade — it stops. 19 996 reads mapped becomes
+43. A read's containment is approximately the fraction of its k-mers that survive, `(1-e)^k`, and a
+bucket has to clear `-t`:
+
+| error | k=25 | k=15 | k=11 |
+|---:|---:|---:|---:|
+| 0.5% | 88.2% | 92.8% | 94.6% |
+| 1% | 77.8% | 86.0% | 89.5% |
+| 2% | 60.3% | 73.9% | 80.1% |
+| 3% | 46.7% | 63.3% | 71.5% |
+| **5%** | **27.7%** | 46.3% | 56.9% |
+
+At `-k 25`, 5% error leaves 27.7% — below `-t 0.4`, so nothing clears threshold and the mapper
+reports almost nothing rather than reporting noise. Confirmed independently: D2's *measured* 25-mer
+survival is 88.28% against 88.2% predicted at its measured 0.498% error.
+
+So the operating envelope is `(1-e)^k > t`, and the two ways to widen it are lowering `k` or
+lowering `t`. That is what `[params.ont-k15]` in `suite.toml` is for, and it is now a derived
+setting rather than a guess: at 5% error, k=15 leaves 46.3%, back above the threshold.
+
+### Why a uniform error model is not just imprecise but wrong
+
+The three ONT rows are the same mean error rate and differ only in how it is *distributed* across
+reads:
+
+| | mapped of 20 000 |
+|---|---:|
+| every read at exactly 5% | 0.11% |
+| spread 0.5 | 15.84% |
+| spread 0.8 | 32.02% |
+| **real ONT (B05), for reference** | **42.95%** |
+
+A factor of ~300 between the first and third rows, from a change that leaves the mean untouched.
+Because mapping is a threshold on each read's *own* rate, the mean is close to uninformative near
+the cliff, and the population that maps is the low-error tail. Realistic spread accounts for
+essentially the whole distance to the real ONT figure.
+
+This is why the earlier uniform-model conclusion — "5% error maps 0.08%" — was wrong to quote as a
+property of shmap-rs. It is a property of the simulator. `simulate_reads.py` now defaults
+`--error-sd` to 0 only so the controlled comparison above stays controlled; any figure meant to
+describe real data has to use a spread.
+
+**Precision holds while recall falls.** Of the ONT-like reads that do map, 97.8% and 98.5% are
+placed correctly. shmap-rs degrades by *declining to map* the reads it cannot resolve, not by
+mis-placing them — which is the failure mode you want, and is consistent with §8's finding that
+every satellite misplacement already carries mapq 0.
+
+---
+
 ## 10 Limitations
 
 What the numbers above do **not** establish. Stated here rather than left for a reader to infer,
@@ -1266,370 +1398,224 @@ a recommended setting.
 
 ## 11 What to try next
 
-The open threads, with what is already known about each so they are not re-derived.
+Where the time still goes, what has already been tried and measured, and what is genuinely open.
+Recorded so none of it is re-derived. Every negative below was measured, not argued: the probes are
+in [`profiling/`](profiling/) and the branches are named where one exists.
 
-### Memory-bandwidth contention on the shared index — diagnosed, attempted, doesn't pay off
+### Where the remaining time is
 
-§3 measures per-read CPU cost rising continuously with thread count — +4-45% by 16 threads
-(within one socket), +39-138% by 32, +76-240% by 64 — on every benchmark. Two `numactl`
-experiments point at memory-bandwidth/cache contention on the single, shared, read-mostly index as
-the mechanism, sharply worse once `-@` needs to cross this host's socket boundaries (16 cores each,
-4 sockets) but, per that same table, already real *within* one socket. Not the reader/collector
-pipeline (both checked directly and ruled out), and not anything dataset-specific (the same curve
-appears on all five benchmarks).
+- **`match_seeds` dominates on repetitive references.** At `k=15` whole-genome it is 92% of mapping
+  on HiFi, 73% on CLR, 61% on ONT; at the paper's own `k=25` it is 21%, behind `match_rest`/`refine`
+  at 31%. It is bounded by hit volume — a handful of very repetitive 15-mers each have millions of
+  genome-wide hits (`max_seed_matches` peaked at 11.2 M for one seed). Reducing volume is the one
+  remaining lever and it is **rejected**: `-M`/`--max_matches` shifted the mapq distribution at a
+  mild threshold and dropped reads entirely at an aggressive one (300/300 → 279/300 on a sample).
+  The "never degrade mapping" gate rules it out unless volume can be bounded without touching
+  results.
+- **Indexing is close to its floor and has no dominant phase.** Sharding and the two-pass reader took
+  `index_initializing` 8.4 s → 1.1-1.8 s and `index_reading` 4.4 s → 1.5-1.7 s; the total bottoms
+  out near 2.9-3.4 s against ~9.4 s before. Reading and the shard fill are each ~1.5 s, both within
+  ~2x of the 0.87 s it takes merely to stream the 3.18 GB reference off page cache. Further gains
+  need *reading less* — a persistent on-disk index — not more parallelism (§5).
+- **Sketching is load-port-bound**, ~2.0 ns/base on the benchmark host, at 6 loads/base against two
+  load ports. Both levers that target it have been probed and lost; see below.
 
-**The obvious fix — one copy of the index per NUMA node — was built (Q5, branch
-`fix-numa-index-replication`, not merged) and measured to be a net regression against doing
-nothing, on this host, at every thread count that touches more than one socket.** Five escalating
-attempts, each implemented completely and measured against a real benchmark run (not projected):
+### Ruled out, with the measurement
 
-1. **Even split across every available node.** Spread `-@`'s threads evenly across all 4 sockets
-   regardless of whether they'd fit on fewer — `-@16` (which fits on *one* 16-core socket) still
-   built four replicas. Made `-@64` slower than `-@32`.
-2. **Packed into the fewest nodes that fit, single-threaded `.clone()` per replica.** Fixed the
-   above, but re-paid close to the ~7.7 s serial hash-map-insert floor sharding the index's own
-   *build* exists to avoid (`SHARD_BITS`'s doc comment in `src/index.rs`) — once per node, on one
-   thread, while ~60 other cores sat idle.
-3. **Parallelised the clone**, one thread per shard and per segment. Faster, still a net
-   regression.
-4. **`set_mempolicy`/`MPOL_BIND`, then `mbind`/`MPOL_MF_MOVE`.** `/proc/<pid>/numa_maps`, sampled
-   mid-run, showed *why* (3) still failed: pages landed scattered across every node regardless of
-   which single node their writing thread was pinned to — not an allocation-size problem, but `cat
-   /proc/sys/kernel/numa_balancing` reading `1` on this host, meaning the kernel's own automatic
-   balancing migrates pages on its runtime heuristics, and plain CPU-pinning-plus-first-touch
-   carries no weight against it. `MPOL_BIND` is exempt from that migration; `mbind`/`MPOL_MF_MOVE`
-   actively relocates pages already placed wrong. Implemented correctly (verified via the same
-   `numa_maps` trace) — still a net regression, because migrating an already-misplaced buffer costs
-   a real page-by-page copy, scaling with exactly how wrong the placement was to begin with.
-5. **Bypass the allocator entirely.** mimalloc (this crate's global allocator) eagerly commits and
-   reuses large arena pages an earlier, unrelated, unpinned thread already touched — usually one of
-   `build_index`'s own indexing workers — so even a correctly pinned-and-bound thread's "fresh"
-   allocation could land on pages that were never actually fresh. This version routes replica
-   storage straight through `mmap(2)` instead (`src/numa_storage.rs`'s `NumaBuffer`, plus a
-   hand-rolled open-addressing `RawHashTable` standing in for `HashMap`, since there is no safe way
-   to hand a `HashMap` a caller-owned backing buffer), with the binding thread's memory policy set
-   *before* the allocating call. This is the version that actually achieves correct placement —
-   and it is *still* a wash at best (`-@16`, the single-node case, roughly ties the unreplicated
-   baseline) and a clear loss everywhere a second socket is needed, including the mapping-dominated
-   B04 at `-@64` (44.5 s replicated vs. 33.7 s unreplicated — an ~32% regression). Building and
-   first-touching a fresh multi-GB copy of the index per socket costs more wall-clock time, on this
-   host, than the cross-socket traffic it avoids ever costs during actual mapping.
+| idea | verdict | headline figure |
+|---|---|---|
+| NUMA index replication (Q5, `fix-numa-index-replication`) | built, net regression | 44.5 s replicated vs 33.7 s not, B04 `-@64` |
+| A tighter Jaccard pruning bound (Q7) | ruled out mathematically | `hseed` is provably the tightest bound the tracked counts allow |
+| SIMD in the per-read mapping steps (Q8) | doesn't fit the costs | the two dominant stages are memory-latency-bound |
+| Software prefetching for pruning lookups (Q9) | probed, negative | 0.64-0.69x plain, 0.96-1.05x with `_mm_prefetch` |
+| 2-bit-packed sequence encoding (Q10) | probed, negative | 1.013 → 1.131 ns/base at its best |
+| Bucket accumulator chosen by occupancy (`q13-dense-occupancy`) | built, cancels out | `match_seeds` 1.14x bought at `bucket_merge` 0.61x |
+| Dead/duplicated per-read work (`q14`, `q15`) | measured, ~4%, not taken | 1.041x on `query_mapping`, ~1.7% of wall |
 
-Every attempt kept output byte-identical (`strip_time_tag`-diffed against `-@1`) and passed the
-full test suite — the code was correct at every stage. The reason to stop is economic, not
-architectural: this host's replication cost (mmap, page-fault, and first-touch time for the ~2.5
-GB/socket index) does not amortize over even the longest mapping phase measured (B04, `-@64`,
-~30-45 s total). A host with a much longer mapping phase relative to index size, or a much smaller
-index, could plausibly see this pay off — but that is a different, unmeasured regime, not grounds
-to ship it here.
+**NUMA index replication.** §3 measures per-read CPU cost rising continuously with thread count —
++4-45% by 16 threads, +39-138% by 32, +76-240% by 64 — on every benchmark. `numactl` experiments
+point at memory-bandwidth contention on the single shared index, sharply worse across sockets but
+already real within one. Corroborated by hardware, not argument: the same commit on `galaxy`, which
+has one NUMA node, scales monotonically to 11.7x at `-@64` where a2 peaks at 6.0x on `-@16`
+(`benchmarks/results/suite-1.0/aarch64/ARCH.md`).
 
-**A library swap alone does not fix this.** `rayon`'s default global thread pool has no NUMA
-awareness — it does not replicate read-only data per node or pin workers to a memory domain, so
-routing the existing per-read parallelism through it would leave the measured bottleneck exactly
-where it is. Work-stealing could plausibly make locality *worse* in some cases, since a stolen task
-can execute on any core in the pool, including one on a different socket than wherever its data was
-last touched — the opposite of what this problem needs. If `rayon` simplifies the current hand-
-rolled channel/scope pipeline later, that is a maintainability argument, independent of this one.
+Five escalating attempts were each implemented completely and measured: even split across nodes;
+packed into the fewest nodes that fit; a parallelised clone; `set_mempolicy`/`mbind` after
+`/proc/<pid>/numa_maps` showed pages scattering because this host runs `numa_balancing = 1`; and
+finally bypassing the allocator with `mmap(2)` (`src/numa_storage.rs`), because mimalloc eagerly
+reuses arena pages an earlier unpinned thread already touched. Only the last achieves correct
+placement, and it is still a wash at `-@16` and a clear loss wherever a second socket is needed.
+Output stayed byte-identical throughout — the reason to stop is economic: building and
+first-touching a fresh ~2.5 GB replica per socket costs more than the cross-socket traffic it avoids
+over even the longest mapping phase measured. A different regime (much longer mapping relative to
+index size) could plausibly pay off; this host does not.
 
-**Usable today, no code change.** On this specific 4-socket host, `-@16` pinned to one socket
-(`numactl --cpunodebind=0 --membind=0`) already matches or beats an unconstrained `-@64` — sixteen
-well-placed threads outrunning sixty-four poorly-placed ones (§3). Capping `-@` at one socket's core
-count, or pinning explicitly, remains the actionable recommendation for multi-socket hosts — index
-replication, having now been tried, is not.
+`rayon` is not the fix either: its global pool has no NUMA awareness, and work-stealing can make
+locality *worse*, since a stolen task runs wherever the pool has a free core. **Usable today, no
+code change:** `-@16` pinned with `numactl --cpunodebind=0 --membind=0` already matches or beats an
+unconstrained `-@64` on this host.
 
-### A tighter Jaccard pruning bound — investigated, ruled out mathematically
+**A tighter Jaccard pruning bound.** Jaccard sends 2.70x more buckets into `refine` than Containment
+on the same reads (1 676 532 vs 620 342, B01 `-@1`) while `refine`'s wall time scales at 2.62x
+(16.43 s vs 6.27 s). That closeness is the finding: per-bucket refinement cost is essentially
+metric-symmetric, so the whole gap is that Jaccard's pruning lets more buckets through. `hseed`
+bounds `matches/m`, which is Containment's own formula; Jaccard's ceiling — zero non-matching filler
+in the scoring window — collapses to exactly that same quantity, so `hseed` is not a loose stand-in
+but the tightest bound obtainable from the counts pruning tracks. The `r_min`/`r_max` extremes
+already carried per bucket do not help: safely ruling a bucket out needs a lower bound on the
+*minimum achievable span* of some subset of its matches, and the adversarial case ("about to miss
+one match, the rest packed arbitrarily tight") defeats both the count and the extremes. A real fix
+means tracking per-bucket match positions during pruning, at which point pruning is doing
+comparable work to `refine` itself.
 
-Measured fresh for this investigation (`-x`/`--profile-log`'s `refined_buckets`/`refine_memo_hits`
-counters, B01 at `-@1`, not currently part of §5b's own generated table): Jaccard sends far more
-buckets into `refine` than Containment does on the same read set — 1,676,532 vs 620,342, a 2.70x
-ratio — while `refine`'s own wall time scales at almost exactly the same ratio (16.43 s vs 6.27 s,
-2.62x). That closeness is the key finding: the per-bucket cost of refining is essentially
-metric-symmetric, so the entire cost difference is that Jaccard's pruning pass
-(`seed_heuristic_pass`, bounded by `hseed`) lets more buckets through before ever reaching
-`refine`, not that refining a bucket costs more under Jaccard.
+**SIMD in the per-read mapping steps.** Profiled fresh at `k=25`, `-@1`, B01: `match_rest`/`refine`
+is 31.3% of mapping, `match_seeds` 21.1%, sketching 19.3%. `match_seeds` streams pre-sorted hits
+through a two-slot accumulator where each hit depends on state from the previous one — vectorizing
+gives up the streaming property that design exists for. `match_rest`/`refine` does a hashtable
+lookup and a data-dependent array index per swept k-mer; the genuinely uniform arithmetic on that
+path (`DenseSlot::add`) is cheap enough against the random access around it that perfect
+vectorization would be unmeasurable, and widening the 16-byte slot fights the L3 residency §1 is
+built on. One modest candidate is not pursued: `unique_elements_with_info`'s per-read k-mer sort
+(~4-5% of mapping) could use a packed-key sort, but the ceiling is small and reproducing the
+tie-break semantics exactly needs care for that reward.
 
-**Why tightening `hseed` for Jaccard specifically isn't safe to do cheaply.** `hseed` bounds
-`matches/m` — exactly Containment's own score formula, so it's tight for Containment by
-construction. Jaccard's formula, `intersection/(m + s_sz − intersection)`, is bounded above by
-that same `matches/m` too, because its ceiling — the best case where the eventual scoring window
-contains zero non-matching filler k-mers (`s_sz = intersection`) — collapses to exactly
-`intersection/m`. So `hseed` isn't a loose stand-in reused for convenience; it is provably the
-*tightest bound obtainable* from the aggregate counts pruning currently tracks (`bucket.matches`,
-`bucket.seeds`).
+**Software prefetching.** The right target is `matches_in_bucket`'s random access into the multi-GB
+index, not `best_fixed_length`'s per-read structures, which are cache-resident by the time they
+matter. Probed standalone (`profiling/prefetch_probe.rs`) at real scale — 4 M entries, ~100 MB,
+20 M lookups, three hit rates, lookahead 4-32: plain safe-Rust lookahead is **0.64-0.69x**, explicit
+`_mm_prefetch` at `D=4` is 0.83-0.86x, and at `D=16-32` it merely breaks even (0.96-1.05x). The
+baseline already runs ~25-30 ns/query on a table many times L3, so out-of-order execution is
+overlapping the independent loads on its own, leaving little latency to hide.
 
-Bucket accumulation already tracks `r_min`/`r_max` per bucket for free (`matches_in_bucket`,
-`src/shmap/pruning.rs`), so the obvious next question was whether those extremes tighten the bound
-without new bookkeeping. They don't: to safely rule out a bucket, pruning would need a genuine
-lower bound on the *minimum achievable span* for some subset of its matches — not the full-count
-span between the extremes. The adversarial case pruning must not wrongly eliminate is always
-available and neither the count nor `r_min`/`r_max` can rule it out: "this bucket is about to miss
-one match, but the rest of its matches are packed arbitrarily tight nearby." Proving a materially
-tighter bound safe against that case requires the actual sorted positions of matches within the
-bucket, not two extremes — at which point pruning is no longer a cheap filter ahead of `refine`,
-it is a second pass doing comparable work to `refine` itself, and it is not obvious that pass would
-even be cheaper than the buckets it would save.
+**2-bit-packed sequence encoding.** Probed against a faithful copy of `sketch_slice_into`'s loop
+(`profiling/pack2bit_probe.rs`, 50 Mbase, all variants asserted bit-identical): baseline 1.013
+ns/base, naive packing 2.058 (0.49x), unrolled ×4 — its best case — 1.131 (0.90x). A second probe
+(`profiling/chain_probe.rs`) settled *why*: three independent hash chains buy only **1.11x**, so the
+loop is not dependency-bound. It issues 6 loads/base (two sequence bytes, four LUT entries) against
+two load ports — a hard 3 cycles/base against ~3.6-4.0 measured. Packing removes 1.5 loads/base, but
+the cheapest, prefetcher-friendly ones, paying in shift/mask ALU work. **The four LUT loads are the
+real cost**, so packing aimed at the wrong half; the lever that does target them is replacing
+lookups with register permutes, which is Q1's already-rejected AVX-512 path. This confirms Q1's
+premise from the opposite direction.
 
-**Conclusion.** The C/J refinement cost gap is an inherent property of the algorithm, not an
-implementation gap — Jaccard's theoretical ceiling for a bucket genuinely can equal Containment's,
-so no bound tighter than `hseed` is safely derivable from the counts pruning cheaply tracks today.
-A real fix would mean tracking match-position lists per bucket during pruning (not just counts and
-extremes) and re-measuring whether the extra bookkeeping cost is smaller than the buckets it saves
-— a new, real investigation with its own cost/benefit measurement, not a quick change, and not
-attempted here given the correctness stakes of any pruning-bound mistake (a wrong bound silently
-drops a correct mapping, the same class of risk `-M`/`--max_matches` was rejected for above).
+**Choosing the bucket accumulator by occupancy.** The dense accumulator was introduced for `k=15`,
+where a read makes ~4 M contributions against ~242 k buckets. At `k=25` the slot count is the same
+but §5b's `seeded_buckets` says a read touches **248 of them — 0.1% occupancy**, so the array is a
+scatter table, not an accumulator, and `MAX_DENSE_SLOTS` cannot tell the cases apart. Adding an
+occupancy test routes 96.5% of HiFi reads to the sparse path. Interleaved A/B/C, median of 3, with
+`sketching` as an identical-work control: `match_seeds` 1.070x/1.143x and `prepare` 1.089x/1.132x at
+`-@1`/`-@16`, but `bucket_merge` 0.607x/0.619x, leaving `query_mapping` at 1.006x/1.026x — inside
+what the control cell reports. **Occupancy is the wrong variable**: at 3.9 MB the array is
+L3-resident, so a miss is ~40 cycles rather than a DRAM round trip, which beats radix-sorting ~3 800
+records per read. The gain is cancelled rather than absent — a cheaper merge for this regime would
+surface it as ~5-8% end to end — which is why the branch is kept. A latent panic found on the way
+(dirty slots retired after a sizing loop that had already replaced the array) is fixed with a test,
+and is worth taking to `main` independently.
 
-### SIMD in the per-read mapping steps — investigated, doesn't fit the dominant costs
+**Comparing two builds confounds the change with the layout.** `lto = "fat"` with
+`codegen-units = 1` re-lays-out the whole program on every build, and that term is larger than most
+changes worth making. A change confined to one scoring branch, A/B'd both ways:
 
-Sketching's own SIMD question is already answered (§1 above / Q1 in QUESTIONS.md): a real k-mer-
-emission SIMD pass measured 0.79-0.96x, a wash to a regression, before even accounting for this
-host's AVX-512 downclocking. What follows is the *other* per-read steps.
+| | across two builds | one binary, toggled |
+|---|---:|---:|
+| `refine` | 1.074x, 1.152x | **1.024x** |
+| `match_rest` | 1.099x, 1.101x | **1.025x** |
+| `collect_kmer_info` | 0.806x, 0.813x | **0.961x** |
+| `query_mapping` | 1.021x, 1.047x | **1.010x** |
 
-Profiled fresh at the standard benchmark parameters (`k=25`, `-@1`, B01) rather than reusing the
-k=15 whole-genome figures elsewhere in this file, since the balance of costs is different at the
-paper's own operating point: `match_rest`/`refine` is the single largest per-read cost at **31.3%**
-of `mapping`, ahead of `match_seeds` at **21.1%** and sketching at **19.3%**.
+The change's apparent size is inflated **3-6x**, and `collect_kmer_info` — which runs *before* the
+changed code — reproducibly "regressed" 19-23% across builds while flat within one binary. That is
+layout, not work. **A perf claim here therefore needs one binary and a runtime switch**, which is
+why `SHMAP_NO_REFINE_MEMO`, `SHMAP_DENSE_POLICY`, `SHMAP_NO_SCORE_SHORTCUT` and `SHMAP_FORCE_P_HT`
+exist. Where a change cannot be a switch, use the suite's drift correction or a fitted cost model —
+both compare like with like across many runs.
 
-Neither of the two largest fits SIMD:
+**Dead and duplicated work in the per-read path.** A code-reading pass found two real things
+(branches `q14-refine-inner-loop`, `q15-single-index-probe`). `p_ht` was built per read and never
+read: it clones a whole `Seed` per unique k-mer, and its only readers are `bucket_LCS` and the `-v2`
+ground-truth analysis, neither of which runs on the three measured metrics. And every consumed seed
+was looked up twice — `collect_kmer_info` asked for a hit count via `contains_key` and discarded the
+entry, then `match_seeds` re-probed the same shard. Measured inside one binary, median of 4:
+`prepare` 1.189x, `match_seeds` 1.059x, everything together **1.041x on `query_mapping`** — ~1.7% of
+wall at `-@1` on a 1x read set, on one benchmark, metric and thread count. The merge bar is end to
+end, so this is recorded rather than merged; the `p_ht` removal is the piece that carries its own
+weight, and it is independent of the rest. One hypothesis died on the way and should not be retried:
+shrinking the scoring sweep's k-mer table payload from ~72 bytes to a packed u32 measured **nothing**
+(`refine` 0.997x) — at 128 k-mers the fat table is already near-L1-resident.
 
-- **`match_seeds`** streams pre-sorted hits through a two-slot accumulator (§2 above) — an
-  O(1)-per-hit design chosen specifically to replace a hashmap. Each hit's processing depends on
-  accumulator state carried from the previous one; vectorizing across hits would mean giving up
-  the streaming property that redesign exists for.
-- **`match_rest`/`refine` (`best_fixed_length`)** sweeps reference k-mers doing a hashtable lookup
-  (`p_ht.get`) and a data-dependent array index (`diff_hist[seed_num]`) per element — the same
-  memory-latency-bound shape already documented for the neighboring pruning loop (Q7 above), where
-  restructuring was tried and measured as a net loss twice. The small pieces of genuinely uniform
-  arithmetic on this path (`DenseSlot::add`: two integer adds, a min, a max, on a struct
-  deliberately kept at 16 bytes for L3 residency) are cheap enough relative to the random memory
-  access around them that even a hypothetical perfect vectorization would be unmeasurable —
-  widening the struct to a SIMD-friendly lane count would also work directly against the memory-
-  footprint design §1 already optimizes for.
+### Open, in the order they would settle something
 
-**One real, modest candidate, not pursued.** `unique_elements_with_info` sorts each read's own
-k-mers by hash (`group_kmers` + `sort_kmers`, ~4-5% of `mapping` combined) — a comparison sort over
-a few thousand elements per read, called once per read. A packed-key sort — the same technique §1
-above already uses for `get_sorted_buckets`'s final ordering — could plausibly speed this up, since
-every hash reaching it is already bounded below `2^57` at `-r 0.01`, leaving header room to pack a
-tie-break in. Not attempted: the ceiling is small (a few percent of `mapping` at best, since that
-is this stage's entire current share), and reproducing the exact tie-break semantics correctly
-(`b.r.cmp(&a.r)` on equal hashes, needed for LCS — see the comparator in `seeding.rs`) needs real
-care for a reward this size.
+**Reads simulated from a *different* genome and lifted to the reference.** The single highest-value
+addition. §10 names it as the weakest assumption in the file: B02 is simulated from the sequence it
+is then mapped against, so it carries no heterozygosity, structural variation or cross-individual
+divergence. Simulating from HG002 and lifting truth to CHM13 is the only way to get an accuracy
+number that means something about real data — and the reason §8's sampling-rate result has to be
+quoted as a direction rather than a magnitude.
 
-**Conclusion.** SIMD is not a strong lever for the current dominant per-read mapping costs — they
-are memory-latency-bound and hashtable/pointer-chasing-heavy, the regime SIMD (a compute-throughput
-technique) does not help. The one place with genuinely uniform arithmetic on that path is too
-cheap, relative to the memory access around it, to move measurably.
+**A chromosome-Y-only benchmark.** Every dataset here is whole-genome, where satellite and rDNA are
+6.3% of reads, so the mapper's hardest regime is a rounding error in the totals. chrY puts it in the
+majority. Cheap: one `samtools faidx` and one simulator run.
 
-### Software prefetching for the pruning lookups — probed, measured negative
+**Selective sketch density, built into the mapper.** §8 has the measurement — raising `-r` only
+inside repeat regions recovers 78-90% of what global density buys, at 3.0-3.5x wall instead of
+6.3-8.2x and no measured memory cost. What remains is moving it out of
+[`profiling/selective_density.py`](profiling/selective_density.py), which cuts a mini-reference and
+re-maps; in-process this wants a **second `SketchIndex` over those regions only**. It cannot be
+merged into the base index: with `abs_pos` off a bucket is `tpos / halflen`, so inserting dense
+k-mers renumbers every existing bucket and changes first-pass output. Peak would be the sum of the
+two (~4.2 GB), not the larger. The open question the script cannot answer is the region set — its
+ceiling is 528 of 582 recoverable reads, because a read whose truth falls outside the regions can
+never be rescued. Regions derived from index-time k-mer frequency would be read-set-independent.
 
-`seed_heuristic_pass`'s own doc comment already calls that workload memory-latency bound, and it is
-the function that actually does random access into the multi-GB reference index
-(`matches_in_bucket`'s `tidx.single_hit`/`multi_hits`, keyed by k-mer hash) — a different, larger
-structure than `best_fixed_length`'s own `p_ht`/`diff_hist` above, which are per-read and small
-enough to be cache-resident by the time they matter. The textbook fix for a confirmed
-latency-bound, sequential-but-independent-lookup loop is software prefetching: hint the hardware to
-start fetching lookup `i+D`'s cache line while still processing lookup `i`, hiding the DRAM
-round-trip instead of paying it serially.
+**Sweeps of `-t`, `-d`, `-o` and `-k`.** §8 sweeps `-r` and `-M` thoroughly and these not at all, so
+nothing says whether the operating point is a plateau or a peak — and §8's two rejected ideas both
+hinged on a threshold interacting with a score. `-t` matters most: it sets how hard pruning can cut.
 
-Tested with a standalone probe (`profiling/prefetch_probe.rs`) before touching any real code — an
-open-addressing table sized to this host's real per-shard scale (4M entries, ~100 MB, well past
-this host's L3), queried at the same order of magnitude as a real run (20M lookups), across three
-hit rates and lookahead depths 4-32:
-
-| variant | vs. baseline |
-|---|---|
-| plain lookahead (safe Rust, reordered, no explicit hint) | **0.64-0.69x — consistently slower** |
-| explicit `_mm_prefetch`, `D=4` | 0.83-0.86x — still slower |
-| explicit `_mm_prefetch`, `D=16-32` | 0.96-1.05x — roughly breaks even, never a clear win |
-
-Baseline itself runs at ~25-30 ns/query (~75-90 cycles at this host's clock) for a table many times
-larger than L3 — fast enough that the CPU's own out-of-order execution is already overlapping
-independent loads on its own, leaving little latency for explicit prefetching to additionally hide.
-The safe-Rust reordering variant is a clean loss (the ring-buffer bookkeeping isn't compensated by
-anything); the unsafe explicit-hint variant is at best a wash.
-
-**Conclusion.** No implementation in `src/` — the probe answered the question before any real code
-needed to change. The hypothesis (this loop resembles a classic "hide DRAM latency with software
-prefetch" case) does not survive contact with a real measurement on this host: modern out-of-order
-execution is already doing most of what explicit prefetching would add, for this access pattern
-and table size.
-
-### 2-bit-packed sequence encoding for sketching — probed, measured negative
-
-The "remaining bottlenecks" section of [`PROFILING.md`](PROFILING.md) names 2-bit packing as one of
-two levers left for sketching (~2.0 ns/base; 19.3% of `mapping`, plus a large share of indexing).
-The other, SIMD, was tried in Q1 and lost. Packing attacks a different thing: 4 bases per byte
-means one sequence load serves 4 iterations instead of 1, cutting the sequence-load share from
-2/base to 0.5/base.
-
-Probed standalone (`profiling/pack2bit_probe.rs`, 50 Mbase, `k=25`) against a faithful copy of
-`sketch_slice_into`'s loop — **all variants asserted to produce bit-identical accumulators**, so
-the timings compare the same computation:
-
-| variant | ns/base | vs. baseline |
-|---|---:|---|
-| baseline (byte-per-base, the real loop) | 1.013 | — |
-| 2-bit packed, naive (reload byte on boundary) | 2.058 | **0.49x — 2x slower** |
-| 2-bit packed, unrolled x4 (one u64 load/stream/group, no branch) | 1.131 | **0.90x — 10% slower** |
-
-Even given its best case — the unrolled form, one unaligned `u64` load per stream per four bases,
-no per-base branch — packing loses. Testing only the naive form would have strawmanned it; it
-doesn't need the help.
-
-**Why, and what it says about the loop generally.** The baseline's 1.013 ns/base is ~3.95 cycles at
-this host's single-core turbo (3.9 GHz — see Q1's addendum in `QUESTIONS.md`). A second probe
-(`profiling/chain_probe.rs`) ran 1-3 *independent* hash chains over disjoint slices in one loop, to
-separate "waiting on the serial `rotate -> xor -> xor` chain" from "saturating a hardware port":
-
-| chains | ns/base | throughput vs. 1 chain |
-|---:|---:|---|
-| 1 | 1.012 | 1.00x |
-| 2 | 0.931 | 1.09x |
-| 3 | 0.910 | 1.11x |
-
-Only **1.11x** from three independent chains. Were the loop dependency-bound, independent chains
-would nearly multiply throughput; they don't. The floor is a port limit, and the arithmetic
-identifies which: the loop issues **6 loads per base** (two sequence bytes, four LUT entries)
-against this core's two load ports — a hard 3 cycles/base, against the ~3.6-4.0 measured. ALU is
-not close to binding (~8 ops/base across four ports, ~2 cycles).
-
-That explains the packing result exactly. Packing removes 1.5 loads/base — but the *cheapest* ones,
-sequential and prefetcher-friendly — and pays for them in shift/mask ALU work, moving the
-bottleneck from the load ports to the ALU ports at roughly the same cycle count, plus overhead.
-
-**This confirms Q1's premise rather than overturning it.** Q1's probe concluded "the lever is
-removing loads, not adding independent chains"; the multi-chain measurement above is independent
-evidence for exactly that, arrived at from the opposite direction. It also sharpens it: the four
-*LUT* loads are the real cost, not the two sequence loads, so 2-bit packing was aimed at the wrong
-half. Q1's AVX-512 attempt did target the LUT loads (replacing table lookups with `vpermq`
-register permutes) and won on hashing alone — it lost only once real k-mer emission was included.
-
-**Conclusion.** No implementation in `src/`. Sketching's rolling loop is load-port-bound at ~6
-loads/base, and the only lever that addresses that is removing LUT lookups — which is Q1's already-
-measured, already-rejected SIMD path. 2-bit packing's remaining merit is memory footprint, not
-speed, and this port already discards the reference sequence after sketching (§8 of
-[`PORT_CHANGES.md`](PORT_CHANGES.md)), so that benefit would be transient during indexing only.
-
-### Measurements the upstream evaluation makes that this suite does not
-
-Checked against the algorithm's own (unpublished) evaluation plan on 2026-08-02. §5b closed the
-seed-heuristic gap and `wrong_q60` closed the confident-error one; these are what remain, ordered
-by what they would actually settle. None of them is blocked on anything but machine time.
-
-**A chromosome-Y-only benchmark.** Every dataset here is whole-genome, where satellite and rDNA
-are 6.3% of the reads (§8) and the mapper's hardest regime is therefore a rounding error in the
-totals. chrY is the opposite: near-continuously repetitive, and the standard stress case for
-long-read mappers. §8 shows the interesting behaviour — errors 63x denser inside repeats, all of
-them labelled mapq 0 — measured on a handful of reads. A chrY set would put that regime in the
-majority instead of the tail, and it is cheap: one `samtools faidx` for the reference and one
-simulator run.
-
-**Reads simulated from a *different* genome and lifted to the reference.** §10 names this as the
-weakest assumption in the whole file: B02 is simulated from the very sequence it is then mapped
-against, so it carries no heterozygosity, no structural variation and no cross-individual
-divergence. Simulating from HG002 and lifting the truth coordinates to CHM13 (`liftOver`) gives
-ground truth that survives those, which is the only way to get an accuracy number that means
-anything about real data. This is the single highest-value addition here, and the reason §8's
-sampling-rate result has to be quoted as a direction rather than a magnitude.
+**A real exactness measurement.** §5b explains why `lost_on_seeding`/`lost_on_pruning` report
+nothing — both are inert upstream and ported as such. The quantity they were meant to capture is
+measurable by running with pruning disabled and diffing, on a read set small enough to afford the
+quadratic cost. That is the only direct evidence the heuristic is admissible in practice rather than
+only on paper.
 
 **minimap2 and blend in the concordance corpus.** §8 joins against mapquik and Winnowmap2 only.
-minimap2 is the tool everyone else's baseline is, and blend is the closest sensitivity comparison;
-the Makefile already has `eval_minimap` and `eval_blend` targets, so this is corpus-building time
-in `reference_mappers.py`, not new code.
+minimap2 is what everyone else's baseline is. The Makefile already has the targets, so this is
+corpus-building time, not new code.
 
-**Per-read time against per-read match count — instrumented, and the answer is not yet clean.**
-`--per-read-stats` now writes a row per read (time, matches, buckets, mapq), a run collects it
-when `[per_read_stats]` is enabled, and `paper/generated/x86_64/fig_time_vs_matches` plots it. What the
-data does not yet do is settle the scaling claim.
+**Per-read time against match count — instrumented, not yet clean.** `--per-read-stats` writes a row
+per read and `fig_time_vs_matches` plots it, but a *linear* fit beats a logarithmic one on B02
+(R² 0.958 vs 0.677) and B05 (0.949 vs 0.763) while B03 goes the other way. That is not evidence
+against `O(R·m·log M)`: the bound's three per-read factors co-vary, so a single-variable fit hands
+their combined growth to whichever variable is on the axis. Settling it needs reads matched on `R`
+and `m` so `log M` varies alone — a designed comparison, worth agreeing before the claim is printed.
 
-Fitting per-bin median time against the matches a read examined, a *linear* fit beats a
-logarithmic one on B02 (R² 0.958 against 0.677) and B05 (0.949 against 0.763), while B03 goes the
-other way (0.897 against 0.761). That is not evidence against the `O(R·m·log M)` bound, and it
-should not be quoted as if it were. The bound has three per-read factors — blocks visited `R`,
-sketch size `m`, and `log M` — and they co-vary, so a single-variable fit hands their combined
-growth to whichever variable is on the axis. Normalising by `m` leaves linear ahead (R² ~0.92
-against ~0.59); normalising by `m·R` puts logarithmic ahead but with a *negative* slope and R²
-of only 0.52–0.73, which says the normalisation over-corrects rather than that time falls with
-match count.
+**An ablation of the two exact optimizations.** Raising the similarity threshold as better mappings
+are found, and visiting blocks in decreasing match order, are both described as speedups that
+preserve the result exactly. Neither has a measured cost here; both would need flags to disable.
 
-Settling it needs reads matched on `R` and `m` so the `log M` term varies alone — a designed
-comparison rather than a sample of whatever the read set happened to contain. Worth doing before
-the claim appears in print, since the figure as it stands is descriptive and is captioned that way.
+**Wall against CPU-seconds.** Everything here is wall clock. The upstream evaluation reports user CPU
+time, which is fairer for a single-threaded comparison and the only honest figure for a threaded
+run: §2's `-@4` column is four cores against the C++'s one, and the CPU-second ratio (1.53-1.69x,
+computed by hand) is not in the result set.
 
-**Sweeps of `-t`, `-d`, `-o` and `-k`.** §8 sweeps `-r` and `-M` thoroughly and the other four not
-at all, so nothing here says whether the operating point is a plateau or a peak — and §8's two
-rejected ideas both turned out to hinge on a threshold interacting with a score. `-t` is the one
-that matters most, since it sets how hard the seed heuristic can prune.
+**Statistical power.** `repeats = 1` for the subject against median-of-3 for the control is
+backwards, and is a cost trade — three repeats take the matrix from ~4.7 h to ~14 h. Aggregation and
+drift normalisation stand in; no confidence intervals are computed. Raising `repeats` in `[run]` is
+a one-line change if the host is idle anyway.
 
-**An ablation of the two exact optimizations.** Dynamically raising the similarity threshold as
-better mappings are found, and visiting blocks in decreasing match order, are both described as
-speedups that preserve the result exactly. Neither has a measured cost here. They would need
-flags to disable them, which do not currently exist.
+**An unbiased error estimate for real ONT.** §10 records that the operating-point proxies hold for
+Containment and `bucket_SH` but overstate Jaccard on ONT by 2.3x, because the rate is estimated from
+confidently-mapped reads only. Closing it needs a rate that does not condition on mapping success —
+the same wall as "no truth for real reads", so it may need an orthogonal source.
 
-**A real exactness measurement, to replace the inert counters.** §5b explains why `lost_on_seeding`
-and `lost_on_pruning` cannot be reported: both are hardcoded upstream and ported as such. The
-quantity they were meant to capture — reads whose true best mapping the pruning discarded — is
-measurable by running with pruning disabled and diffing, on a small read set where the quadratic
-cost is affordable. That is the only direct evidence that the heuristic is admissible in practice
-rather than only on paper.
+**Phase-attributed memory.** `peak_rss_kb` is whole-run, so index and mapping memory cannot be
+separated the way their times now are (§3b). Needs instrumentation in `src/profiling.rs`.
 
-**Wall against CPU-seconds.** Everything here is wall clock. The upstream evaluation reports user
-CPU time (`time -f %U`), which is the fairer figure for a single-threaded comparison and the only
-honest one for a threaded run. §2's `-@4` column is four cores against the C++'s one, and the
-CPU-second ratio (1.53-1.69x, computed by hand on 2026-08-02) is not recorded anywhere in the
-result set.
+**Cold-cache measurement.** Every benchmark warms the page cache, which isolates CPU behaviour
+deliberately. Indexing is close enough to I/O-bound (§5) that a cold run would look materially
+different, and nothing here measures it.
 
 **A parameter-set discrepancy to resolve first.** The suite runs `-k 25 -r 0.01 -t 0.4 -d 0.075
--o 0.3` and §8 calls these "the paper parameters". The draft's own settings section gives `k = 25,
-r = 0.05, t = 0.5, o = 0.7, d = 0.15` — the same k and four different values, with a sampling rate
-5x denser. Since §8's headline finding is precisely that accuracy is bounded by the sampling rate,
-which set is authoritative changes what these tables are a measurement *of*. Worth settling with
-the author before any of the above is run.
-
-### Selective sketch density in repeats — answered, and worth building in
-
-§8 now carries the measurement: raising `-r` only inside repeat regions recovers 78-90% of what
-global density buys, at 3.0-3.5x the wall instead of 6.3-8.2x and no measured memory cost. The
-meryl set turned out to be useless as a region mask (it marks half of chr1); the regions come from
-the first pass's own mapq instead.
-
-What is left is to move it out of [`profiling/selective_density.py`](profiling/selective_density.py)
-and into the mapper, which is a different design from the one the script emulates. The script cuts
-the regions into a mini-reference and re-maps against it; in-process this wants a **second
-`SketchIndex` covering only those regions**, built alongside the base index. It cannot be merged
-into the base index: with `abs_pos` off a bucket is `tpos / halflen`, an offset into the segment's
-sketch array, so inserting dense k-mers would renumber every existing bucket and change first-pass
-output. Two indexes also mean the peak is their sum (~4.2 GB) rather than the larger of the two.
-
-The open question the script cannot answer is the region set. Its ceiling is 528 of the 582
-recoverable reads because a read whose true position falls outside the dense regions can never be
-rescued; regions derived from k-mer frequency at index time, rather than from one read set's
-first pass, would be read-set-independent and might cover more.
-
-### An unbiased error estimate for real ONT
-
-§10 records that the operating-point proxies hold for Containment and `bucket_SH` but overstate
-Jaccard on ONT by 2.3x, because the error rate is estimated from confidently-mapped reads only and is
-therefore biased low. Closing it needs a rate estimated without conditioning on mapping success —
-which is the same wall as "no truth for real reads", so it may not be closable without an orthogonal
-source such as aligned long reads from a different mapper.
-
-### Statistical power
-
-`repeats = 1` for the subject against median-of-3 for the control is backwards, and is a cost trade:
-three repeats would take the full matrix from ~4.7 h to ~14 h. Aggregation across thread counts and
-drift normalisation stand in for it, but no confidence intervals are computed. If the host is idle
-overnight anyway, raising `repeats` in `[run]` is a one-line change and the median reduction already
-exists.
-
-### Phase-attributed memory
-
-`peak_rss_kb` is whole-run, so index and mapping memory cannot be separated the way their times now
-are (§3b). The `-x` report samples memory but does not attribute peaks to a phase. This needs
-instrumentation in `src/profiling.rs`, not parsing.
-
-### Cold-cache measurement
-
-Every benchmark warms the page cache first, which isolates CPU behaviour deliberately. Indexing is
-close enough to I/O-bound (§5) that a cold run would look materially different, and nothing here
-measures it.
+-o 0.3` and calls these the paper parameters; the draft's settings section gives `r = 0.05, t = 0.5,
+o = 0.7, d = 0.15`. Since §8's headline finding is that accuracy is bounded by the sampling rate,
+which set is authoritative changes what every table here is a measurement *of*. Worth settling with
+the author before any of the above is run (P1 in [QUESTIONS.md](QUESTIONS.md)).

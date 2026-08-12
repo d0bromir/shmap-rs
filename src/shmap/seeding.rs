@@ -120,7 +120,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     // `buckets` directly with O(1) integer work per hit,
                     // instead of the ~O(hits) FxHashMap inserts the scratch
                     // `BucketsHash` did — `match_seeds`'s dominant cost on
-                    // repetitive references (see `PROFILING.md`).
+                    // repetitive references (see `PORT_CHANGES.md` §2).
                     //
                     // The per-seed aggregation exists because the `min(occs)`
                     // clamp below applies to a whole bucket's match count, so

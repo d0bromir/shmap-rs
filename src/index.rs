@@ -5,7 +5,7 @@
 //! # Multithreaded sketching (`-@`/`--threads`)
 //!
 //! Not present upstream (indexing is entirely single-threaded there); added
-//! because profiling (`PROFILING.md`) found reference indexing to be a fixed
+//! because profiling (`PORT_CHANGES.md` §5) found reference indexing to be a fixed
 //! serial floor that dominates whole-genome + few-reads workloads (~21s for
 //! the full CHM13 genome, ~70% of total wall time on a 2000-read run against
 //! it), the single biggest remaining lever once the `Buckets`-allocation fix

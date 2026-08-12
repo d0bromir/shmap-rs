@@ -41,7 +41,7 @@ its own single-threaded time:
 a2 peaks at 16 threads — exactly one socket — and then goes *backwards*.
 Galaxy climbs monotonically through 64 and has not yet turned over. Same
 commit, same compiler, same corpus, and
-[bit-identical counters](../../../paper/generated/cross-arch/) on both, so the
+[bit-identical counters](../../../../paper/generated/cross-arch/) on both, so the
 difference cannot be the code. **The Q4 conclusion is corroborated by hardware
 rather than by argument**: the ceiling is cross-socket memory traffic, not the
 pipeline and not the threading library.
@@ -167,19 +167,17 @@ which is only an error because `char` is unsigned by default here. Passing
 semantics match x86 — which is what we want anyway if the two hosts' binaries
 are to be compared.
 
-**mapquik cannot be built here, and forcing it would not be the same tool.**
-Its k-min-mer crate exports an AVX-512-only ntHash iterator behind
-`#![feature(stdarch_x86_avx512)]`, compiled unconditionally. The obvious escape
-is its `--nosimd` switch. Measured on a2 (B01, 148 225 reads): two runs of the
-identical default command agree on 100.00% of records, while default against
-`--nosimd` differs on 39 701 of 148 224 — 26.8% — and drops one read entirely.
-The control being exact is what makes that conclusive. See the commentary on
-`[external.mapquik]` in `suite.toml`.
+**mapquik cannot be built here, and forcing it would not be the same tool** —
+its k-min-mer crate compiles an AVX-512-only ntHash iterator unconditionally,
+and its `--nosimd` escape hatch re-places a quarter of the reads rather than
+reproducing the default. The measurement behind that is in
+[`../../../../profiling/other-mappers/README.md`](../../../../profiling/other-mappers/README.md),
+because it is a property of mapquik rather than of this host.
 
 The two mappers therefore land on opposite sides of the same question. The
 `sse2neon` translation preserves Winnowmap2's results to 99.997%; mapquik's
-scalar path re-places a quarter of the reads. "It has a SIMD path" says
-nothing on its own about whether a port is faithful.
+scalar path does not. "It has a SIMD path" says nothing on its own about
+whether a port is faithful.
 
 ## Reproducing
 

@@ -3,8 +3,9 @@
 A Rust port of [`shmap`](https://github.com/pesho-ivanov/shmap) — a sketch-based long-read mapper
 that finds where a read belongs by k-mer set overlap rather than by alignment.
 
-**Latest release: [1.3.1](https://github.com/d0bromir/shmap-rs/releases/tag/1.3.1)** — index and
-mapping time reported separately, and a corrected memory claim. Binary byte-identical to 1.3.0.
+**Latest release: [1.4.0](https://github.com/d0bromir/shmap-rs/releases/tag/1.4.0)** — per-read
+instrumentation (`--per-read-stats`), and the first release measured on two architectures with a
+working host-drift correction. Mapping output is unchanged.
 
 <!-- BEGIN GENERATED: readme-pitch -->
 Against the C++ original on real whole-genome data: **2.1–3.0x faster single-threaded, up to 16.6x
@@ -115,21 +116,26 @@ are window boundaries.
 
 ## Documentation
 
+**Start with one of these two.** [PORT_CHANGES.md](PORT_CHANGES.md) is what changed against the
+C++ and why; [RESULTS.md](RESULTS.md) is what it measures. Everything else supports them.
+
 | file | contents |
 |---|---|
-| [RESULTS.md](RESULTS.md) | **all benchmark numbers** — the single source, generated from `benchmarks/` |
-| [PORT_CHANGES.md](PORT_CHANGES.md) | speed and memory vs the C++ and the paper: verified C++ source snippets, exact data structures, and why |
-| [PROFILING.md](PROFILING.md) | optimization log: what changed, why, and what it measured at the time |
+| [PORT_CHANGES.md](PORT_CHANGES.md) | **what makes it faster and lighter than the C++** — every optimization in one table, then each with verified C++ source snippets and the data structure that replaced it |
+| [RESULTS.md](RESULTS.md) | **all benchmark numbers** — the single source, generated from `benchmarks/`; §11 is also the single home for approaches tried and rejected, with the measurement that rejected them |
+| [charts](benchmarks/results/suite-1.0/x86_64/current/chart-index.html) | the profiling tables drawn as pie charts, regenerated with every result set ([aarch64](benchmarks/results/suite-1.0/aarch64/current/chart-index.html), [both hosts side by side](paper/generated/cross-arch/charts.html)) |
+| [QUESTIONS.md](QUESTIONS.md) | the running log of what upstream asked, what was done, and what the benchmark said |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | how a PR is checked, and what decides a merge |
 | [VERSIONING.md](VERSIONING.md) | the four versions, and the PR rule |
 | [SECURITY.md](SECURITY.md) | why benchmarks run on a private host, and what gates them |
 | [benchmarks/](benchmarks/) | the suite definition, runner, merge gate and result sets |
-| [profiling/](profiling/) | dataset provenance, other-mapper measurements too costly to re-run, PAF validators |
+| [profiling/](profiling/) | how to profile a run, the probes behind the rejected optimizations, PAF validators, and measurements too costly to re-run |
 | [simulate/](simulate/) | read simulators, error-rate sweep, and the PBSIM3 provenance scripts |
+| [paper/](paper/) | tables and figures generated from a result set, for the paper |
 
 ## Correctness
 
-`cargo test` runs 53 tests; run it in **both** profiles, since debug activates the `debug_assert`s
+`cargo test` runs 58 tests; run it in **both** profiles, since debug activates the `debug_assert`s
 that guard the parallel index build and reader. Beyond that, changes are checked by byte-identical
 PAF against the previous build on the whole human genome, by thread-count invariance, and by
 `profiling/validate_paf.py`, which verifies structural, score and ground-truth invariants —

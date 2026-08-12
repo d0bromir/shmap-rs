@@ -560,7 +560,7 @@ def render(base: dict, cand: dict, res: dict, thr: dict) -> str:
         L += ["## Notes", ""] + [f"- {n}" for n in res["notes"]] + [""]
 
     L += ["---", "",
-          f"Rules: [VERSIONING.md](../VERSIONING.md). Thresholds from "
+          f"Rules: [VERSIONING.md](https://github.com/d0bromir/shmap-rs/blob/main/VERSIONING.md). Thresholds from "
           f"{'`hosts.toml` for `' + res['threshold_host'] + '`' if res.get('threshold_host') else '`suite.toml`'}: "
           f"wall review >{thr['wall_regression_review']*100:.0f}%, "
           f"block >{thr['wall_regression_block']*100:.0f}%; any drop in mapped reads, "

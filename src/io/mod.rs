@@ -379,7 +379,7 @@ fn read_fasta_ranged(
 /// `query_reading`): `fasta_parse_next` (needletail's own record parsing —
 /// I/O plus line/sequence assembly) and `fasta_extract` (this function's own
 /// name-splitting and sequence hand-off). Added to answer "is reading
-/// parsing-bound or I/O-bound" from `PROFILING.md` rather than guess.
+/// parsing-bound or I/O-bound" from `PORT_CHANGES.md` §6 rather than guess.
 pub fn read_fasta<P>(path: P, timers: &mut Timers, mut callback: impl FnMut(&str, Vec<u8>, f32)) -> Result<()>
 where
     P: AsRef<Path> + std::fmt::Debug,

@@ -1,6 +1,7 @@
 # profiling/
 
-Three live tools, plus the measurements and provenance that **cannot be regenerated**.
+How to profile a run, the live analysis tools, the standalone probes behind the rejected
+optimizations, and the provenance that **cannot be regenerated**.
 
 Current benchmark numbers are not here — they are in [`../RESULTS.md`](../RESULTS.md), generated
 from [`../benchmarks/`](../benchmarks/). This directory used to hold ~400 files of shmap-rs
@@ -10,6 +11,39 @@ than left to rot into a second, contradictory set of numbers.
 What survived is what a re-run cannot give back.
 
 ---
+
+## Instrumenting a run
+
+`-x`/`--profile-log` (`src/profiling.rs`) writes a per-run JSON report of stage times and per-read
+counters. Every benchmark run archives those per result set in
+`benchmarks/results/<suite>/<arch>/<set>/raw-profiles.tar.gz`, and
+[`../RESULTS.md`](../RESULTS.md) §5 is generated from them — so the stage tables always describe the
+commit being measured, rather than whatever was current when someone last edited them by hand.
+
+```sh
+python3 benchmarks/scripts/run.py --commit <sha>                       # the maintained runner
+target/release/shmap -s ref.fa -p reads.fa -x --profile-log run.json    # one-off
+```
+
+**A perf claim needs one binary and a runtime switch, not two builds.** `lto = "fat"` re-lays-out
+the whole program on every build, which inflates a change's apparent size 3-6x and invents
+regressions in stages the change cannot reach. `SHMAP_NO_REFINE_MEMO`, `SHMAP_DENSE_POLICY`,
+`SHMAP_NO_SCORE_SHORTCUT` and `SHMAP_FORCE_P_HT` exist so both arms of a change share a layout. The
+measurement behind that rule is in [`../RESULTS.md`](../RESULTS.md) §11.
+
+## Probes
+
+Standalone `.rs` probes, each written to answer one optimization question before touching `src/`.
+All of them measured negative; the verdicts and figures are in
+[`../RESULTS.md`](../RESULTS.md) §11, and they are kept so the questions are not reopened blind.
+
+| probe | question |
+|---|---|
+| `sketch_simd_probe.rs`, `sketch_lanes_probe.rs` | can SIMD speed up k-mer emission? |
+| `prefetch_probe.rs` | does software prefetching hide the index-lookup latency? |
+| `pack2bit_probe.rs` | is 2-bit-packed sequence faster to sketch? |
+| `chain_probe.rs` | is the rolling-hash loop dependency-bound or port-bound? |
+| `downclock_probe.rs` | how much does AVX-512 downclock this host? |
 
 ## Live tools
 
@@ -31,26 +65,13 @@ python3 profiling/selective_density.py select pass1.paf reads.fa ambiguous.fa
 python3 profiling/selective_density.py merge pass1.paf pass2.paf merged.paf
 ```
 
-## other-mappers/ — kept because re-running is prohibitive
+## other-mappers/ — stored measurements, kept because re-running is prohibitive
 
-| file | what |
-|---|---|
-| `table1_other_mappers.csv` | minimap2, Winnowmap2, BLEND, mapquik, minSHmap and the C++ `shmap` across four datasets — mapped-at-q60, wrong-at-q60, index/map seconds, memory |
-| `wgs_k15_shmap_cpp_py.csv` | shmap-rs / C++ / Python at `k=15` on HiFi, ONT and CLR, whole-genome and chr21 |
-
-**These tools did not change, so their numbers stand.** Re-measuring is not a matter of an idle
-afternoon: Winnowmap2 alone took **28 688 s — nearly 8 hours — for one row** of
-`table1_other_mappers.csv`, and 8 041 s for another.
-
-Two cautions before quoting them:
-
-- **mapquik reads 0 mapped in every row, and that is an artefact.** It counts newline characters as
-  bases, so a line-wrapped reference gives coordinates in file-offset space. Given a one-line
-  reference it maps ~99% and agrees with shmap-rs on 96-98% of placements. See
-  [`../RESULTS.md`](../RESULTS.md) §8; the current corpus is built by
-  `benchmarks/scripts/reference_mappers.py`, which passes it a one-line reference.
-- These are older runs at older parameters. For a current, maintained comparison against Winnowmap2
-  and mapquik, use the concordance corpus, not this file.
+Two CSVs of minimap2, Winnowmap2, BLEND, mapquik, minSHmap and the C++ `shmap`, measured once at
+older parameters. They are kept because a re-run costs hours per row, not because they are current
+— for a maintained comparison use [`../RESULTS.md`](../RESULTS.md) §8. What each file contains, how
+to read it, and the two cautions that decide whether a number means what it looks like are in
+[`other-mappers/README.md`](other-mappers/README.md).
 
 ## datasets/ — how the read sets were made
 
@@ -82,16 +103,7 @@ dropped, since the CSVs carry every figure the section quotes.
 
 ## What was deleted, and why that is safe
 
-Roughly 400 files of shmap-rs profiling artifacts — `sweep_metrics/`, `full_suite_a2/`,
-`final_sweep/`, `metrics_bench/`, `real24kbp/`, `ont24kbp/`, `wgs24k/`, `realworld_hifi/`, `old/`,
-the loose `*.profile.json`, and the 157 KB `tables.md` dump — plus the drivers that produced them
-(`benchmark.py`, `bench_shmaprs_wgs.py`, `extract_tables.py`).
-
-Every one measured **shmap-rs**, which is re-measured on every run by `benchmarks/scripts/run.py`, with the
-`-x` reports archived per result set in `benchmarks/results/<suite>/<commit>/raw-profiles.tar.gz`.
-`RESULTS.md` §5 is generated from those, so the stage-breakdown tables now describe the commit being
-measured rather than whatever was current when someone last edited them by hand.
-
-Each of those directories already carried a *"Superseded by RESULTS.md"* banner. Keeping stale
-copies of numbers that are regenerated on demand is how this repo previously came to hold
-contradictory figures.
+Roughly 400 files of shmap-rs profiling artifacts and the one-off drivers that produced them, all
+of which already carried a *"Superseded by RESULTS.md"* banner. Every one measured **shmap-rs**,
+which every run re-measures and archives. Keeping stale copies of numbers that are regenerated on
+demand is how this repo previously came to hold contradictory figures.

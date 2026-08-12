@@ -1,6 +1,6 @@
 //! Q10: does 2-bit-packed sequence storage speed up the rolling-hash loop?
 //!
-//! `PROFILING.md`'s "remaining bottlenecks" names 2-bit packing as one of
+//! `RESULTS.md` §11 names 2-bit packing as one of
 //! the two levers left for sketching (~2.0 ns/base, 19.3% of `mapping`
 //! plus a large share of indexing). The other lever, SIMD, was tried in
 //! Q1 and lost. Q1's own conclusion about why is the premise here: the

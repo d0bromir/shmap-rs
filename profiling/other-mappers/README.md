@@ -40,6 +40,13 @@ space. `hs1.fa` is wrapped at 50 columns, which is exactly the 1.02x inflation s
 chromosome lengths. Given a one-line reference it maps ~99% of reads and agrees with shmap-rs on
 96-98% of placements. The maintained corpus passes it a one-line reference; see RESULTS.md §8.
 
+**mapquik's `--nosimd` switch is not the same tool as its default**, which is why it is absent from
+the aarch64 corpus rather than built that way. Its k-min-mer crate compiles an AVX-512-only ntHash
+iterator unconditionally, so it cannot be built on ARM at all. Measured on a2 (B01, 148 225 reads):
+two runs of the identical default command agree on **100.00%** of records, while default against
+`--nosimd` differs on 39 701 of 148 224 — **26.8%** — and drops one read entirely. The control being
+exact is what makes that conclusive. See the commentary on `[external.mapquik]` in `suite.toml`.
+
 ## Reading `wgs_k15_shmap_cpp_py.csv`
 
 Real HG002 long reads (6 000 each) against the whole T2T-CHM13 genome at the minSHmap benchmark's

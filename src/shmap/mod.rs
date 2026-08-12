@@ -222,7 +222,7 @@ fn catch_read_panic<'idx, const NBP: bool, const OS: bool, const AP: bool>(
 /// Holding one `BufWriter` open for the whole collector loop instead batches
 /// many reads' output into each underlying write, which matters most on
 /// fast/small datasets at high thread counts, where profiling showed the
-/// collector's own share of time growing fastest (see `PROFILING.md`).
+/// collector's own share of time growing fastest (see `PORT_CHANGES.md` §4).
 fn apply_read_output(
     output: &ReadOutput,
     stdout: &mut impl std::io::Write,
