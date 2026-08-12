@@ -72,7 +72,7 @@ Geometric mean of the per-thread-count ratios; a single thread count is too nois
 
 ---
 
-Rules: [VERSIONING.md](../VERSIONING.md). Thresholds from `suite.toml`: wall review >3%, block >10%; any drop in mapped reads, mapq-60 reads or C++ agreement blocks.
+Rules: [VERSIONING.md](https://github.com/d0bromir/shmap-rs/blob/main/VERSIONING.md). Thresholds from `suite.toml`: wall review >3%, block >10%; any drop in mapped reads, mapq-60 reads or C++ agreement blocks.
 
 Baseline: `/home/mpiuser/shmap-rs/benchmarks/results/suite-1.0/current`  
 Candidate: `/home/mpiuser/shmap-rs/benchmarks/results/suite-1.0/6d6f6a4f0844-2026-07-31`

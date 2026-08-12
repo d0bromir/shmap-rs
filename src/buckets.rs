@@ -199,7 +199,7 @@ impl<const AP: bool> BucketsHash<AP> {
 /// re-zeroed on every `clear()`-tracked touch but otherwise sitting almost
 /// entirely idle (a read only ever touches a handful of buckets near where
 /// it maps). Profiling that one-time allocation+zero-init (see
-/// `PROFILING.md`) found it costs 7-21+ seconds per worker depending on how
+/// `PORT_CHANGES.md` §1) found it costs 7-21+ seconds per worker depending on how
 /// many other workers are doing the same thing concurrently — the single
 /// largest hidden cost in the whole mapper, and the direct cause of
 /// multithreaded whole-genome runs sometimes getting *slower* with more

@@ -27,15 +27,12 @@ on them. Wiring `a2` up as a runner would hand every GitHub user a shell on the 
 `a2` **pulls work; nothing pushes to it.** No inbound access, no runner registration, no webhook.
 `benchmarks/scripts/run.py` executes on `a2` and decides for itself what it is willing to measure.
 
-### Two tiers of checking
+### Why there are two tiers
 
-| tier | where | runs on | what |
-|---|---|---|---|
-| **Cheap checks** | GitHub-hosted runner, ephemeral | every PR, including forks | build, `cargo test`, `fmt`, `clippy` |
-| **Benchmarks** | `a2` | only authorized commits | the full 105-invocation matrix |
-
-The cheap tier is safe for untrusted code because the runner is disposable and holds no secrets of
-ours. The expensive tier is gated.
+The cheap tier ([what it runs is in CONTRIBUTING §1](CONTRIBUTING.md)) is safe for untrusted code
+from any fork, because the GitHub-hosted runner is ephemeral and holds no secrets of ours. The
+benchmark tier builds and executes a contributor's code on a real machine we own, so it runs only on
+authorized commits. Everything below is about that second tier.
 
 ### The authorization gate
 

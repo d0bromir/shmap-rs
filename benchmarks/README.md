@@ -30,28 +30,27 @@ relative to `data/files/`, a gitignored symlink to wherever that host keeps
 its data. The relative tree below it is identical on every host, so nothing
 in the runner is host-aware. See [`data/README.md`](data/README.md).
 
-| path | what | status |
-|---|---|---|
-| `RUNBOOK.md` | operating the host: launch sequence, traps, recovery | **in place** |
-| `data/README.md` | the corpus root, and how to provision a new host | **in place** |
-| `data/hosts.toml` | per-host operational facts: address, cores, corpus location | **in place** |
-| `scripts/layout.py` | where everything lives; `arch()` and the results paths | **in place** |
-| `data/datasets.tsv` | dataset registry — id, host, path, identity triple, provenance | **in place** |
-| `scripts/enumerate_datasets.sh` | regenerates the registry's measured columns | **in place** |
-| `scripts/validate_suite.py` | checks `suite.toml` resolves against the registry | **in place** |
-| `data/suite.toml` | benchmark definitions: which dataset × params × metric × threads | **in place** |
-| `run.py` | the runner: lock, authorization, verification, measurement | **in place** |
-| `results/<suite>/current/` | the baseline a PR is compared against | **written by run.py** |
-| `results/<suite>/<commit>-<date>/` | archived, immutable result sets | **written by run.py** |
-| `compare.py` | diffs two result sets and returns the PR verdict as its exit code | **in place** |
-| `test_compare.py` | 25 synthetic cases pinning those verdicts; runs in CI | **in place** |
-| `report.py` | regenerates the marked regions of `../RESULTS.md` | **in place** |
-| `charts.py` | draws pie charts of `profiles.tsv` — the picture of the profiling tables | **in place** |
-| `test_charts.py` | aggregation, wedge geometry and partition-guard cases; runs in CI | **in place** |
-| `reference_mappers.py` | builds the cached external-mapper corpus (once, not per PR) | **in place** |
-| `concordance.py` | scores a shmap-rs PAF against a cached external PAF | **in place** |
-| `test_concordance.py` | interval-arithmetic and scoring cases; runs in CI | **in place** |
-| `results/reference-mappers/manifest.json` | corpus provenance: versions, commands, counts | **in place** |
+| path | what |
+|---|---|
+| `RUNBOOK.md` | operating the host: launch sequence, traps, recovery |
+| `data/README.md` | the corpus root, and how to provision a new host |
+| `data/hosts.toml` | per-host operational facts: address, cores, thresholds, corpus location |
+| `data/datasets.tsv` | dataset registry — id, host, path, identity triple, provenance |
+| `data/suite.toml` | benchmark definitions: which dataset × params × metric × threads |
+| `scripts/layout.py` | where everything lives; `arch()` and the results paths |
+| `scripts/enumerate_datasets.sh` | regenerates the registry's measured columns |
+| `scripts/validate_suite.py` | checks `suite.toml` resolves against the registry |
+| `scripts/run.py` | the runner: lock, authorization, verification, measurement |
+| `scripts/compare.py` | diffs two result sets and returns the PR verdict as its exit code |
+| `scripts/report.py` | regenerates the marked regions of `../RESULTS.md` and `../README.md` |
+| `scripts/charts.py` | draws pie charts of `profiles.tsv` — the picture of the profiling tables |
+| `scripts/paper.py`, `build_pdf.py`, `crossarch.py` | the paper artifacts, per architecture and across them |
+| `scripts/reference_mappers.py` | builds the cached external-mapper corpus (once, not per PR) |
+| `scripts/concordance.py` | scores a shmap-rs PAF against a cached external PAF |
+| `scripts/test_*.py` | the unit tests pinning all of the above; every one runs in CI |
+| `results/<suite>/<arch>/current/` | the baseline a PR is compared against — written by `run.py` |
+| `results/<suite>/<arch>/<ver>-<sha>-<date>/` | archived, immutable result sets — written by `run.py` |
+| `results/reference-mappers/<arch>/manifest.json` | external-corpus provenance: versions, commands, counts |
 
 ## datasets.tsv
 
@@ -66,18 +65,12 @@ part of the current suite (subsets, fixtures, or platform sets kept for context)
 Regenerating a file means **adding a new id**, never editing an existing row — historical result
 sets have to keep resolving to what they actually measured.
 
-## Current state of migration
+## How a run traces, end to end
 
-The benchmark scripts under `../profiling/*/` are the historical drivers: each was written for one
-investigation, and each carries its own copy of the parameters. They stay as the provenance record
-of published numbers. The point of this directory is to replace them with a single definition and
-a single runner, so that a PR can be measured by one command rather than by remembering which of
-nineteen scripts applies.
-
-**The migration is complete.** One command measures a PR, judges it, and can post the verdict:
+One command measures a PR, judges it, and can post the verdict:
 
 ```sh
-./run.py --pr 123 --post
+python3 benchmarks/scripts/run.py --pr 123 --post
 ```
 
 Its exit code is the verdict — 0 ACCEPT, 1 REVIEW, 2 BLOCK, 3 not comparable — so it can gate a
@@ -104,23 +97,10 @@ timing ratio compares two machines rather than two instruction sets. What it
 and must be identical on both for one commit; that table is the premise the
 rest of the document rests on, and it fails loudly rather than quietly.
 
-The profiling branch of that chain, spelled out, because every link is a file
-somebody can open:
-
-```
-shmap -x --profile-log     one JSON report per invocation        profiling
-  -> run.py                write_profiles_tsv()                  script
-  -> profiles.tsv          one row per invocation, one col/stage  tables
-  -> charts.py             reads the table, never the JSON        script
-  -> chart-*.svg           + chart-index.html to browse them      graphics
-  -> crossarch.py          reads every arch's profiles.tsv        script
-  -> cross-arch/           tables, TikZ pies, artifacts.pdf       graphics
-                           + charts.html, every SVG side by side
-```
-
-`charts.py` deliberately reads `profiles.tsv` rather than `raw/`: the table is
-the reviewed, checked-in form of the data, so every wedge traces to a row a
-reader can look up, and each chart footers the exact row it came from.
+`charts.py` deliberately reads `profiles.tsv` rather than the raw `-x` JSON:
+the table is the reviewed, checked-in form of the data, so every wedge traces
+to a row a reader can look up, and each chart footers the exact row it came
+from.
 
 What is still hand-run rather than wired in: `../profiling/adjudicate_disagreements.py`, which
 scores disagreements against ground truth and is an investigation tool, not a gate.

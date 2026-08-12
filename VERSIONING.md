@@ -94,7 +94,7 @@ The comparison against `current/` decides the merge:
 | **Blocked** | any accuracy regression — fewer reads mapped, fewer at mapq 60, or a ground-truth drop | do not merge, regardless of speed |
 | **Blocked** | any logical-invariant violation (`profiling/validate_paf.py`) | do not merge |
 | **Blocked** | output differs across thread counts | do not merge |
-| **Review** | wall time regresses >3% on any benchmark | justify or fix; 3% is this host's run-to-run noise |
+| **Review** | wall time regresses past that host's review threshold on any benchmark | justify or fix |
 | | *(measured per benchmark, aggregated across thread counts — see below)* | |
 | **Accept** | output byte-identical, wall time within noise or better | merge; refresh `current/` if it improves |
 | **Accept, output changed** | output differs *and* the change is an argued correctness fix | merge with the reasoning in the commit, and archive the old set |
@@ -115,14 +115,27 @@ default to off, with identical mapped counts) were compared:
 | aggregated per benchmark | **-2.2% to +2.8%** — all inside the review band |
 | worst single thread count | **+11.6%** (B04/Jaccard at `-@2`), also +9.7%, +9.3%, +9.1% |
 
-Judged per measurement, that pair would have **BLOCKED** on the >10% rule and raised several
+Judged per measurement, that pair would have **BLOCKED** on the block rule and raised several
 REVIEWs, on a change that does nothing. shmap-rs is measured once per configuration, so a single
-row carries this host's full run-to-run noise; testing a hundred of them against a 3% line
-guarantees false positives. The aggregate is the honest signal, and the worst row is reported
-alongside it for context without deciding anything.
+row carries the host's full run-to-run noise; testing a hundred of them against one line guarantees
+false positives. The aggregate is the honest signal, and the worst row is reported alongside it for
+context without deciding anything.
 
 This is also the argument against "just re-run it until it's green": a gate that fails at random
 teaches people to ignore it.
+
+### The thresholds themselves are per host
+
+`suite.toml` defines the matrix — the same on every machine, or results do not mean anything — but
+run-to-run noise is a property of the *machine*, so a host may override the wall-time thresholds in
+`benchmarks/data/hosts.toml`. `a2` reviews at **6%** and blocks at **12%** instead of suite.toml's
+3% and 10%, and takes `repeats = 3`; `galaxy` keeps the defaults with `repeats = 1`, because two
+runs of one commit there agreed within ~1% on every row.
+
+**Accuracy thresholds are not overridable**, and `compare.py` refuses any host override outside the
+wall-time set: a drop in mapped reads is a regression on any machine. Each host's threshold, the
+measurement behind it, and how to re-derive it are in that host's `ARCH.md` under
+`benchmarks/results/suite-1.0/<arch>/`.
 
 ### Comparing against other mappers
 

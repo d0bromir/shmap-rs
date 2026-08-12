@@ -62,10 +62,7 @@ before anyone noticed. The workflow is written to need no actions at all.
 ### The benchmark tier — on request
 
 Benchmarks build and execute the PR's code, so they run on a private host behind an authorization
-gate rather than on a runner. See [`SECURITY.md`](SECURITY.md) for why `a2` is deliberately not a
-GitHub self-hosted runner.
-
-A maintainer runs, on `a2`:
+gate rather than on a runner. A maintainer runs, on `a2`:
 
 ```bash
 python3 benchmarks/scripts/run.py --pr 123 --post
@@ -74,36 +71,33 @@ python3 benchmarks/scripts/run.py --pr 123 --post
 That single command authorizes, measures, compares against the baseline, and posts the verdict to
 the PR. Its exit code *is* the verdict: `0` ACCEPT, `1` REVIEW, `2` BLOCK, `3` not comparable.
 
-It refuses to build or execute anything until it has confirmed against the GitHub API that **either**
-the PR author has push/admin, **or** a user with push/admin applied the `bench-approved` label — and
-that no push has landed since the label. The label is the human review step: someone reads the diff
-before the code runs.
+**Why it is gated, what the gate checks, and why `a2` is deliberately not a GitHub self-hosted
+runner are in [`SECURITY.md`](SECURITY.md)** — including the rule that trips people up most: the
+`bench-approved` label must be re-applied after any new push to the PR.
 
-Operating the host — launch sequence, the traps, and how to re-judge a run without
-re-measuring it — is in [`benchmarks/RUNBOOK.md`](benchmarks/RUNBOOK.md).
-
-At most one benchmark runs at a time, host-wide. Concurrent invocations queue on a kernel file lock
-rather than failing, so two of them cannot contaminate each other's timings.
+Operating the host — launch sequence, the traps, and how to re-judge a run without re-measuring it —
+is in [`benchmarks/RUNBOOK.md`](benchmarks/RUNBOOK.md).
 
 ---
 
 ## 2 What decides the merge
 
-`benchmarks/scripts/compare.py` applies the table in [`VERSIONING.md`](VERSIONING.md) mechanically, with the
-numbers from `benchmarks/data/suite.toml`:
+`benchmarks/scripts/compare.py` applies **[the rule table in `VERSIONING.md`](VERSIONING.md#the-pr-rule)**
+mechanically, with the thresholds from `benchmarks/data/suite.toml` — and, where a host overrides
+them, from `benchmarks/data/hosts.toml`. That table is the single statement of what blocks a merge;
+it is not repeated here.
 
-| verdict | condition |
-|---|---|
-| **BLOCK** | fewer reads mapped, fewer at mapq 60, ground truth down, or C++ agreement down |
-| **BLOCK** | a blocking check failed — `thread_determinism`, `validate_paf`, `ground_truth` |
-| **BLOCK** | wall time >10% worse on a benchmark, a non-zero exit, or an incomplete run |
-| **REVIEW** | wall time >3% worse, or peak RSS >5% worse — justify or fix |
-| **ACCEPT** | within noise or better, no accuracy change |
-| **ERROR** | the two sets are not comparable at all — different suite MAJOR, dataset version, or host |
+Two things about it are worth knowing before you read a verdict:
 
-Wall-time verdicts use the geometric mean across thread counts within a benchmark, not individual
-rows: shmap-rs is measured once per configuration, so a single row carries this host's 1-2% noise,
-and testing ~105 of them against a 3% line would flag several every run by chance.
+- **Wall-time verdicts use the geometric mean across thread counts** within a benchmark, never
+  individual rows. shmap-rs is measured once per configuration, so a single row carries the host's
+  full run-to-run noise, and testing ~105 of them against one line would flag several every run by
+  chance.
+- **Wall-time thresholds are per host, because noise is a property of the machine.** `a2` reviews at
+  6% and blocks at 12% rather than suite.toml's 3% and 10%, because two runs of one commit there
+  disagreed by −7.66% to +3.07% on the very statistic the gate applies. Accuracy thresholds are
+  *not* overridable and `compare.py` refuses any attempt: a drop in mapped reads is a regression on
+  any machine. Each host's reasoning is in its `ARCH.md`.
 
 **If your change alters output on purpose** — a correctness fix, where the previous output was wrong
 — say so in the PR, and a maintainer re-runs with `--allow-output-change`, which downgrades the

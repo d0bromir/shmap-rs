@@ -8,8 +8,8 @@ the whole genome. This file is the head-to-head against the C++ original.
 **The C++ cannot run against `hs1.fa` on this host.** Measured directly, not
 inferred: building the whole-genome index, the C++ reached **12.80 GB
 resident with a further 6.55 GB pushed to swap** — 19.35 GB of demand against
-14.3 GB of RAM. (That figure independently corroborates the 19.30 GB the
-64-core benchmark host recorded in `../realworld_hifi/`.)
+14.3 GB of RAM. (That figure independently corroborates the 18.85 GB the
+64-core benchmark host records for the C++ in [`RESULTS.md`](../../../RESULTS.md) §1.)
 
 It did not fail, it thrashed. With 20 GB of swap available it kept running, in
 uninterruptible I/O wait, accumulating 57,567 major page faults and taking
@@ -38,14 +38,14 @@ C++ **8.8%** (8.82 s instrumented vs 8.11 s clean).
 Every C++ number below is from a **Tracy-free** build, which is the fair
 comparison.
 
-An earlier revision of this file warned that the C++ binary behind
-`../realworld_hifi/` and `PROFILING.md` might have carried that 8.8%, which
-would have made the speedups quoted there correspondingly generous. **That has
-since been checked on the benchmark host and it did not**: its
-`~/Pesho/shmap/release/shmap` contains zero live Tracy strings, against 123 in
-a known instrumented build and 3 in a known clean one, and its size (3,830,576
-bytes) matches the clean build rather than the instrumented one (6,189,384).
-The published speedups stand as measured.
+An earlier revision of this file warned that the C++ binary behind the
+published speedups might have carried that 8.8%, which would have made them
+correspondingly generous. **That has since been checked on the benchmark host
+and it did not**: its `~/Pesho/shmap/release/shmap` contains zero live Tracy
+strings, against 123 in a known instrumented build and 3 in a known clean one,
+and its size (3,830,576 bytes) matches the clean build rather than the
+instrumented one (6,189,384). The published speedups stand as measured, and
+`run.py` now refuses a reference binary carrying live Tracy symbols outright.
 
 ## Results
 
@@ -68,7 +68,7 @@ Throughput at 100x: C++ 6,466 reads/s, shmap-rs 9,487 (`-@1`) and 43,598
 
 **The single-threaded speedup is stable at 1.41-1.61x across a hundredfold
 range of input**, and it reproduces the 1.43-1.62x measured on the whole genome
-on entirely different hardware (`../realworld_hifi/`). Two independent hosts,
+on entirely different hardware. Two independent hosts,
 two reference scales, same answer — that is a real property of the
 implementation rather than an artifact of either setup.
 
@@ -86,7 +86,7 @@ At 1x, comparing the 12 core PAF columns of all 3,514 records:
 - 202 (5.75%) differ in coordinates only — same target, same mapq
 - 0 differ in target, 0 differ in mapq
 
-That matches the cause documented in `../realworld_hifi/`: adjacent-bucket ties
+That matches the cause documented in [`../../../README.md`](../../../README.md): adjacent-bucket ties
 resolved differently because shmap-rs uses a stable sort where the C++ uses
 `std::sort`. Both map all 3,514 reads at every depth, and PAF record counts are
 identical at 1x/10x/30x/100x.

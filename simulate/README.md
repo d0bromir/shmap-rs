@@ -12,6 +12,7 @@ were generated is not a footnote.
 | `simulate_reads.py` | controlled generator: independent substitution / insertion / deletion rates |
 | `measure_error_rate.py` | measures a read set's real error rate against the reference |
 | `sweep_error_rates.py` | the degradation sweep: accuracy against error rate and error *type* |
+| `accuracy_at_operating_points.py` | accuracy on reads matched to each benchmark's length and *measured* error rate — the proxy behind [`../RESULTS.md`](../RESULTS.md) §7 |
 
 ---
 

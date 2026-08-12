@@ -14,9 +14,11 @@ paths that algorithm runs through, and adds multithreading the C++ has none of.
 
 ## Current state, in one table
 
-Every optimization below, current design only — not the sequence of attempts that got there (that
-record is [`PROFILING.md`](PROFILING.md), kept deliberately chronological and never updated). Only
-row 9 is prescribed by the paper itself (it names "Optimization 2" directly); everything else is an
+Every optimization below, current design only. Each row's "Effect, measured" is the figure that
+change bought against the build it landed on, and is deliberately *not* refreshed — its value is
+that it says what one specific change was worth. Whole-run figures against the current build are in
+[`RESULTS.md`](RESULTS.md), regenerated on every suite run. Only row 9 is prescribed by the paper
+itself (it names "Optimization 2" directly); everything else is an
 engineering choice in how shmap-rs implements the algorithm the paper and the C++ both already
 specify, not a change to the algorithm.
 
@@ -38,9 +40,11 @@ citation) but were not measured in isolation from the rest of their group at the
 
 Two whole-run measurements exist, from two different result sets, and both are real:
 
-- **RESULTS.md's current suite** (five benchmarks, three metrics, commit `e9aa9c98a2c7`):
-  **1.91–2.74x** faster single-threaded, **6.90–7.43x** less peak memory (2.54–2.73 GB vs the
-  C++'s constant 18.85 GB).
+- **RESULTS.md's current suite** (five benchmarks, three metrics; see that file's provenance block
+  for the commit it was last regenerated from): **2.14–2.97x** faster single-threaded,
+  **~7.1x** less peak memory (2.58–2.67 GB vs the C++'s constant 18.85 GB). These two figures move
+  with every promoted result set — [RESULTS.md §1](RESULTS.md#1-summary) is authoritative, and this
+  paragraph is a summary of it, not a second measurement.
 - **An earlier, real-HiFi-whole-genome-at-depth measurement** (commit `f85d9a2`, four coverage
   levels of real HG002 HiFi against the whole genome, single mapping worker): **1.89–2.04x**
   faster, **8.2–9.6x** less peak memory. This lived in a now-consolidated `COMPARISON.md`; its
@@ -66,10 +70,9 @@ it.
 [`63f1103`](https://github.com/pesho-ivanov/shmap/tree/63f1103a6e72394fada5f9d9726f4a38f739e8fa)
 — the pinned commit this port was checked against — and quoted verbatim with exact line numbers,
 not paraphrased from a doc comment. Every Rust snippet is quoted from the file on disk at the time
-of writing. Where a number isn't attributed to RESULTS.md, it's from `PROFILING.md`, the
-chronological engineering log that records exact before/after figures at the time each change
-landed and is deliberately never updated — cited here rather than re-derived, reorganized around
-*why* each change exists rather than *when* it landed.
+of writing. A number not attributed to RESULTS.md is the before/after measured when that change
+landed, against the build it landed on — organized here around *why* each change exists rather than
+*when* it did. The commit that introduced each one carries its own measurement in the message.
 
 **Definitions used throughout**, so each section below doesn't have to re-derive them:
 
@@ -277,8 +280,7 @@ touched slots.
 
 Background, not needed to understand the current design above — kept because it explains a couple
 of decisions (why the sparse fallback exists at all, why it's capped rather than trusted
-unconditionally) that would otherwise look arbitrary. `PROFILING.md` has the full chronological
-log with every intermediate measurement.
+unconditionally) that would otherwise look arbitrary.
 
 Three attempts came before the current one. A dense array sized like the C++'s own (`sz /
 MIN_HALFLEN + 2`, the same ~15 GB allocation) was tried first, mirroring the C++ almost exactly —
@@ -881,13 +883,30 @@ pub struct RefSegment {
   purely from cross-crate inlining across the `needletail`/`rustc-hash` boundary that the default
   16 codegen units prevented. `panic = "unwind"` stays as-is (not `"abort"`) because the per-read
   panic isolation in §4 needs `catch_unwind`.
+- **`h2multi`'s lists are shrunk once built, but only where the slack pays for the copy** (`> len/8
+  + 8`). They are read-only after indexing, so the final sort pass can shrink them — but shrinking
+  the two- and three-hit lists that dominate by *count* measured a net loss (~5.8 M reallocations to
+  recover ~100 MB), while the rare very-high-frequency k-mers that dominate by *bytes* clear the
+  threshold easily.
+
+**The sparse fallback path carries four more**, each measured on its own before the dense
+accumulator (§1) displaced it as the primary path. They still run for short reads and for any read
+over `MAX_DENSE_SLOTS`:
+
+- The radix key packed `segm_id << 32`, forcing a 37-bit key and a third O(n) pass where the real
+  key is ~22 bits. Measuring the width per read instead cut it to two passes — **−30%**.
+- The sorted entry shrank **32 → 24 bytes** by hoisting `BucketContent`'s `i`/`seeds`, which are
+  uniform across a read, out of the per-entry payload.
+- All passes' histograms are built in **one** counting scan rather than one per pass, since a
+  histogram is permutation-invariant.
+- The final ordering by `matches` sorts 8-byte packed keys rather than 32-byte records (row 9).
 
 ---
 
 ## Why `-@1` is the number to quote for memory specifically
 
 Almost every technique in §1 lives inside per-worker state. At `-@1` there is exactly one
-`Buckets` instance, so the 6.90–7.43x (or 8.2–9.6x, on the depth measurement) memory ratio is a
+`Buckets` instance, so the ~7.1x (or 8.2–9.6x, on the depth measurement) memory ratio is a
 clean single-instance comparison against the C++'s one process. RESULTS.md §3c shows this ratio
 narrows at higher thread counts precisely because it *is* per-worker: `N` threads hold `N` copies
 of a data structure that individually became tiny, and tiny times many is no longer tiny. That's
@@ -905,6 +924,6 @@ cost genuinely fell by three orders of magnitude; it just still multiplies.
   cost.
 - **New CLI-visible capabilities** — research knobs for repeat-region accuracy, profiling
   instrumentation — all off by default, none changing the cost of a default run.
-- **The full inventory of smaller changes**, including radix-layout and allocation details not
-  listed above — `PROFILING.md`'s "What's optimized" section is the exhaustive, chronological
-  record.
+- **Approaches that were tried and rejected**, with the measurement that rejected them — SIMD, NUMA
+  index replication, software prefetching, 2-bit packing and the rest are in
+  [RESULTS.md §11](RESULTS.md#11-what-to-try-next), which is the single home for negative results.
