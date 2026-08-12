@@ -759,6 +759,15 @@ first check over the seeds seeding no longer covered, and `match_rest` rises
 ladder wins is running a first attempt at a threshold the read can actually
 clear, not seeding less in total.
 
+**Where the one rung goes was the second, sharper version of the same trade.**
+Placing it at a fixed fraction of the interval between `-t` and 1 costs whatever
+the reads that cannot clear it pay, and on B05 that was a real 0.939x regression
+(CI [0.916, 0.962]) that the cost model caught before any table did. The rung is
+therefore placed against the *read* — `SHMAP_THETA_GAP = 0.20` below its own
+score ceiling — and taken only when it saves at least a factor `MIN_SAVING = 2`
+of seeding, so a read that cannot clear a useful rung gets none. That removed the
+B05 loss (below) without giving up the gains on B01/B03/B04.
+
 ### The extension is not pruning, and mostly should not run
 
 The table above was the ladder on its own. It also produced the counter that
@@ -853,8 +862,42 @@ and they take the plain single pass instead of a quiet approximation: `-P` (prun
 never completes; and `--rarity-weight`/`--rarity-tiebreak` (§8, both rejected there and off by
 default), which replace the plain containment the seed heuristic's guarantee is stated over.
 
-`SHMAP_NO_ADAPTIVE_THETA` disables the ladder, `SHMAP_THETA_STEPS` sets the rung count, and
-`SHMAP_NO_PRUNE_SKIP` restores the full pruning walk — so one binary reproduces every row above.
+`SHMAP_NO_ADAPTIVE_THETA` disables the ladder, `SHMAP_THETA_GAP` moves the rung (default `0.20`
+below the read's own ceiling), and `SHMAP_NO_PRUNE_SKIP` restores the full pruning walk — so one
+binary reproduces every row above.
+
+### The full-suite verdict, and why this is not merged
+
+The whole branch measured against its merge-base on `a2`, full suite, 333 invocations, drift
+corrected against the unchanged reference binary:
+
+| benchmark | Containment | Jaccard | bucket_SH | geomean |
+|---|---:|---:|---:|---:|
+| B01 | 1.027x | 1.036x | 1.041x | **1.035x** |
+| B02 | 1.005x | 1.024x | 1.010x | **1.013x** |
+| B03 | 1.064x | 1.040x | 1.087x | **1.063x** |
+| B04 | 1.075x | 1.044x | 1.092x | **1.070x** |
+| B05 | 1.000x | 1.012x | 0.998x | **1.003x** |
+| **all** | 1.034x | 1.031x | 1.045x | **1.037x** |
+
+Verdict **ACCEPT**: nothing blocking, nothing reviewable, C++ agreement identical to four decimal
+places on all six dataset×metric pairs, and B05 — the regression that the score-anchored placement
+was written to remove — is neutral.
+
+**The decision is not to merge it.** +3.7% end-to-end is not worth what it costs to carry. The
+stage-level numbers are much larger (1.05-1.60x on the three stages either half can touch), but
+those stages are a minority of wall time on every dataset in the suite, and Amdahl takes the rest:
+sketching and prepare are untouched, and on B05 they are ~70% of `query_mapping` alone. Against that
+the branch adds a second control-flow path through `map_read`, a cross-rung reuse contract spanning
+four modules (seeding resume, a re-keyed refine memo, resumable pruning state, a non-destructive
+dense accumulator), and a tie-escalation rule that exists only to keep the output byte-identical.
+The exactness argument is sound and the reuse works, but the ratio of invariants-to-maintain per
+percent-gained is bad, and this is a port whose value is being a faithful, legible reference.
+
+Two results from the work are worth keeping regardless, and both are recorded above independently of
+the branch: the pruning walk consumes 84-92% of its seeds on buckets that survive it (§5b's missing
+counter), and the sweep's tie-break was order-dependent all along. The second is a latent
+correctness wrinkle in the port that no released configuration currently exposes.
 
 ---
 
@@ -988,8 +1031,9 @@ Bold is a 95% interval excluding 1.0. Four things worth reading off it:
 
 (predicted µs/read; the full twelve rows are in the script's output.) One rung for all nine
 HiFi/simulated pairs, and zero for all three B05 ones — where the ladder is inert and the extra rung
-is the ~1.5% the 6% of B05 reads that climb it pay for nothing. `DEFAULT_STEPS = 1` was picked from
-a median sweep in §5c; the model reaches the same answer from a different direction.
+is the ~1.5% the 6% of B05 reads that climb it pay for nothing. The single rung was picked from a
+median sweep in §5c; the model reaches the same answer from a different direction, and its "zero for
+B05" is what the score-anchored placement implements per read instead of per benchmark.
 
 ### What it does not settle
 

@@ -849,7 +849,8 @@ the partition guard and end-to-end rendering (30 assertions); wired into CI with
 
 ## Q12 — Adaptively lower theta; stop at the first threshold that maps
 
-**Asked** 2026-08-11 · **Branch** `q12-adaptive-theta` · **PR** #39 · **Status** in review
+**Asked** 2026-08-11 · **Branch** `q12-adaptive-theta` · **PR** #39 · **Status** not merged — works,
+exact, benchmarks ACCEPT, but the end-to-end gain does not justify the complexity
 
 **Question.** *"an exact algorithmic optimization: try adaptively lowering theta (the threshold).
 once it finds a mapping, the computation can stop. otherwise, try a lower theta. consider reusing
@@ -897,11 +898,27 @@ identical down to the diagnostic tags.
    intersection, same mapq, position shifted under a read length). The ladder detects that case and
    escalates rather than reporting a different coin flip, which is what makes byte-identity hold.
 
-**Outcome.** Pending — the benchmark has not been run against the PR yet. The probe on subsets
-(20-30k reads per dataset, median of three interleaved runs) puts the three stages either half can
-touch at **1.05-1.28x** on Containment, **1.05-1.18x** on Jaccard and **1.28-1.60x** on
-`bucket_SH`. B05 Containment is the one loss, at 0.90x of a component that is 29% of its
-`query_mapping`.
+**Outcome. ACCEPT on `a2`, and the decision is not to merge.** The full suite against the branch's
+merge-base (333 invocations, drift corrected) gives **1.037x end-to-end** overall — 1.035x B01,
+1.013x B02, 1.063x B03, 1.070x B04, 1.003x B05 — with nothing blocking, nothing reviewable, and C++
+agreement unchanged to four decimals on all six dataset×metric pairs. The `galaxy` confirmation run
+was stopped early once the size of the effect was clear.
+
+The stages either half can touch move **1.05-1.60x**, but they are a minority of wall time
+everywhere in the suite and Amdahl eats the rest. **+3.7% is not worth the invariants it asks the
+port to carry**: a second path through `map_read`, a cross-rung reuse contract spanning four modules,
+and a tie-escalation rule whose only job is to keep the output byte-identical. Kept on the branch,
+not merged; the reasoning is in [RESULTS.md §5c](RESULTS.md).
+
+**What survives the rejection**, and is worth Pesho's attention on its own: (2) the pruning walk
+consumes 84-92% of its seeds on buckets that survive it, and (3) the sweep's tie-break is
+order-dependent — a latent wrinkle in the port that no released configuration exposes today, but
+that any future change to `S` or to sweep order would.
+
+An earlier B05 regression (0.939x, CI [0.916, 0.962]) was found by the cost model of §5d and fixed by
+anchoring the rung to each read's own score ceiling rather than to `-t`; that is why B05 is neutral
+above. The model predicting a regression from counters, before the timings could resolve it, is the
+most reusable thing this question produced.
 
 ---
 
