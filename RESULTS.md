@@ -1510,6 +1510,153 @@ measured, already-rejected SIMD path. 2-bit packing's remaining merit is memory 
 speed, and this port already discards the reference sequence after sketching (§8 of
 [`PORT_CHANGES.md`](PORT_CHANGES.md)), so that benefit would be transient during indexing only.
 
+### Choosing the bucket accumulator by occupancy — built, measured, does not pay off
+
+The dense accumulator (§1, `PROFILING.md`) was introduced for whole-genome `k=15`, where a read
+makes ~4 M contributions against ~242 k buckets: it touches nearly every slot, so the array is a
+genuine accumulator and collapsing in place beat sorting (`bucket_merge` 1342 s → 39 s).
+
+At the paper's own operating point the same reference gives the same slot count from the opposite
+direction. `halflen` is the read's own k-mer count (~128 at `k=25 -r 0.01`), so the array is still
+~242 k slots (~3.9 MB) — but §5b's `seeded_buckets` says a read touches **248 of them, 0.1 %
+occupancy**. The array is being used as a scatter table, not as an accumulator, and
+`MAX_DENSE_SLOTS` cannot tell the two cases apart because they land at the same size.
+
+So `plan_dense` was given an occupancy test as well as a size test, estimating the touches from the
+hits carried by the seeds `match_seeds` is about to stream (branch `q13-dense-occupancy`, not
+merged). It routes 96.5 % of HiFi reads to the sparse append+radix path. Both paths already
+existed and were already pinned to agree, so this adds a policy, not a code path — and output is
+byte-identical across `SHMAP_DENSE_POLICY=always|auto|never` on 62 148 reads against the whole
+genome, with `seeded_buckets`, `total_matches` and `mapped_reads` unchanged.
+
+Interleaved A/B/C, median of 3, 62 148 HiFi reads vs `REF-HS1`, ratios against `always`
+(= the shipped behaviour). `sketching` is the control cell: the selector cannot touch it, so its
+movement is this host's noise.
+
+| stage | `-@1` | `-@16` |
+|---|---:|---:|
+| `match_seeds` | 1.070x | **1.143x** |
+| `prepare` | 1.089x | **1.132x** |
+| `bucket_merge` | **0.607x** | **0.619x** |
+| `match_rest` | 0.973x | 0.992x |
+| *`query_mapping`* | *1.006x* | *1.026x* |
+| `sketching` *(control)* | *0.994x* | *1.033x* |
+
+**The scatter cost is real, and the sparse path's merge is larger.** `match_seeds` does get faster,
+by more at 16 threads than at 1 — which is the memory-contention half of the rationale confirmed,
+since 16 workers × 3.9 MB of privately-scattered array is a footprint the sparse path does not have.
+`prepare`/`collect_kmer_info` move with it, in the same direction at both thread counts, which is
+consistent with the freed cache going to the index probes. But it is bought at ~5.2 µs/read in
+`bucket_merge` against ~3.3 µs/read saved in `match_seeds`, and `query_mapping` lands inside the
+±3-8 % the control cell reports.
+
+**Why the premise was right and the conclusion wrong.** 0.1 % occupancy does not imply an expensive
+scatter here: at 3.9 MB the array is L3-resident on this host, so a miss is ~40 cycles rather than a
+DRAM round trip, and that is cheaper per hit than radix-sorting ~3 800 24-byte records is per read.
+Occupancy is the wrong variable on its own; what matters is the array's size against L3, which
+`MAX_DENSE_SLOTS` (~32 MB) does not bound tightly enough to say.
+
+**What survives.** The gain is not absent, it is cancelled: the whole loss is `bucket_merge`, so a
+cheaper merge for the ~250-distinct-from-~3 800-entries regime would surface the 1.13-1.14x on
+`match_seeds` and `prepare` as ~5-8 % end to end. That is a different piece of work — the sparse
+path's radix sort was tuned for the k=15 regime, where the entry count is three orders of magnitude
+larger — and it is the reason this branch is kept rather than deleted.
+
+**A latent panic found on the way, and fixed.** `plan_dense` retired the previous read's dirty
+slots *after* its sizing loop, whose early return replaces `dense` with an empty `Vec` while
+`touched` still holds ids into the array just dropped; the next dense read then indexed that empty
+`Vec`. It needs all three of a read abandoned after adding but before extracting (`extract_dense`
+drains, so nothing else leaves slots live), a read over `MAX_DENSE_SLOTS`, and a return to the dense
+path — which is why no run has hit it, and why `map_reads`'s per-read `catch_unwind` would have
+reported it as one failed read rather than a crash. The retirement is hoisted to the single point
+every exit from the dense path passes through, with a test that panics without it. Worth taking to
+`main` independently of the selector.
+
+### Comparing two builds confounds the change with the layout the build produced
+
+The release profile is `lto = "fat"` with `codegen-units = 1` (§1), which is worth ~5% and is
+staying. It also means the compiler re-lays-out the whole program on every build, so **two binaries
+built from two commits differ by the change *and* by an arbitrary code layout**, and on this
+codebase the second term is larger than most changes worth making.
+
+Measured, not inferred. A change confined to `best_fixed_length`'s scoring branch was A/B'd two
+ways: across two builds, and then inside a single binary with the branch behind an environment
+variable, both interleaved and median-of-4-or-5 against the same reads.
+
+| | across two builds | one binary, toggled |
+|---|---:|---:|
+| `refine` | 1.074x, 1.152x | **1.024x** |
+| `match_rest` | 1.099x, 1.101x | **1.025x** |
+| `collect_kmer_info` | 0.806x, 0.813x | **0.961x** |
+| `query_mapping` | 1.021x, 1.047x | **1.010x** |
+
+Two things to read off it. The change's apparent size is inflated **3-6x** by the cross-build
+comparison. And `collect_kmer_info` — a stage that runs before the changed code and cannot be
+affected by it — reproducibly "regressed" 19-23% across builds while being flat within one binary.
+Its absolute value is a per-build constant: ~1.60-1.76 s on every build in the session except the
+one carrying that change, where it was ~1.97-2.18 s, and ~1.5-1.9 s in the flag build that contains
+it. That is layout, not work.
+
+**So a perf claim here needs one binary and a runtime switch**, not two commits. This is why
+`SHMAP_NO_REFINE_MEMO`, `SHMAP_DENSE_POLICY`/`SHMAP_DENSE_OCCUPANCY`, `SHMAP_NO_SCORE_SHORTCUT` and
+`SHMAP_FORCE_P_HT` exist: each pins one arm of a change so the two arms share a layout. Where a
+change cannot be expressed as a switch, the honest options are the benchmark suite's own drift
+correction, or the cost model of §5d — both of which compare like with like across many runs rather
+than trusting one pair of builds.
+
+It also revises what §5d's 4.89 % residual covers: that is the noise floor *within* a build, and it
+is not the right yardstick for a figure obtained by building twice.
+
+### Dead and duplicated work in the per-read path — found, measured, ~4%, not taken
+
+A code-reading pass over `best_fixed_length` and what feeds it, rather than over the algorithm,
+looking for work the mapper does and does not use. It found two such things, and both are real; the
+reason this is a §11 entry rather than a merge is the size, not the soundness. Branches
+`q14-refine-inner-loop` and `q15-single-index-probe` (stacked on it), neither merged.
+
+Every figure below is measured **inside one binary** with the arm behind an environment switch,
+interleaved, median of 4, against `sketching` as an identical-work control cell — for the reason the
+previous section gives. Reads are 62 148 of `D3-HIFI1X` against `REF-HS1` at the paper parameters,
+`-@1`, Containment.
+
+| change | targeted stage | `query_mapping` |
+|---|---|---:|
+| `p_ht` built only when something reads it | `prepare` **1.189x** | **1.028x** |
+| the compact `H2SeedLut` on its own | `refine` 0.997x | — |
+| the f64 divide off Containment's common path | `refine` 1.024x | 1.010x |
+| one index probe per read k-mer instead of two | `match_seeds` **1.059x** | **1.025x** |
+| **all of it, switches off against on** | | **1.041x** |
+
+**`p_ht` was built per read and never read.** It maps every unique read k-mer to a whole `Seed` — a
+`Kmer`, three counters and a `PMatches` owning a `Vec`, ~72 bytes — and building it clones each one,
+heap allocation included. Its only readers are `lcs`, for `pmatches` under `bucket_LCS`, and the
+`-v2` ground-truth analysis. Neither runs on the three metrics this suite measures, so on every
+benchmark run in this repo's history it was constructed per read and discarded untouched.
+
+**Every consumed seed was looked up twice.** `collect_kmer_info` asked the index for a k-mer's hit
+count via `contains_key`, discarding the entry it had just found; `match_seeds` then re-probed the
+same shard for that entry's value. Both are cache-missing lookups into the multi-GB index, and 96 %
+of a read's ~123 unique sketched k-mers are unique in the reference, so nearly every one of the ~84
+seeds consumed per read paid the second probe. Returning the count and the hit from one probe, and
+carrying it in the `Seed`, is the `match_seeds` figure above.
+
+**One hypothesis died on the way**, and is worth recording so it is not retried: the scoring sweep
+probes its k-mer table twice per swept reference position, so replacing that table's ~72-byte
+payload with a packed `(strand, seed_num)` u32 — ~20 KB down to ~3 KB — looked like the lever.
+It measured **nothing** (`refine` 0.997x). At a 128-k-mer read the fat table is already close enough
+to L1-resident for the payload size not to be what that loop waits on. It is kept in the branch only
+because it is what allows `p_ht` to go away.
+
+**Why this is not merged.** 1.041x on `query_mapping` is ~1.7 % of wall at `-@1` on a 1x read set,
+where indexing is a third of the run, and the whole of it was measured on one benchmark, one metric
+and one thread count. The merge bar here is end to end. The honest argument *for* it is that unlike
+§5c's ladder it adds no invariant — it deletes a table and a probe — so if any of it is revisited,
+the `p_ht` removal is the piece that carries its own weight, and it is independent of the other two.
+
+Output is byte-identical on all three metrics in both arms of every switch, and `validate_paf.py`
+reports every structural and score invariant holding, so what is recorded here is a cost measurement
+and not a trade against accuracy.
+
 ### Measurements the upstream evaluation makes that this suite does not
 
 Checked against the algorithm's own (unpublished) evaluation plan on 2026-08-02. §5b closed the
