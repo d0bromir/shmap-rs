@@ -45,71 +45,86 @@
 //! [`ThetaLadder::new`]'s `adaptive` argument rather than being quietly
 //! approximated — see [`super::SHMapper::map_read`] for where that is decided.
 //!
-//! # Where the ladder starts
+//! # Where the rung goes
 //!
-//! Not at 1.0. A read cannot score above the fraction of its own k-mer
-//! occurrences that have *any* hit in the reference at all, which
-//! `unique_elements_with_info` has already established by the time the
-//! ladder is built (`hits_in_t == 0` for the rest). Starting one score
-//! quantum `1/m` below that bound skips every level a read could not have
-//! passed anyway, and it is what keeps the ladder from costing anything on
-//! reads that do not map: at `k = 25`, ONT's ~5-10% error leaves only ~28% of
-//! a read's k-mers intact, well under `-t 0.4`, so those reads get a
-//! one-level ladder — byte-identical work to the single pass they do today.
+//! There is exactly one rung below `-t`, and it is placed per read rather than
+//! at a fixed threshold, because the useful threshold is a property of the
+//! read. A read cannot score above the fraction of its own k-mer occurrences
+//! that have *any* hit in the reference — `unique_elements_with_info` has
+//! already established that by the time the ladder is built (`hits_in_t == 0`
+//! for the rest) — and it lands a measurable distance below that ceiling. The
+//! rung goes at `score_ub - RUNG_GAP`, and is taken only if that still saves
+//! enough to be worth failing (`MIN_SAVING`).
 //!
-//! The rungs are then laid out by *halving down from the user's own budget*
-//! until one falls at or below that starting point, rather than by doubling up
-//! from it. Same geometric spacing, but anchored at the end that has to be
-//! exact: the last rung is `-t` itself and not a value that merely rounds to
-//! it, and no rung lands a couple of seeds short of it. Halving also bounds
-//! the whole ladder's seeding at less than twice its final rung's — and in
-//! practice well under that, because seeds are consumed rarest-first, so a
-//! budget's expensive half is always its tail.
+//! Anchoring on the read is what makes one rung serve two workloads that want
+//! opposite things. On HiFi the ceiling is high and the gap to it small, so the
+//! rung lands high, costs ~0.2 of the seed budget instead of the ~0.34 a fixed
+//! half-budget rung costs, and is cleared nine times in ten. On ONT at
+//! `k = 25` the ceiling is low — ~28% of a read's k-mers survive the error
+//! rate, under `-t 0.4` — and the gap to it is five times wider, so there is no
+//! rung above `-t` worth taking and the read does byte-identical work to the
+//! single pass. Both constants carry the measurements behind them.
 //!
-//! How *many* rungs is [`DEFAULT_STEPS`], and the answer measured there is one,
-//! which is worth stating plainly: this makes the ladder a single cheaper
-//! attempt before `-t`, not a long descent. Its comment explains why more is
-//! worse.
+//! An earlier design placed the rung at half the user's budget regardless and
+//! used the ceiling only to decide *whether* to have one. That gave ONT reads
+//! with a middling ceiling a rung sitting exactly at it — clearable only by a
+//! read achieving its own bound exactly — which `RESULTS.md` §5c measured as a
+//! wasted rung on 6% of B05 and the cause of its one regression.
 
 use crate::types::QPos;
 
-/// How much the seed budget grows per level.
+/// How far below a read's own score ceiling to place its rung.
 ///
-/// 2.0 is the doubling that bounds the whole ladder's seeding at twice its
-/// final level's, the same argument a growing `Vec` makes about reallocation.
-/// Lower would place rungs closer to each read's actual score and waste less
-/// of the last step; higher would cut the number of `get_sorted_buckets`
-/// rebuilds. Measured both ways — see `RESULTS.md`.
-const GROWTH: f64 = 2.0;
+/// A read cannot score above `score_ub`, the fraction of its k-mers with any
+/// hit in the reference — but it does not reach that ceiling either, and the
+/// distance is what decides where a rung belongs. Measured over the four
+/// benchmark datasets it is small and stable on HiFi and five times wider on
+/// ONT:
+///
+/// | dataset | median gap | share clearing a rung this far below the ceiling |
+/// |---|---|---|
+/// | B01 real HiFi 23 kb | 0.04 | 93% |
+/// | B02 simulated 24 kb | 0.05 | 100% |
+/// | B03 real HiFi 13 kb | 0.03 | 98% |
+/// | B05 real ONT 23.8 kb | **0.18** | (never offered one — see `MIN_SAVING`) |
+///
+/// 0.20 is not a guess between them. It is what the cost model of `RESULTS.md`
+/// §5d picks, fed each candidate's own counters: over the twelve (benchmark,
+/// metric) pairs, 0.10 costs +12.1%, 0.15 +5.6%, 0.25 +9.5% and 0.30 +16.7%
+/// against it, and nine of the nine HiFi/simulated pairs choose it
+/// individually. Too small a gap places the rung so high that seeding barely
+/// covers anything and `seed_heuristic_pass` has to walk the difference — the
+/// same trade §5c measures in the other direction. Too large and the rung stops
+/// saving.
+///
+/// B05 is unmoved at *every* value in that sweep, to two decimals: no ONT read
+/// is offered a rung at any of them, so the fix this constant carries does not
+/// depend on tuning it.
+///
+/// `SHMAP_THETA_GAP` overrides it.
+const RUNG_GAP: f64 = 0.20;
 
-/// How many rungs may sit below the user's own `-t`. Measured, not assumed.
-///
-/// This is the ladder's one real tuning knob, and it is not "as many as
-/// possible", because the two halves of the seed heuristic move in *opposite*
-/// directions as `S` falls: seeding streams fewer k-mer hit lists, but
-/// `seed_heuristic_pass` then has to extend every bucket that survives its
-/// first check over the seeds seeding no longer covered — and the second cost
-/// grows faster than the first shrinks. Sweeping 0 (the single pass), 1, 2 and
-/// unbounded across B01/B03/B05 × three metrics put the optimum at 1 for five
-/// of the six real (benchmark, metric) pairs, and within noise of the optimum
-/// on the sixth. See `RESULTS.md` §5c for the table.
-///
-/// It also bounds the ladder unconditionally: without a cap, `--min_diff 0`
-/// would admit up to `log2(m)` rungs.
-const DEFAULT_STEPS: u32 = 1;
-
-/// [`DEFAULT_STEPS`], or the `SHMAP_THETA_STEPS` override — which exists so the
-/// sweep above can be re-run against a new dataset without a rebuild. `0` is
-/// exactly the single pass. Read once per process, not per read.
-fn max_steps() -> u32 {
-    static STEPS: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
-    *STEPS.get_or_init(|| {
-        std::env::var("SHMAP_THETA_STEPS")
+fn rung_gap() -> f64 {
+    static GAP: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *GAP.get_or_init(|| {
+        std::env::var("SHMAP_THETA_GAP")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(DEFAULT_STEPS)
+            .unwrap_or(RUNG_GAP)
     })
 }
+
+/// How much cheaper than `-t` a rung must be before it is worth taking at all.
+///
+/// A rung that fails costs a wasted merge and sweep, so one that saves almost
+/// nothing is a pure loss. Two, i.e. at most half the seed budget — the same
+/// line the previous design *placed* the rung at, kept here as a floor on how
+/// little it may save. It is what turns a low ceiling into no rung rather than
+/// into a rung nobody clears. It is what excludes ONT: a mapped ONT read has a
+/// ceiling around 0.68, so `score_ub - RUNG_GAP` lands at 0.48 against a `-t`
+/// of 0.4 — a rung saving so little that failing it costs more than skipping
+/// it ever saves.
+const MIN_SAVING: f64 = 2.0;
 
 /// Whether the ladder is enabled for this run. Read once per process, not per
 /// read. `SHMAP_NO_ADAPTIVE_THETA` collapses every read to the single pass at
@@ -138,17 +153,14 @@ pub struct Level {
 /// that escalates all the way does bit-identical work to a run without the
 /// ladder, and `adaptive: false` collapses to precisely that.
 pub struct ThetaLadder {
-    /// The user's own seed budget as a fraction of `m`: `1 - (theta -
-    /// min_diff)`, the share of the read's k-mer occurrences a bucket is
-    /// allowed to miss and still be found by seeding.
-    u_final: f64,
     theta_final: f64,
     s_final: QPos,
     min_diff: f64,
     m: QPos,
-    /// Rungs still below the final one. Each is `u_final` halved that many
-    /// times, so `0` means the next rung *is* the final one.
-    left: u32,
+    /// The one rung below `-t`, as a seed budget, if this read has one worth
+    /// taking. Consumed when handed out; `None` thereafter and after
+    /// [`Self::escalate_to_last`].
+    rung: Option<f64>,
     exhausted: bool,
 }
 
@@ -164,33 +176,25 @@ impl ThetaLadder {
         // equivalently: the last level has to reproduce it bit for bit.
         let s_final = ((1.0 - (theta - min_diff)) * m as f64) as QPos + 1;
 
-        // The cheapest rung worth trying: one score quantum below the highest
-        // score this read could possibly reach. At `score_ub` itself the
-        // sweep's strict `score > thr` could never fire, so that rung would be
-        // a guaranteed waste.
-        let u_start = if adaptive && m > 0 {
-            1.0 - (score_ub - 1.0 / m as f64) + min_diff
-        } else {
-            u_final
-        };
-
-        // Halve `u_final` while the result still stands above `u_start`.
-        // `floor` and not `ceil`: it keeps the first rung at or above
-        // `u_start`, so the ladder never opens with a rung the read was
-        // already known not to clear.
-        let left = if u_start < u_final {
-            ((u_final / u_start).log2().floor() as u32).min(max_steps())
-        } else {
-            0
-        };
+        // Put the rung just under what this read could possibly score, rather
+        // than at a fixed fraction of the user's budget. See `RUNG_GAP`.
+        let theta_rung = score_ub - rung_gap();
+        let u_rung = 1.0 - theta_rung + min_diff;
+        let worth_it = adaptive
+            && m > 0
+            // Above the user's own threshold, or it is not a rung at all.
+            && theta_rung > theta
+            // And cheap enough that failing it can be afforded. This is the
+            // same half-budget line the fixed-rung design used to *place* the
+            // rung at; here it is a floor on how little the rung may save.
+            && u_rung * MIN_SAVING <= u_final;
 
         ThetaLadder {
-            u_final,
             theta_final: theta,
             s_final,
             min_diff,
             m,
-            left,
+            rung: worth_it.then_some(u_rung),
             exhausted: false,
         }
     }
@@ -201,7 +205,7 @@ impl ThetaLadder {
     /// between two buckets is decided by sweep order, and only `-t`'s own order
     /// is the one the answer is defined by. See [`super::scoring::Sweep::tied`].
     pub fn escalate_to_last(&mut self) {
-        self.left = 0;
+        self.rung = None;
     }
 
     /// The next rung, or `None` once the user's own `-t` has been handed out.
@@ -209,18 +213,14 @@ impl ThetaLadder {
         if self.exhausted {
             return None;
         }
-        if self.left == 0 {
+        let Some(u) = self.rung.take() else {
             self.exhausted = true;
             return Some(Level {
                 theta: self.theta_final,
                 s: self.s_final,
                 last: true,
             });
-        }
-        // Recomputed from `u_final` rather than carried and multiplied, so
-        // that repeated halving cannot drift the rungs off the anchor.
-        let u = self.u_final / GROWTH.powi(self.left as i32);
-        self.left -= 1;
+        };
         Some(Level {
             theta: 1.0 - u + self.min_diff,
             s: (u * self.m as f64) as QPos + 1,
@@ -233,24 +233,8 @@ impl ThetaLadder {
 mod tests {
     use super::*;
 
-    /// The rung arithmetic has to hold for any cap, so the tests drive it
-    /// through the unbounded ladder rather than through `DEFAULT_STEPS` —
-    /// which is a tuning result and free to change without these becoming
-    /// wrong. `SHMAP_THETA_STEPS` is process-wide and read once, so it cannot
-    /// be set from inside a test binary that runs its tests in parallel.
     fn levels(m: QPos, theta: f64, min_diff: f64, score_ub: f64, adaptive: bool) -> Vec<Level> {
         let mut ladder = ThetaLadder::new(m, theta, min_diff, score_ub, adaptive);
-        ladder.left = if adaptive && m > 0 && score_ub > theta {
-            let u_final = 1.0 - (theta - min_diff);
-            let u_start = 1.0 - (score_ub - 1.0 / m as f64) + min_diff;
-            if u_start < u_final {
-                (u_final / u_start).log2().floor() as u32
-            } else {
-                0
-            }
-        } else {
-            ladder.left
-        };
         let mut out = Vec::new();
         while let Some(l) = ladder.next_level() {
             out.push(l);
@@ -291,79 +275,65 @@ mod tests {
     }
 
     #[test]
-    fn thresholds_descend_and_budgets_grow() {
-        let ls = levels(M, 0.4, 0.075, 0.99, true);
-        assert!(ls.len() > 1, "a near-perfect read should have rungs to climb");
-        for w in ls.windows(2) {
-            assert!(w[1].theta < w[0].theta, "{:?}", ls);
-            assert!(w[1].s > w[0].s, "{:?}", ls);
-        }
-        assert!(ls.iter().all(|l| l.theta >= 0.4), "{ls:?}");
-        assert!(ls[0].s >= 1);
-    }
-
-    /// The property the exactness argument rests on: at every level, seeding
-    /// covers strictly more than the k-mer occurrences a bucket scoring
-    /// `theta - min_diff` is allowed to miss.
-    #[test]
-    fn every_level_satisfies_the_seed_heuristic_bound() {
-        for &ub in &[0.5, 0.75, 0.9, 1.0] {
-            for &(theta, min_diff) in &[(0.4, 0.075), (0.9, 0.02), (0.15, 0.075), (0.5, 0.0)] {
-                for l in levels(M, theta, min_diff, ub, true) {
-                    let allowed_misses = (1.0 - (l.theta - min_diff)) * M as f64;
-                    assert!(
-                        l.s as f64 > allowed_misses,
-                        "S={} <= {allowed_misses} at theta={} (ub={ub})",
-                        l.s,
-                        l.theta
-                    );
-                }
-            }
-        }
-    }
-
-    /// Doubling is what bounds the ladder's overhead: everything before any
-    /// rung costs less than that rung does.
-    #[test]
-    fn the_budget_before_any_level_is_under_that_level() {
-        for &ub in &[0.5, 0.8, 0.95, 1.0] {
+    fn a_read_gets_at_most_one_rung_below_its_threshold() {
+        for &ub in &[0.0, 0.3, 0.5, 0.7, 0.87, 0.95, 1.0] {
             let ls = levels(M, 0.4, 0.075, ub, true);
-            for i in 1..ls.len() {
-                let before: QPos = ls[..i].iter().map(|l| l.s).sum();
-                // `+ i` slack: each rung's `S` carries the formula's own `+ 1`.
-                assert!(before <= ls[i].s + i as QPos, "{ls:?} at {i}");
-            }
-        }
-    }
-
-    /// The first rung must be one the read could actually clear — the whole
-    /// reason the ladder is anchored on `score_ub` — and no rung may ever ask
-    /// for *more* than the user did.
-    #[test]
-    fn the_first_rung_is_reachable_and_no_rung_is_stricter_than_needed() {
-        for &ub in &[0.5, 0.87, 0.95, 1.0] {
-            let ls = levels(M, 0.4, 0.075, ub, true);
-            // Reachable: a read scoring its own upper bound clears rung 0.
-            assert!(ub > ls[0].theta, "ub={ub} first theta={}", ls[0].theta);
+            assert!(ls.len() <= 2, "ub={ub}: {ls:?}");
             assert!(ls.iter().all(|l| l.theta >= 0.4), "{ls:?}");
+            for w in ls.windows(2) {
+                assert!(w[1].theta < w[0].theta, "{ls:?}");
+                assert!(w[1].s > w[0].s, "{ls:?}");
+            }
         }
-        // Below `-t` there is nothing above the user's own threshold to try
-        // first, and the ladder collapses to it rather than opening lower.
-        let hopeless = levels(M, 0.4, 0.075, 0.3, true);
-        assert_eq!(hopeless.len(), 1);
-        assert_eq!(hopeless[0].theta, 0.4);
     }
 
-    /// No rung may be a near-duplicate of the one after it: each costs a full
-    /// bucket rebuild and sweep, so one that seeds barely more than its
-    /// predecessor is pure overhead.
+    /// The rung is placed against the *read*, not against `-t`: a gap below
+    /// whatever that read could possibly score. This is the whole design.
     #[test]
-    fn rungs_are_a_real_factor_apart() {
-        for &ub in &[0.5, 0.87, 0.95, 1.0] {
+    fn the_rung_sits_one_gap_below_the_ceiling() {
+        // `MIN_SAVING` admits a rung only above a ceiling of
+        // `1 + min_diff - RUNG_GAP - u_final/2` = 0.9375 at these parameters.
+        for &ub in &[0.95, 0.98, 1.0] {
             let ls = levels(M, 0.4, 0.075, ub, true);
-            for w in ls.windows(2) {
-                assert!(w[1].s >= 2 * w[0].s - 1, "{ls:?}");
+            assert_eq!(ls.len(), 2, "ub={ub} should get a rung: {ls:?}");
+            assert!(
+                (ls[0].theta - (ub - RUNG_GAP)).abs() < 1e-12,
+                "ub={ub} rung at {} not at {}",
+                ls[0].theta,
+                ub - RUNG_GAP
+            );
+        }
+    }
+
+    /// And the case that made the placement worth changing. A read whose
+    /// ceiling is only middling gets *no* rung, rather than one sitting so
+    /// close to its ceiling that clearing it would need a perfect read — which
+    /// is what B05's wasted rung was.
+    #[test]
+    fn a_middling_ceiling_gets_no_rung_rather_than_an_unclearable_one() {
+        // 0.68 is where a mapped ONT read sits; the rest bracket it.
+        for &ub in &[0.5, 0.68, 0.8, 0.87, 0.9] {
+            let ls = levels(M, 0.4, 0.075, ub, true);
+            assert_eq!(ls.len(), 1, "ub={ub} should get no rung: {ls:?}");
+            assert!(ls[0].last);
+        }
+    }
+
+    /// A rung that saves almost nothing is a pure loss when it fails, so it is
+    /// not taken at all.
+    #[test]
+    fn any_rung_taken_saves_at_least_min_saving() {
+        for &ub in &[0.5, 0.7, 0.87, 0.95, 1.0] {
+            let ls = levels(M, 0.4, 0.075, ub, true);
+            if ls.len() < 2 {
+                continue;
             }
+            let s_final = ls[1].s as f64;
+            assert!(
+                ls[0].s as f64 * MIN_SAVING <= s_final + MIN_SAVING,
+                "ub={ub}: rung S={} against final S={s_final}",
+                ls[0].s
+            );
         }
     }
 
