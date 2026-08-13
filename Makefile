@@ -103,7 +103,8 @@ SHMAP_ONESWEEP_PREF = $(ALLOUT_DIR)/shmap-onesweep/$(READS_PREFIX)/shmap-oneswee
 
 TIME_CMD = /usr/bin/time -f "%U\t%M"
 
-.PHONY: all build debug test clean remake paper paper-tex paper-pdf paper-check promote \
+.PHONY: all build debug test clean remake paper paper-tex paper-pdf paper-check \
+	paper-manuscript promote \
 	simulate_SVs gen_reads eval_sketching eval_thinning fdr_per_theta \
 	eval_shmap eval_shmap_noprune eval_shmap_onesweep \
 	eval_mashmap1 eval_mashmap3 eval_astarix eval_winnowmap eval_minimap eval_mm2 eval_blend eval_mapquik \
@@ -129,16 +130,27 @@ test:
 paper: paper-pdf
 
 paper-tex:
-	python3 benchmarks/paper.py
+	python3 benchmarks/scripts/paper.py
+	python3 benchmarks/scripts/manuscript.py
 
 # Typesets whatever paper.py produced into one PDF. Skips with an explanation
 # rather than failing when no LaTeX engine is installed.
 paper-pdf: paper-tex
-	python3 benchmarks/build_pdf.py
+	python3 benchmarks/scripts/build_pdf.py
+	python3 benchmarks/scripts/build_paper.py
+
+# The manuscript alone, for the edit-build-look loop. `paper` builds it too.
+paper-manuscript:
+	python3 benchmarks/scripts/manuscript.py
+	python3 benchmarks/scripts/manuscript.py --lint
+	python3 benchmarks/scripts/build_paper.py
 
 paper-check:
-	python3 benchmarks/paper.py --check
-	python3 benchmarks/build_pdf.py --check
+	python3 benchmarks/scripts/paper.py --check
+	python3 benchmarks/scripts/build_pdf.py --check
+	python3 benchmarks/scripts/manuscript.py --check
+	python3 benchmarks/scripts/manuscript.py --lint
+	python3 benchmarks/scripts/build_paper.py --check
 
 # Publish a finished result set: copy it over current/, regenerate RESULTS.md,
 # README.md, the paper artifacts and the PDF, then verify every --check still
@@ -146,7 +158,7 @@ paper-check:
 #   make promote RESULT_SET=/home/mpiuser/bench-results/1.3.1-...
 promote:
 	@test -n "$(RESULT_SET)" || { echo "usage: make promote RESULT_SET=<dir> [ARGS=--commit]"; exit 2; }
-	python3 benchmarks/promote.py $(RESULT_SET) $(ARGS)
+	python3 benchmarks/scripts/promote.py $(RESULT_SET) $(ARGS)
 
 remake: clean all
 

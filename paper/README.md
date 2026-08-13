@@ -1,6 +1,72 @@
+# The paper
+
+Two things live here: **the manuscript**, a two-page applications note somebody wrote, and
+**its artifacts**, the tables and figures generated from a benchmark result set. Neither
+contains a number a person typed.
+
+```
+make paper                                  build everything below
+make paper-manuscript                       just the manuscript
+make paper-check                            fail if any of it is stale (CI runs this)
+```
+
+## The manuscript
+
+[`manuscript.tex`](manuscript.tex) is written by hand and typeset to `manuscript.pdf`.
+
+```
+python3 benchmarks/scripts/manuscript.py          rebuild generated/macros.{tex,tsv} + MACROS.md
+python3 benchmarks/scripts/manuscript.py --check  fail if a macro would change
+python3 benchmarks/scripts/manuscript.py --lint   fail if the draft typed a number itself
+python3 benchmarks/scripts/manuscript.py --list   every macro's value, source and meaning
+python3 benchmarks/scripts/build_paper.py         typeset it to manuscript.pdf
+python3 benchmarks/scripts/build_paper.py --check fail if the committed PDF is not current
+```
+
+**Its prose contains no numerals.** Every measured quantity is a `\shm…` macro that
+`manuscript.py` defines from the promoted result sets, so a sentence reads
+
+```latex
+it is \shmSpeedupXMin--\shmSpeedupXMax$\times$ faster single-threaded
+```
+
+and a re-measurement rewrites the sentence. That is the whole point: generated tables
+removed one staleness failure and left the worse one, because nobody re-reads a paragraph
+after a benchmark run and a stale sentence typesets perfectly.
+
+`--lint` is what makes this a checked property rather than a convention. It reads the body
+of the draft — not the preamble, not the bibliography, with comments and `\label`/`\url`
+arguments and TeX lengths removed — and fails on any digit left over. A line that genuinely
+needs one ends with `% lint-ok: <reason>`; the reason is required, because the point is that
+somebody looked at the digit, not that the check can be silenced.
+
+Both directions are covered. A macro the draft uses but `manuscript.py` no longer defines
+fails `--check` by name, rather than deep inside a TeX log. A macro defined but unused is
+reported as a note, because the usual cause is a sentence rewritten to hardcode its number.
+
+**The byline is generated too.** `\shmAuthors`, `\shmOrcids` and `\shmContributors` come
+from [`.zenodo.json`](../.zenodo.json), so the paper and the archived DOI cannot name
+different people. Zenodo's own split is preserved rather than reinterpreted: `creators`
+become the byline, `contributors` are acknowledged. Add an author to the archive record,
+not to the draft.
+
+**Two pages is enforced, not intended.** `build_paper.py` counts the pages and exits
+non-zero over budget; it still writes the PDF, because seeing the overflow is how it gets
+fixed. If a re-measurement pushes it over, cut prose — the floats are the evidence.
+
+`manuscript.pdf` is committed and the build is byte-reproducible (see the note on
+`SOURCE_DATE_EPOCH` below), so `--check` is a real equality test.
+
+Read [`generated/MACROS.md`](generated/MACROS.md) before quoting any of it: it is generated
+from the same declarations that compute the values, so it cannot describe a source the code
+does not read, and it carries the caveats — which figures are one favourable row rather than
+typical, which are configuration rather than measurement, and which compare two machines
+rather than two instruction sets.
+
 # Paper artifacts
 
-Tables and figures for the paper, generated from a benchmark result set by
+Tables and figures — what the manuscript above `\input`s, and what a longer draft
+would draw on. Generated from a benchmark result set by
 [`benchmarks/scripts/paper.py`](../benchmarks/scripts/paper.py). Nothing in `generated/` is written by hand.
 
 ```
