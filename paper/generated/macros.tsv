@@ -19,7 +19,7 @@ macro	value	unit	source	meaning
 \shmMeasuredA	2026-08-10		current/manifest.json :: finished	Date the second set was measured.
 \shmRustc	1.97.1		current/manifest.json :: rustc	Compiler both sets were built with.
 \shmSuiteVersion	1.0		benchmarks/data/suite.toml :: suite_version	Benchmark suite version the sets belong to.
-\shmVersion	1.4.0		Cargo.toml :: package.version	Release of shmap-rs the paper describes.
+\shmVersion	1.4.1		Cargo.toml :: package.version	Release of shmap-rs the paper describes.
 \shmLicense	MPL-2.0		Cargo.toml :: package.license	Licence the implementation is published under.
 \shmAuthors	Dobromir Panchev \and Pesho Ivanov		.zenodo.json :: creators[].name	Byline, in the archive's own creator order.
 \shmOrcids	Panchev 0009-0000-2636-2593; Ivanov 0000-0002-8119-3849		.zenodo.json :: creators[].orcid	ORCID of each author, in the same order.

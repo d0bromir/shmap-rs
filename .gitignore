@@ -9,3 +9,4 @@ __pycache__/
 # hosts, and neither means anything to anyone else's clone.
 .claude/
 benchmarks/data/files
+release-notes.md

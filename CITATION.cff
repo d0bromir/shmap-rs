@@ -17,7 +17,7 @@ authors:
     orcid: 'https://orcid.org/0000-0002-8119-3849'
 repository-code: https://github.com/d0bromir/shmap-rs
 license: MPL-2.0
-version: 1.4.0
+version: 1.4.1
 abstract: >-
   A Rust port of shmap, a sketch-based long-read mapper that
   locates a read by k-mer set overlap rather than by
