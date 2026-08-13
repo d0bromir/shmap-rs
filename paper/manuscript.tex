@@ -186,11 +186,15 @@ keeps a \shmRssRatioCap$\times$ advantage, on cores the reference cannot use.
 \textbf{Against other mappers}, on \shmPeerBench, same host and same reads.
 Mapping costs shmap-rs \shmPeerRsMapS~s single-threaded at \shmRssRsMin~GB;
 Winnowmap2 takes \shmPeerWinnowMapS~s on \shmPeerWinnowThreads{} threads at
-\shmPeerWinnowGB~GB, and mapquik \shmPeerMapquikMapS~s on the same threads but
-at \shmPeerMapquikGB~GB. shmap-rs places \shmAgreeWinnow\% of Winnowmap2's
+\shmPeerWinnowGB~GB, mapquik \shmPeerMapquikMapS~s on the same threads at
+\shmPeerMapquikGB~GB. Indexing is \shmPeerRsIndexS~s against the C++'s
+\shmPeerCppIndexS~s. Output volumes are not comparable as sensitivity ---
+shmap-rs writes \shmPeerRsRecords{} PAF records, Winnowmap2
+\shmPeerWinnowRecords, which is more than there are reads because it emits
+secondary alignments. shmap-rs places \shmAgreeWinnow\% of Winnowmap2's
 mappings compatibly and \shmAgreeMapquik\% of mapquik's --- \emph{concordance,
-not accuracy}: those tools are estimates too, and where they disagree with
-shmap-rs nothing here says which is right.
+not accuracy}: those tools are estimates too, and where they disagree nothing
+here says which is right.
 
 \textbf{Where the time goes.} Figure~\ref{fig:stages} gives every stage's share
 of \texttt{query\_mapping} for all \shmNumCells{} cells. The costliest is

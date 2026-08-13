@@ -6,7 +6,7 @@
 # measured:   2026-08-10
 # inputs:     sha256:a15b1477d0efdc6b
 # provenance: paper/generated/PROVENANCE.md#table_peers
-tool	threads	map_s	peak_rss_gb	agreement_with_shmap_rs
-shmap-rs	1	36.274	2.66	
-cpp-shmap	1	77.67	18.85	
-winnowmap2	32	1493.4	9.83	0.9633
+tool	threads	records	mapq60	index_s	map_s	peak_rss_gb	agreement_with_shmap_rs
+shmap-rs	1	149194	139309	6.519	36.274	2.66	
+cpp-shmap	1	149194	139309	25.42	77.67	18.85	
+winnowmap2	32	189022			1493.4	9.83	0.9633

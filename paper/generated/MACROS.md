@@ -92,6 +92,10 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmAccMax` | 99.21 | % | Highest ground-truth accuracy across metrics on the simulated benchmark. | `current/checks.tsv :: check=ground_truth, detail` |
 | `\shmWrongQMax` | 6 | reads | Most confidently-wrong placements any metric produced. | `current/checks.tsv :: check=wrong_q60, detail` |
 | `\shmPeerBench` | B01 | — | Benchmark the peer-tool comparison is measured on. | `benchmarks/scripts/paper.py :: PEER_BENCHMARK` |
+| `\shmPeerRsRecords` | 149194 | records | PAF lines shmap-rs writes on the peer benchmark. | `paper/generated/<arch>/table_peers.tsv :: records` |
+| `\shmPeerWinnowRecords` | 189022 | records | PAF lines Winnowmap2 writes on the same reads. | `paper/generated/<arch>/table_peers.tsv :: records` |
+| `\shmPeerRsIndexS` | 7.0 | s | shmap-rs indexing seconds on the peer benchmark. | `paper/generated/<arch>/table_peers.tsv :: index_s` |
+| `\shmPeerCppIndexS` | 34.9 | s | C++ indexing seconds on the same reference. | `paper/generated/<arch>/table_peers.tsv :: index_s` |
 | `\shmPeerRsMapS` | 33.6 | s | shmap-rs mapping seconds on the peer benchmark, single-threaded. | `paper/generated/<arch>/table_peers.tsv :: map_s` |
 | `\shmPeerWinnowMapS` | 1328 | s | Winnowmap2 mapping seconds on the same reads. | `paper/generated/<arch>/table_peers.tsv :: map_s` |
 | `\shmPeerWinnowThreads` | 32 | — | Thread count Winnowmap2 was run at. | `paper/generated/<arch>/table_peers.tsv :: threads` |
@@ -119,6 +123,8 @@ everyone else, both from one computation so they cannot disagree.
 - `\shmScaleXPeak` — One favourable row, not the machine's typical behaviour; read with ScaleXCap, which is the median across every cell.
 - `\shmScaleAPeak` — One favourable row, not the machine's typical behaviour; read with ScaleACap, which is the median across every cell.
 - `\shmAgreeCells` — Agreement at -@1. Agreement across thread counts is a separate per-machine check (thread_determinism).
+- `\shmPeerRsRecords` — Records are PAF lines, not reads mapped. shmap-rs emits one per mapped read so the two coincide for it; they do not for a tool emitting secondary alignments.
+- `\shmPeerWinnowRecords` — Exceeds the read count, because Winnowmap2 emits secondary alignments. Output volume, never sensitivity.
 - `\shmAgreeWinnow` — Concordance, not accuracy. Winnowmap2 is the most accurate long-read mapper available and is still an estimate; the suite's only accuracy number comes from the simulated benchmark.
 - `\shmAgreeMapquik` — Concordance, not accuracy; and mapquik is a low-divergence mapper by its own account, not run on the ONT benchmark at all.
 - `\shmMapRatioMin` — The machines differ in cores, sockets, NUMA topology, memory and clock, and none is held fixed. A ratio across them compares two machines we own, not two instruction sets.

@@ -230,7 +230,8 @@ def build_peers(c: Ctx) -> tuple[str, list[str], list[list]]:
     it and shmap-rs disagree, nothing here says which is right.
     """
     bid, metric = PEER_BENCHMARK, PEER_METRIC
-    cols = ["tool", "threads", "map_s", "peak_rss_gb", "agreement_with_shmap_rs"]
+    cols = ["tool", "threads", "records", "mapq60", "index_s", "map_s",
+            "peak_rss_gb", "agreement_with_shmap_rs"]
     data: list[list] = []
 
     for impl in (SUBJECT, REFERENCE):
@@ -238,7 +239,8 @@ def build_peers(c: Ctx) -> tuple[str, list[str], list[list]]:
                   if x["benchmark"] == bid and x["metric"] == metric
                   and x["threads"] == 1), None)
         if r:
-            data.append([impl, 1,
+            data.append([impl, 1, int(r["mapped"]), int(r["mapq60"]),
+                         float(r["index_s"]) if r.get("index_s") not in (None, "") else None,
                          float(r["map_s"]) if r.get("map_s") not in (None, "") else None,
                          round(int(r["peak_rss_kb"]) / 1048576, 2), None])
 
@@ -255,26 +257,42 @@ def build_peers(c: Ctx) -> tuple[str, list[str], list[list]]:
                     agree = round(float(field.split("=", 1)[1]), 4)
                 except ValueError:
                     agree = None
-        data.append([e["mapper"], e.get("threads"), float(e["wall_s"]),
+        # No mapq for the peers: the corpus records what they emitted, and
+        # neither reports a comparable confidence. No index/map split either --
+        # their runs are one phase, so the wall goes in the map column, which is
+        # the convention table_mapper_comparison already uses.
+        data.append([e["mapper"], e.get("threads"),
+                     int(e["mapped"]) if e.get("mapped") is not None else None,
+                     None, None, float(e["wall_s"]),
                      round(int(e["peak_rss_kb"]) / 1048576, 2)
                      if e.get("peak_rss_kb") else None,
                      agree])
 
+    reads = c.reads_in(bid)
     lines = [
-        r"\begin{tabular}{lrrrr}",
+        r"\begin{tabular}{lrrrrrrr}",
         r"\toprule",
-        r"Tool & \texttt{-@} & Map (s) & Mem (GB) & Agreement \\",
+        r"Tool & \texttt{-@} & Records & Mapq 60 & Index & Map & Mem & Agree \\",
+        r" & & & & (s) & (s) & (GB) & \\",
         r"\midrule",
     ]
     for row in data:
         lines.append(" & ".join([
             tex_escape(str(row[0])),
             str(row[1]) if row[1] else dash(),
-            fnum(row[2]) if row[2] is not None else dash(),
-            fnum(row[3]) if row[3] is not None else dash(),
-            fnum(row[4], 4) if row[4] is not None else dash(),
+            thousands(row[2]) if row[2] is not None else dash(),
+            thousands(row[3]) if row[3] is not None else dash(),
+            fnum(row[4]) if row[4] is not None else dash(),
+            fnum(row[5]) if row[5] is not None else dash(),
+            fnum(row[6]) if row[6] is not None else dash(),
+            fnum(row[7], 4) if row[7] is not None else dash(),
         ]) + r" \\")
-    lines += [r"\bottomrule", r"\end{tabular}"]
+    lines += [r"\midrule",
+              r"\multicolumn{8}{@{}l}{\footnotesize Input: " + thousands(reads) +
+              r" reads. Records are PAF lines, not reads: a tool emitting}\\",
+              r"\multicolumn{8}{@{}l}{\footnotesize secondary alignments writes more "
+              r"than one per read.}\\",
+              r"\bottomrule", r"\end{tabular}"]
     return "\n".join(lines), cols, data
 
 
@@ -657,6 +675,11 @@ ARTIFACTS: tuple[Artifact, ...] = (
             f"One benchmark ({PEER_BENCHMARK}) and one metric ({PEER_METRIC}), because a "
             f"two-page note has room for four rows; table_mapper_comparison carries every "
             f"dataset and metric.",
+            "Records is the PAF line count, which is what both the runner and the "
+            "external corpus record as `mapped`. It is NOT a count of reads mapped.",
+            "Mapq 60 and the index/map split exist only for shmap-rs and the C++; the "
+            "peers emit no comparable confidence and their runs are one phase, so their "
+            "wall time goes in the map column and the rest are em-dashed.",
             "shmap-rs and the C++ are taken at -@1; the peers at whatever thread count "
             "their cached run used, which is printed rather than normalised away.",
             "Agreement is parsed from the concordance check's good= field, which is the "
@@ -665,6 +688,13 @@ ARTIFACTS: tuple[Artifact, ...] = (
         ),
         presentation="booktabs tabular, one row per tool.",
         caveats=(
+            "RECORDS ARE NOT READS. Both counts are PAF lines. shmap-rs and the C++ emit "
+            "one line per mapped read, so for them the two coincide; Winnowmap2 emits "
+            "secondary alignments, which is why its record count exceeds the number of "
+            "reads in the input. Read this column as output volume, never as sensitivity.",
+            "An em dash means the figure does not exist for that tool, not that it is "
+            "zero. No peer reports a mapq comparable with shmap-rs's, and neither is run "
+            "twice to separate indexing from mapping.",
             "AGREEMENT IS CONCORDANCE, NEVER ACCURACY. Winnowmap2 is the most accurate "
             "long-read mapper available and is still an estimate, not ground truth; the "
             "only accuracy number in this suite comes from the simulated benchmark, whose "

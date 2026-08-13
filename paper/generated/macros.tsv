@@ -73,6 +73,10 @@ macro	value	unit	source	meaning
 \shmAccMax	99.21	%	current/checks.tsv :: check=ground_truth, detail	Highest ground-truth accuracy across metrics on the simulated benchmark.
 \shmWrongQMax	6	reads	current/checks.tsv :: check=wrong_q60, detail	Most confidently-wrong placements any metric produced.
 \shmPeerBench	B01		benchmarks/scripts/paper.py :: PEER_BENCHMARK	Benchmark the peer-tool comparison is measured on.
+\shmPeerRsRecords	149194	records	paper/generated/<arch>/table_peers.tsv :: records	PAF lines shmap-rs writes on the peer benchmark.
+\shmPeerWinnowRecords	189022	records	paper/generated/<arch>/table_peers.tsv :: records	PAF lines Winnowmap2 writes on the same reads.
+\shmPeerRsIndexS	7.0	s	paper/generated/<arch>/table_peers.tsv :: index_s	shmap-rs indexing seconds on the peer benchmark.
+\shmPeerCppIndexS	34.9	s	paper/generated/<arch>/table_peers.tsv :: index_s	C++ indexing seconds on the same reference.
 \shmPeerRsMapS	33.6	s	paper/generated/<arch>/table_peers.tsv :: map_s	shmap-rs mapping seconds on the peer benchmark, single-threaded.
 \shmPeerWinnowMapS	1328	s	paper/generated/<arch>/table_peers.tsv :: map_s	Winnowmap2 mapping seconds on the same reads.
 \shmPeerWinnowThreads	32		paper/generated/<arch>/table_peers.tsv :: threads	Thread count Winnowmap2 was run at.
