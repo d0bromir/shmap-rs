@@ -10,9 +10,16 @@ make paper-manuscript                       just the manuscript
 make paper-check                            fail if any of it is stale (CI runs this)
 ```
 
-## The manuscript
+## The notes
 
-[`manuscript.tex`](manuscript.tex) is written by hand and typeset to `manuscript.pdf`.
+Two, both two pages, both hand-written and typeset by the same flow:
+
+| | |
+|---|---|
+| [`manuscript.tex`](manuscript.tex) | the applications note — what the port is, and what it measures |
+| [`optimizations.tex`](optimizations.tex) | the companion — every optimization, by the layer it acts on |
+
+`build_paper.py --list` prints them with their page budgets; `--doc <name>` builds one.
 
 ```
 python3 benchmarks/scripts/manuscript.py          rebuild generated/macros.{tex,tsv} + MACROS.md
@@ -49,6 +56,15 @@ from [`.zenodo.json`](../.zenodo.json), so the paper and the archived DOI cannot
 different people. Zenodo's own split is preserved rather than reinterpreted: `creators`
 become the byline, `contributors` are acknowledged. Add an author to the archive record,
 not to the draft.
+
+**The optimization table is generated from `PORT_CHANGES.md`**, by
+[`optimizations.py`](../benchmarks/scripts/optimizations.py) — the rows of its current-state
+table verbatim, plus the `// file:lines` citation of the C++ each one replaces, so
+"compared to the C++" is checkable rather than asserted. What that script *declares* rather
+than reads is the layer each change acts on (data structure, algorithm, parallelism, code),
+which is the paper's classification and not a fact about the repository; it is checked
+against the parsed rows both ways, so a new optimization cannot be silently missing from a
+note that claims to list them all. See [`generated/OPTIMIZATIONS.md`](generated/OPTIMIZATIONS.md).
 
 **Two pages is enforced, not intended.** `build_paper.py` counts the pages and exits
 non-zero over budget; it still writes the PDF, because seeing the overflow is how it gets

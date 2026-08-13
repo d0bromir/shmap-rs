@@ -194,10 +194,17 @@ jobs:
       # result sets, and the draft must not have acquired a hand-typed number
       # that no re-measurement would ever update -- which is the failure mode
       # generated tables were introduced to remove and prose still had.
+      # The companion note claims to account for every optimization. This is
+      # what makes that claim checkable: a row added to PORT_CHANGES.md that
+      # the table has not been regenerated for fails here, and one this repo
+      # does not classify fails inside the generator by name.
+      - name: the optimization table matches PORT_CHANGES.md
+        run: python3 benchmarks/scripts/optimizations.py --check
+
       - name: the manuscript's macros match the result sets
         run: python3 benchmarks/scripts/manuscript.py --check
 
-      - name: the manuscript quotes no number it typed itself
+      - name: neither note quotes a number it typed itself
         run: python3 benchmarks/scripts/manuscript.py --lint
 
       # The simulators produce the only datasets that can support an accuracy

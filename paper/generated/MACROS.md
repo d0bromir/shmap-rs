@@ -44,6 +44,10 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmOrcids` | Panchev 0009-0000-2636-2593; Ivanov 0000-0002-8119-3849 | — | ORCID of each author, in the same order. | `.zenodo.json :: creators[].orcid` |
 | `\shmUpstream` | https://github.com/pesho-ivanov/shmap | — | Repository of the original implementation this ports. | `.zenodo.json :: related_identifiers[relation=isDerivedFrom].identifier` |
 | `\shmContributors` | Dobromir Petrov | — | Project members credited on the archive but not authors. | `.zenodo.json :: contributors[].name` |
+| `\shmNumOptimizations` | 9 | — | Optimizations the companion paper accounts for. | `PORT_CHANGES.md :: the current-state table` |
+| `\shmNumExactOptimizations` | 9 | — | How many of them leave output byte-identical. | `PORT_CHANGES.md :: the current-state table, Exact? column` |
+| `\shmCppCommit` | 63f1103 | — | Upstream revision every C++ citation is taken at. | `PORT_CHANGES.md :: the URL of each quoted block` |
+| `\shmNumParallelOptimizations` | 3 | — | How many exist only because the C++ is single-threaded. | `PORT_CHANGES.md, classified by benchmarks/scripts/optimizations.py` |
 | `\shmParamK` | 25 | — | k-mer length. | `benchmarks/data/suite.toml :: params.paper.k` |
 | `\shmParamR` | 0.01 | — | FracMinHash sampling rate. | `benchmarks/data/suite.toml :: params.paper.hashratio` |
 | `\shmParamTheta` | 0.4 | — | Similarity threshold. | `benchmarks/data/suite.toml :: params.paper.threshold` |
