@@ -43,6 +43,11 @@ macro	value	unit	source	meaning
 \shmRssCpp	18.85	GB	current/results.tsv :: peak_rss_kb, cpp-shmap	Peak RSS of the C++, reference machine (median over cells).
 \shmRssRatioMin	7.0	x	current/results.tsv :: peak_rss_kb, both implementations	Smallest peak-RSS advantage over the C++, paired within a cell.
 \shmRssRatioMax	7.3	x	current/results.tsv :: peak_rss_kb, both implementations	Largest peak-RSS advantage over the C++, paired within a cell.
+\shmRssRsFloor	1.85	GB	current/results.tsv :: peak_rss_kb, shmap-rs, all thread counts	Lowest peak RSS anywhere in the thread sweep.
+\shmRssRsFloorThreads	2		current/results.tsv :: peak_rss_kb, shmap-rs, all thread counts	Thread count at which it is lowest.
+\shmRssRsCap	8.78	GB	current/results.tsv :: peak_rss_kb, shmap-rs at threads=64	Highest peak RSS at the sweep cap, across benchmarks.
+\shmRssRsCapBench	B04		current/results.tsv :: peak_rss_kb, shmap-rs at threads=64	Benchmark that reaches it.
+\shmRssRatioCap	2.1	x	current/results.tsv :: peak_rss_kb, both implementations	Peak-RSS advantage still held at the sweep cap, worst case.
 \shmKneeThreads	16		constant in manuscript.py	Thread count the prose calls the reference machine's knee.
 \shmCapThreads	64		benchmarks/data/hosts.toml :: thread_cap	Highest thread count both machines sweep.
 \shmScaleXKnee	6.2	x	current/results.tsv :: wall_s at threads=1 and threads=16	Median speedup at the knee, reference machine.

@@ -62,6 +62,11 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmRssCpp` | 18.85 | GB | Peak RSS of the C++, reference machine (median over cells). | `current/results.tsv :: peak_rss_kb, cpp-shmap` |
 | `\shmRssRatioMin` | 7.0 | x | Smallest peak-RSS advantage over the C++, paired within a cell. | `current/results.tsv :: peak_rss_kb, both implementations` |
 | `\shmRssRatioMax` | 7.3 | x | Largest peak-RSS advantage over the C++, paired within a cell. | `current/results.tsv :: peak_rss_kb, both implementations` |
+| `\shmRssRsFloor` | 1.85 | GB | Lowest peak RSS anywhere in the thread sweep. | `current/results.tsv :: peak_rss_kb, shmap-rs, all thread counts` |
+| `\shmRssRsFloorThreads` | 2 | — | Thread count at which it is lowest. | `current/results.tsv :: peak_rss_kb, shmap-rs, all thread counts` |
+| `\shmRssRsCap` | 8.78 | GB | Highest peak RSS at the sweep cap, across benchmarks. | `current/results.tsv :: peak_rss_kb, shmap-rs at threads=64` |
+| `\shmRssRsCapBench` | B04 | — | Benchmark that reaches it. | `current/results.tsv :: peak_rss_kb, shmap-rs at threads=64` |
+| `\shmRssRatioCap` | 2.1 | x | Peak-RSS advantage still held at the sweep cap, worst case. | `current/results.tsv :: peak_rss_kb, both implementations` |
 | `\shmKneeThreads` | 16 | — | Thread count the prose calls the reference machine's knee. | `constant in manuscript.py` |
 | `\shmCapThreads` | 64 | — | Highest thread count both machines sweep. | `benchmarks/data/hosts.toml :: thread_cap` |
 | `\shmScaleXKnee` | 6.2 | x | Median speedup at the knee, reference machine. | `current/results.tsv :: wall_s at threads=1 and threads=16` |
@@ -96,6 +101,7 @@ everyone else, both from one computation so they cannot disagree.
 - `\shmTopologyA` — Configuration from benchmarks/data/hosts.toml, not a measurement.
 - `\shmCommit` — Only meaningful if both sets measure it. build_all() warns and MACROS.md records both when they differ.
 - `\shmAuthors` — Zenodo's creator/contributor split is preserved rather than reinterpreted: creators are authors, contributors are acknowledged. Change the archive record, not the draft.
+- `\shmRssRatioCap` — The worst cell at the widest thread count -- the least favourable framing of the memory result, quoted so the single-threaded one is not mistaken for the whole story.
 - `\shmScaleXPeak` — One favourable row, not the machine's typical behaviour; read with ScaleXCap, which is the median across every cell.
 - `\shmScaleAPeak` — One favourable row, not the machine's typical behaviour; read with ScaleACap, which is the median across every cell.
 - `\shmAgreeCells` — Agreement at -@1. Agreement across thread counts is a separate per-machine check (thread_determinism).
