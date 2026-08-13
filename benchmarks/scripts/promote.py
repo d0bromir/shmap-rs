@@ -25,6 +25,8 @@ The steps in order, and why each is here:
 2. `report.py` -- RESULTS.md and README.md.
 3. `paper.py` -- the paper's LaTeX and TSV artifacts.
 4. `build_pdf.py` -- the typeset PDF of those artifacts.
+5. `manuscript.py` -- the macros the paper's prose is written in.
+6. `build_paper.py` -- the two-page manuscript itself.
 5. Verify: both `--check`s must pass afterwards. They compare regenerated
    output against what is now on disk, so a failure here means a generator is
    not deterministic rather than that someone forgot a step -- worth stopping
@@ -256,6 +258,13 @@ def main() -> int:
     # is unconditional rather than guarded by a count here.
     run([sys.executable, "benchmarks/scripts/crossarch.py", "--pdf"], "crossarch.py")
 
+    # The manuscript, same reason one step further out. Its PROSE quotes numbers
+    # from both promoted sets through generated macros, so promoting either one
+    # rewrites sentences and not only tables. Regenerating the macros before
+    # typesetting is what makes that automatic; the --check below makes it verified.
+    run([sys.executable, "benchmarks/scripts/manuscript.py"], "manuscript.py")
+    run([sys.executable, "benchmarks/scripts/build_paper.py"], "build_paper.py")
+
     if set_arch == DOC_ARCH:
         run([sys.executable, "benchmarks/scripts/report.py", "--arch", DOC_ARCH], "report.py")
     else:
@@ -283,6 +292,10 @@ def main() -> int:
     run([sys.executable, "benchmarks/scripts/build_pdf.py", "--check", "--arch", set_arch],
         "build_pdf.py --check")
     run([sys.executable, "benchmarks/scripts/crossarch.py", "--check"], "crossarch.py --check")
+    run([sys.executable, "benchmarks/scripts/manuscript.py", "--check"],
+        "manuscript.py --check")
+    run([sys.executable, "benchmarks/scripts/build_paper.py", "--check"],
+        "build_paper.py --check")
     if set_arch == DOC_ARCH:
         run([sys.executable, "benchmarks/scripts/report.py", "--check", "--arch", DOC_ARCH],
             "report.py --check")

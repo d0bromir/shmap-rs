@@ -140,6 +140,12 @@ jobs:
       - name: cross-architecture aggregation compares like with like
         run: python3 benchmarks/scripts/test_crossarch.py
 
+      # The paper's prose is generated too, so it can be wrong in ways a table
+      # cannot: a range built from two unrelated extremes, or a missing
+      # measurement counted as agreement. Both are pinned here.
+      - name: the manuscript's generated numbers are derived correctly
+        run: python3 benchmarks/scripts/test_manuscript.py
+
   # Generated artifacts are checked against a committed result set, and every
   # result set that exists today was measured on x86_64. Pinned with --arch so
   # the check does not depend on which runner it lands on.
@@ -183,6 +189,16 @@ jobs:
       # run here before the second machine's results land.
       - name: cross-architecture document matches every result set
         run: python3 benchmarks/scripts/crossarch.py --check
+
+      # The same guarantee for the paper's prose. The macros must match the
+      # result sets, and the draft must not have acquired a hand-typed number
+      # that no re-measurement would ever update -- which is the failure mode
+      # generated tables were introduced to remove and prose still had.
+      - name: the manuscript's macros match the result sets
+        run: python3 benchmarks/scripts/manuscript.py --check
+
+      - name: the manuscript quotes no number it typed itself
+        run: python3 benchmarks/scripts/manuscript.py --lint
 
       # The simulators produce the only datasets that can support an accuracy
       # claim, so a syntax error in them is a silent hole in the evidence.

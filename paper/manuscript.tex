@@ -1,0 +1,240 @@
+% shmap-rs -- two-page applications note.
+%
+% THE PROSE OF THIS FILE CONTAINS NO NUMERALS. Every measured quantity is a
+% \shm... macro defined in generated/macros.tex by benchmarks/scripts/manuscript.py
+% from the promoted result sets, and every table and figure is \input from
+% generated/, written by paper.py and crossarch.py from the same sets. A
+% benchmark run therefore rewrites this paper; nobody re-types a number into it.
+%
+%   python3 benchmarks/scripts/manuscript.py          refresh the macros
+%   python3 benchmarks/scripts/manuscript.py --lint   catch a hand-typed number
+%   python3 benchmarks/scripts/build_paper.py         typeset to manuscript.pdf
+%
+% A line genuinely needing a digit that is not a measurement ends with
+% `% lint-ok: <reason>`. The reason is required.
+%
+% The two-page budget is enforced by build_paper.py, not merely intended. If a
+% re-measurement pushes it over, cut prose -- the floats are generated and are
+% the evidence, so they are not the place to save space.
+%
+% TO FILL IN BEFORE SUBMISSION: co-authors and affiliations below, and the
+% final venue of the map-shmap reference, which is a draft at the time of
+% writing (see QUESTIONS.md, "Open with Pesho").
+
+\documentclass[10pt,a4paper,twocolumn]{article}
+
+% No font package. mathptmx was tried and silently made things worse: this
+% engine's bundle has no bold Times at these sizes, so every \textbf fell back
+% to regular and the PDF carried not one bold glyph. Latin Modern is complete.
+\usepackage[margin=1.7cm]{geometry}
+\setlength{\columnsep}{0.7cm}
+\usepackage{booktabs}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepgfplotslibrary{fillbetween}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue!45!black,urlcolor=blue!45!black,
+            citecolor=blue!45!black}
+
+% Tighter section headings than article's default, which are sized for a
+% document with room to breathe. No package: \@startsection is the documented
+% way and adds no dependency for build_paper.py's engine to fetch.
+\makeatletter
+\renewcommand\section{\@startsection{section}{1}{0pt}%
+  {2.0ex \@plus .3ex \@minus .2ex}{0.6ex \@plus.2ex}{\normalsize\bfseries}}
+\makeatother
+
+% Float placement, loosened. article's defaults reserve a fifth of every page
+% for text, which in a two-page note is enough to push a generated figure onto
+% a third page of its own -- the exact failure build_paper.py refuses. The
+% floats here ARE the evidence, so they get the room.
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.70}
+\renewcommand{\textfraction}{0.06}
+\renewcommand{\floatpagefraction}{0.75}
+\setcounter{topnumber}{2}
+\setcounter{totalnumber}{3}
+
+% Resolve \input against the generated trees, so this file typesets both from
+% the repository root and from paper/ -- and so build_paper.py, which works in
+% a scratch directory of copies, does not need a different draft.
+\makeatletter
+\def\input@path{{generated/}{generated/cross-arch/}%
+                {paper/generated/}{paper/generated/cross-arch/}{./}}
+\makeatother
+
+\input{macros.tex}
+
+\title{\vspace{-1.0cm}\textbf{shmap-rs: exact, parallel and memory-lean
+       sketch-based long-read mapping}}
+% TODO: co-authors and affiliations.
+\author{Dobromir Panchev}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-0.7cm}
+
+\begin{abstract}
+\noindent
+\textbf{Summary:} \emph{map-shmap} maps long reads by comparing FracMinHash
+sketches of read and reference under a seed heuristic that prunes candidate
+regions before refining them. Its reference implementation is single-threaded
+and sizes its bucket accumulator against the \emph{reference}, putting
+whole-genome mapping outside ordinary memory budgets. We present
+\textbf{shmap-rs}, a Rust implementation that leaves the algorithm untouched
+--- output is byte-identical --- and rebuilds the data structures and the
+parallel decomposition around it. Against the tuned C++ reference it is
+\shmSpeedupXMin--\shmSpeedupXMax$\times$ faster single-threaded, uses
+\shmRssRatioMin--\shmRssRatioMax$\times$ less peak memory, and adds thread
+parallelism the reference lacks, reaching \shmScaleXPeak$\times$ on
+\shmCoresX{} cores. Every claim is measured on two architectures, whose runs
+agree on every algorithmic counter.\\[0.2em]
+\textbf{Availability:} \url{https://github.com/d0bromir/shmap-rs}, \shmLicense,
+version~\shmVersion. The benchmark suite, the result sets and the generators of
+every table here are in the repository.
+\end{abstract}
+
+\section{Introduction}
+
+Sketch-based mappers compare a read to a genome in the space of a few thousand
+hashes rather than a few billion bases~\cite{mash}.
+\emph{map-shmap}~\cite{shmap} sketches read and reference by FracMinHash,
+accumulates seed matches into overlapping buckets, prunes them with an
+admissible seed heuristic, and refines the survivors with a sliding window. Its
+cost is dominated by dependent memory references rather than arithmetic, which
+is why it was worth re-engineering rather than re-designing. No change may
+alter a single output record, so every number below compares two
+implementations of one algorithm.
+
+\section{Implementation}
+
+\textbf{A bucket accumulator sized by the read, not the reference.} The
+reference allocates a dense array indexed by reference bucket, so its footprint
+is a property of the genome and is paid on every run. A read can only match
+buckets within its own span, so shmap-rs sizes the array by the read's
+half-length, falling back to a sparse map otherwise. This is almost the whole
+memory result, and it removed a contention bottleneck that had made
+multithreading nearly useless.
+
+\textbf{Memoised refinement.} The second-best-mapping search repeats scoring
+the best-mapping search has already done; shmap-rs replays those scores instead,
+removing roughly two calls in five into refinement. It is applied only to the
+metrics where replay is provably sound.
+
+\textbf{Parallelism the reference does not have.} Reference sketching is
+chunked, index storage sharded by hash, FASTA parsing a two-pass
+count-then-fill. All three are parallel and none is order-dependent: the index
+does not depend on how many threads built it, which is what lets output stay
+byte-identical.
+
+\textbf{Hot-loop work.} Repetitive seeds accumulate in place at constant
+integer cost rather than through a scratch hash map; the rolling nucleotide
+hash~\cite{nthash} keeps its rotations precomputed and its iteration free of
+bounds checks; and final bucket ordering uses an unstable sort over a packed
+key reproducing exactly what a stable sort would give --- the optimisation the
+original paper specifies, made deterministic, which the reference's
+\texttt{std::sort} does not guarantee.
+
+Exactness is enforced, not asserted: the suite checks output is identical
+across every thread count (\shmDetChecks{} of \shmDetTotal{} checks) and
+against the reference, and blocks a merge on any drop in mapped or
+confidently-mapped reads.
+
+\section{Results}
+
+{\small\input{table_crossarch_speedup.tex}}
+\input{fig_crossarch_thread_scaling.tex}
+
+All measurements are of commit \texttt{\shmCommit}, built with rustc
+\shmRustc{} under suite~\shmSuiteVersion, over \shmNumBenchmarks{} benchmarks
+$\times$ \shmNumMetrics{} similarity metrics --- \shmNumCells{} cells behind
+every range quoted --- at $k=\shmParamK$, $r=\shmParamR$,
+$\theta=\shmParamTheta$, $\delta=\shmParamDelta$, $\phi=\shmParamPhi$. The
+machines are \texttt{\shmHostX} (\shmArchX, \shmTopologyX, \shmCoresX{}
+cores), measured \shmMeasuredX, and \texttt{\shmHostA} (\shmArchA,
+\shmTopologyA, \shmCoresA{} cores), measured \shmMeasuredA.
+
+\textbf{Both machines run the same computation.} This is the premise of
+everything else, so it is measured rather than assumed. The mapper is
+deterministic, so its counters --- reads mapped, confident calls, buckets
+seeded, refined and reported --- must be identical on both machines for one
+commit. They are, on \shmAgreeCells{} of \shmAgreeTotal{} benchmark--metric
+pairs.
+
+\textbf{Speed and memory.} Table~\ref{tab:xarch:speedup} gives the
+single-threaded speedup over the C++ on each machine separately; both terms of
+each ratio come from the same host, so the host's speed cancels and what
+remains is a property of the two programs. It is
+\shmSpeedupXMin--\shmSpeedupXMax$\times$ (median \shmSpeedupXMedian$\times$) on
+\texttt{\shmHostX} and \shmSpeedupAMin--\shmSpeedupAMax$\times$ (median
+\shmSpeedupAMedian$\times$) on \texttt{\shmHostA}. Peak memory is
+\shmRssRsMin--\shmRssRsMax~GB against the reference's \shmRssCpp~GB and, unlike
+it, is a function of the reads rather than the genome. The reference is built
+\texttt{-O3 -march=native -flto}, % lint-ok: upstream build flags, not a measurement
+so this is no naive baseline; the advantage widens with input size, and on
+inputs small enough to be startup-dominated the C++ still wins. Mapping the
+same input takes \shmMapRatioMin--\shmMapRatioMax$\times$ as long on
+\texttt{\shmHostA} as on \texttt{\shmHostX}, but the machines differ in far
+more than instruction set, so that ratio compares two machines rather than two
+architectures.
+
+\textbf{Thread scaling, and where it stops.}
+Figure~\ref{fig:xarch:scaling} shows the machines diverging. On the deepest
+benchmark (\shmScaleXPeakBench) \texttt{\shmHostX} reaches
+\shmScaleXPeak$\times$ at \shmScaleXPeakThreads{} threads then falls back,
+while \texttt{\shmHostA} climbs monotonically to \shmScaleAPeak$\times$ at
+\shmScaleAPeakThreads{} on \shmScaleAPeakBench. Across the whole matrix the medians are
+\shmScaleXKnee$\times$ against \shmScaleAKnee$\times$ at \shmKneeThreads{}
+threads, and \shmScaleXCap$\times$ against \shmScaleACap$\times$ at
+\shmCapThreads. The gap is not the instruction set: \texttt{\shmHostX} has
+\shmTopologyX{} and \texttt{\shmHostA} has \shmTopologyA. The ceiling is
+memory-bandwidth contention on the shared index, appearing as soon as a run
+spans more than one socket; confining a run to one node with \texttt{numactl}
+recovers most of the loss.
+
+\textbf{Accuracy is unchanged, and checked.} On the simulated benchmark, the
+only input carrying ground truth, reads land within one read length of their
+true position for \shmAccMin--\shmAccMax\% of reads depending on metric, and at
+most \shmWrongQMax{} reads under any metric are placed wrongly while reported
+as confident --- measured because a regression here must block a merge.
+
+\textbf{Where the time goes.} The costliest stage is \texttt{\shmTopStage}, at
+\shmTopStageShare\% of CPU time on average: a pointer-chasing, latency-bound
+loop, which is why the profitable changes concerned the shape of the data
+rather than the width of the arithmetic. The profile barely moves between
+machines --- the largest shift in any stage's share is \shmShiftPP{} percentage
+points, in \texttt{\shmShiftStage}, which is input reading.
+
+\section{What did not pay}
+
+Four hypotheses were built or probed at full scale and measured negative; they
+are recorded because a negative result nobody writes down gets retried.
+Hand-written SIMD sketching loses to the scalar loop, which is load-port bound
+at six level-one loads per base, so extra lanes add pressure where there is
+none to spare; two-bit packing loses for the same reason from the opposite
+direction, removing the wrong two of those loads. Prefetching the pruning
+lookups is at best break-even, out-of-order execution already overlapping them.
+Per-node index replication --- built five ways, including one bypassing the
+allocator for genuinely correct placement --- was slower than doing nothing at
+every thread count spanning more than one socket.
+
+\section{Conclusion}
+
+Sketch-based long-read mapping had headroom that was not algorithmic. Sizing
+the accumulator by the query instead of the reference, memoising a search that
+repeated itself, and decomposing indexing to use the cores a machine has
+together give a several-fold improvement in time and close to an order of
+magnitude in memory, without changing output by one byte. The remaining ceiling
+is the memory system, not the code. Every table, figure and number here is
+regenerated from the committed result sets by scripts in the repository, and
+continuous integration fails if any drifts from what it reports.
+
+\small
+\begin{thebibliography}{9}
+\bibitem{shmap} Ivanov,P. and Medvedev,P. map-shmap: practical long-read mapping with a seed heuristic on sketches. Manuscript in preparation.
+\bibitem{mash} Ondov,B.D. \emph{et al.} (2016) Mash: fast genome and metagenome distance estimation using MinHash. \emph{Genome Biol.}, 17, 132.
+\bibitem{nthash} Mohamadi,H. \emph{et al.} (2016) ntHash: recursive nucleotide hashing. \emph{Bioinformatics}, 32, 3492--3494.
+\end{thebibliography}
+
+\end{document}
