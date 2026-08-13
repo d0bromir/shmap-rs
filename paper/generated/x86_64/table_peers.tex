@@ -15,8 +15,15 @@ Tool & \texttt{-@} & Records & Mapq 60 & Index & Map & Mem & Agree \\
  & & & & (s) & (s) & (GB) & \\
 \midrule
 shmap-rs & 1 & 149\,194 & 139\,309 & 7.01 & 33.64 & 2.64 & --- \\
+shmap-rs & 4 & 149\,194 & 139\,309 & 4.00 & 10.08 & 1.92 & --- \\
+shmap-rs & 8 & 149\,194 & 139\,309 & 3.09 & 5.05 & 2.00 & --- \\
+shmap-rs & 16 & 149\,194 & 139\,309 & 3.01 & 2.65 & 2.09 & --- \\
+shmap-rs & 32 & 149\,194 & 139\,309 & 3.27 & 2.45 & 2.34 & --- \\
+\\midrule
 cpp-shmap & 1 & 149\,194 & 139\,309 & 34.91 & 74.41 & 18.85 & --- \\
+\\midrule
 mapquik & 32 & 148\,225 & --- & --- & 18.00 & 18.14 & 0.9612 \\
+\\midrule
 winnowmap2 & 32 & 189\,022 & --- & --- & 1328.30 & 9.78 & 0.9633 \\
 \midrule
 \multicolumn{8}{@{}l}{\footnotesize Input: 149\,438 reads. Records are PAF lines, not reads: a tool emitting}\\

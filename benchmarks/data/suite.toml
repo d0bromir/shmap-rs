@@ -385,6 +385,11 @@ reference_override = "~/bench-refs/{reference_id}.oneline.fa"
 # ONT — so it is the right peer for a low-divergence mapper, and the wrong tool
 # to judge ONT results by.
 skip_benchmarks = ["B05"]
+# Timing-only re-runs at other widths, so a table can show this peer's thread
+# scaling beside shmap-rs's. The default run above is the one the concordance
+# join uses and is not repeated here; these write to their own cache stems and
+# change no check. Cheap: the 32-thread run is 18 s.
+threads_sweep = [1, 4, 8, 16]
 note = "HiFi/low-divergence only; skipped on ONT, where it is out of its stated design range."
 
 # Which preset each benchmark's reads need. ONT has a different error profile

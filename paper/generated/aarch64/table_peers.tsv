@@ -8,5 +8,9 @@
 # provenance: paper/generated/PROVENANCE.md#table_peers
 tool	threads	records	mapq60	index_s	map_s	peak_rss_gb	agreement_with_shmap_rs
 shmap-rs	1	149194	139309	6.519	36.274	2.66	
+shmap-rs	4	149194	139309	3.06	9.19	2.03	
+shmap-rs	8	149194	139309	1.673	4.536	2.27	
+shmap-rs	16	149194	139309	1.388	2.303	2.14	
+shmap-rs	32	149194	139309	1.464	1.381	2.43	
 cpp-shmap	1	149194	139309	25.42	77.67	18.85	
 winnowmap2	32	189022			1493.4	9.83	0.9633

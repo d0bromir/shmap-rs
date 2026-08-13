@@ -75,7 +75,25 @@ def binary_version(spec: dict) -> str:
     return (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else "unknown"
 
 
-def plan_entry(name: str, spec: dict, bench: dict, suite: dict, reg: dict, cache: Path) -> dict | None:
+def sweep_threads(spec: dict) -> list[int]:
+    """Extra thread counts to re-run this mapper at, timing only.
+
+    Declared per mapper in suite.toml. The default `threads` is not repeated
+    here: that run is the one the concordance join uses, and it already exists.
+    """
+    out = []
+    for t in spec.get("threads_sweep", []):
+        try:
+            t = int(t)
+        except (TypeError, ValueError):
+            continue
+        if t > 0 and t != int(spec.get("threads", 32)):
+            out.append(t)
+    return sorted(set(out))
+
+
+def plan_entry(name: str, spec: dict, bench: dict, suite: dict, reg: dict, cache: Path,
+               threads: int | None = None) -> dict | None:
     """The full description of one (mapper, benchmark) job, including the key
     that decides whether the cached copy is still valid."""
     if bench["id"] in spec.get("skip_benchmarks", []):
@@ -88,7 +106,10 @@ def plan_entry(name: str, spec: dict, bench: dict, suite: dict, reg: dict, cache
                  f"ONT reads must not be mapped with a PacBio preset")
 
     out_dir = cache / name
-    paf = out_dir / f"{bench['id']}.paf"
+    # The default run keeps the stem it has always had, so its cache stays
+    # valid; a sweep run gets its own, so the two cannot overwrite each other.
+    stem = bench["id"] if threads is None else f"{bench['id']}-t{threads}"
+    paf = out_dir / f"{stem}.paf"
     # A mapper may need the reference in a different form than the registry's
     # canonical copy — mapquik miscounts a line-wrapped FASTA. The override is
     # a per-mapper path, and run_one refuses to run if it is missing rather
@@ -100,13 +121,15 @@ def plan_entry(name: str, spec: dict, bench: dict, suite: dict, reg: dict, cache
     fields = dict(
         binary=expand(spec["binary"]),
         reference=ref_path, reads=reads["path"],
-        threads=spec.get("threads", 32), preset=preset,
+        threads=threads if threads is not None else spec.get("threads", 32),
+        preset=preset,
         repetitive=expand(spec.get("repetitive", "").format(reference_id=ref_id)) if spec.get("repetitive") else "",
         out_prefix=str(out_dir / bench["id"]),
     )
     cmd = spec["cmd"].format(**fields)
     return dict(
-        mapper=name, benchmark=bench["id"], cmd=cmd, paf=paf,
+        mapper=name, benchmark=bench["id"], cmd=cmd, paf=paf, stem=stem,
+        threads=fields["threads"], sweep=threads is not None,
         out_dir=out_dir, output=spec.get("output", "stdout"),
         role=spec.get("role", "peer"),
         needs=[f for f in (fields["repetitive"], override and ref_path) if f],
@@ -143,7 +166,7 @@ def portable_key(key: dict) -> dict:
 
 
 def cached_key(entry: dict) -> dict | None:
-    j = entry["out_dir"] / f"{entry['benchmark']}.json"
+    j = entry["out_dir"] / f"{entry['stem']}.json"
     if not (j.exists() and entry["paf"].exists()):
         return None
     try:
@@ -170,7 +193,7 @@ def run_one(entry: dict, version: str) -> bool:
             print("     build it first — see the meryl recipe in suite.toml")
             return False
 
-    tf = entry["out_dir"] / f"{entry['benchmark']}.time"
+    tf = entry["out_dir"] / f"{entry['stem']}.time"
     wrapped = f"/usr/bin/time -v -o {shlex.quote(str(tf))} {entry['cmd']}"
     t0 = time.time()
     if entry["output"] == "stdout":
@@ -190,13 +213,13 @@ def run_one(entry: dict, version: str) -> bool:
 
     mapped = sum(1 for _ in open(entry["paf"]))
     peak = parse_time_v(tf)[1] if tf.exists() else 0
-    (entry["out_dir"] / f"{entry['benchmark']}.json").write_text(json.dumps(dict(
+    (entry["out_dir"] / f"{entry['stem']}.json").write_text(json.dumps(dict(
         key=dict(entry["key"], version=version),
         version=version, role=entry["role"], cmd=entry["cmd"],
         mapped=mapped, wall_s=round(wall, 1), peak_rss_kb=peak,
         measured=datetime.now(timezone.utc).isoformat(),
     ), indent=2) + "\n")
-    print(f"  {entry['mapper']:12} {entry['benchmark']}  {wall/60:6.1f} min  "
+    print(f"  {entry['mapper']:12} {entry['stem']:12}  {wall/60:6.1f} min  "
           f"{peak/1048576:5.2f} GB  {mapped} mapped")
     return True
 
@@ -212,11 +235,13 @@ def export_manifest(suite: dict, reg: dict, cache: Path) -> int:
     for name, spec in sorted(mappers(suite).items()):
         version = binary_version(spec)
         for bench in suite["benchmark"]:
-            e = plan_entry(name, spec, bench, suite, reg, cache)
+          for t in [None, *sweep_threads(spec)]:
+            e = plan_entry(name, spec, bench, suite, reg, cache, t)
             if e is None:
                 continue
             got = cached_key(e)
             row = dict(mapper=name, benchmark=e["benchmark"], role=e["role"],
+                       threads=e["threads"], sweep=e["sweep"],
                        status=status_of(e, version), version=version, cmd=e["cmd"])
             if got:
                 row.update({k: got.get(k) for k in ("mapped", "wall_s", "peak_rss_kb", "measured")})
@@ -255,7 +280,8 @@ def check_manifest(suite: dict, reg: dict, cache: Path) -> int:
     for name, spec in sorted(mappers(suite).items()):
         version = binary_version(spec)
         for bench in suite["benchmark"]:
-            e = plan_entry(name, spec, bench, suite, reg, cache)
+          for t in [None, *sweep_threads(spec)]:
+            e = plan_entry(name, spec, bench, suite, reg, cache, t)
             if e is None:
                 continue
             got = cached_key(e)
@@ -316,9 +342,10 @@ def main() -> int:
         for bench in suite["benchmark"]:
             if want_b and bench["id"] not in want_b:
                 continue
-            e = plan_entry(name, spec, bench, suite, reg, cache)
-            if e:
-                entries.append(e)
+            for t in [None, *sweep_threads(spec)]:
+                e = plan_entry(name, spec, bench, suite, reg, cache, t)
+                if e:
+                    entries.append(e)
 
     if a.export:
         return export_manifest(suite, reg, cache)
@@ -328,11 +355,11 @@ def main() -> int:
         for name, v in versions.items():
             print(f"  {name}: {v or '** BINARY NOT FOUND **'}")
         print()
-        print(f"{'mapper':13}{'bench':7}{'status':9}{'mapped':>10}  {'wall':>8}")
+        print(f"{'mapper':13}{'run':12}{'status':9}{'mapped':>10}  {'wall':>8}")
         for e in entries:
             st = status_of(e, versions[e["mapper"]])
             got = cached_key(e) or {}
-            print(f"{e['mapper']:13}{e['benchmark']:7}{st:9}"
+            print(f"{e['mapper']:13}{e['stem']:12}{st:9}"
                   f"{got.get('mapped', '-'):>10}  "
                   f"{(str(round(got['wall_s']/60, 1)) + ' min') if got.get('wall_s') else '-':>8}")
         return 0

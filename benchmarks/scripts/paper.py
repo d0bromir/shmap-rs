@@ -216,6 +216,12 @@ class Ctx:
 PEER_BENCHMARK = "B01"
 PEER_METRIC = "Containment"
 
+# Thread counts shown for the subject. The suite sweeps 1..64; this is the
+# subset a table can hold, and it brackets the point where this host stops
+# gaining. Any of these the result set did not measure is simply absent -- the
+# table shows what was run, not what was intended.
+PEER_THREADS = (1, 4, 8, 16, 32)
+
 
 def build_peers(c: Ctx) -> tuple[str, list[str], list[list]]:
     """shmap-rs beside the other long-read mappers, on one dataset.
@@ -234,15 +240,26 @@ def build_peers(c: Ctx) -> tuple[str, list[str], list[list]]:
             "peak_rss_gb", "agreement_with_shmap_rs"]
     data: list[list] = []
 
-    for impl in (SUBJECT, REFERENCE):
-        r = next((x for x in c.rows(impl=impl)
+    def emit(impl: str, r: dict) -> None:
+        data.append([impl, r["threads"], int(r["mapped"]), int(r["mapq60"]),
+                     float(r["index_s"]) if r.get("index_s") not in (None, "") else None,
+                     float(r["map_s"]) if r.get("map_s") not in (None, "") else None,
+                     round(int(r["peak_rss_kb"]) / 1048576, 2), None])
+
+    # The subject across the sweep: this is the one tool whose thread scaling
+    # the suite measures every run, so it is the one that can be shown at more
+    # than one width without new measurement.
+    for t in PEER_THREADS:
+        r = next((x for x in c.rows(impl=SUBJECT)
                   if x["benchmark"] == bid and x["metric"] == metric
-                  and x["threads"] == 1), None)
+                  and x["threads"] == t), None)
         if r:
-            data.append([impl, 1, int(r["mapped"]), int(r["mapq60"]),
-                         float(r["index_s"]) if r.get("index_s") not in (None, "") else None,
-                         float(r["map_s"]) if r.get("map_s") not in (None, "") else None,
-                         round(int(r["peak_rss_kb"]) / 1048576, 2), None])
+            emit(SUBJECT, r)
+    # The C++ has no threading at all, so it appears once.
+    r = next((x for x in c.rows(impl=REFERENCE)
+              if x["benchmark"] == bid and x["metric"] == metric), None)
+    if r:
+        emit(REFERENCE, r)
 
     for e in c.external:
         if e.get("benchmark") != bid or not e.get("wall_s"):
@@ -276,7 +293,11 @@ def build_peers(c: Ctx) -> tuple[str, list[str], list[list]]:
         r" & & & & (s) & (s) & (GB) & \\",
         r"\midrule",
     ]
+    last_tool = None
     for row in data:
+        if last_tool is not None and row[0] != last_tool:
+            lines.append(r"\\midrule")
+        last_tool = row[0]
         lines.append(" & ".join([
             tex_escape(str(row[0])),
             str(row[1]) if row[1] else dash(),
@@ -672,9 +693,13 @@ ARTIFACTS: tuple[Artifact, ...] = (
             "concordance_<mapper>, the good= field",
         ),
         transform=(
-            f"One benchmark ({PEER_BENCHMARK}) and one metric ({PEER_METRIC}), because a "
-            f"two-page note has room for four rows; table_mapper_comparison carries every "
-            f"dataset and metric.",
+            f"One benchmark ({PEER_BENCHMARK}) and one metric ({PEER_METRIC}); "
+            f"table_mapper_comparison carries every dataset and metric.",
+            f"shmap-rs is shown across {PEER_THREADS} because the suite measures its "
+            f"thread sweep on every run. The C++ appears once: it has no threading. The "
+            f"peers appear at whatever thread count their cached corpus run used, which "
+            f"is one value per mapper -- sweeping them means re-running them, which the "
+            f"corpus is not currently built to do.",
             "Records is the PAF line count, which is what both the runner and the "
             "external corpus record as `mapped`. It is NOT a count of reads mapped.",
             "Mapq 60 and the index/map split exist only for shmap-rs and the C++; the "
@@ -695,6 +720,12 @@ ARTIFACTS: tuple[Artifact, ...] = (
             "An em dash means the figure does not exist for that tool, not that it is "
             "zero. No peer reports a mapq comparable with shmap-rs's, and neither is run "
             "twice to separate indexing from mapping.",
+            "The peers are NOT single-threaded and are not shown at one thread. Both were "
+            "run at the thread count in suite.toml, which the recorded command line in "
+            "the corpus manifest carries verbatim -- Winnowmap2 with -t 32. Comparing a "
+            "shmap-rs row at one thread with a peer row at thirty-two compares different "
+            "amounts of hardware, and the thread column is in the table so that is "
+            "visible rather than assumed.",
             "AGREEMENT IS CONCORDANCE, NEVER ACCURACY. Winnowmap2 is the most accurate "
             "long-read mapper available and is still an estimate, not ground truth; the "
             "only accuracy number in this suite comes from the simulated benchmark, whose "
@@ -1096,7 +1127,8 @@ def load_external(a: str | None = None) -> list[dict]:
                     pass
                 break
         out.append({**e, "threads": threads})
-    return sorted(out, key=lambda e: (e.get("benchmark", ""), e.get("mapper", "")))
+    return sorted(out, key=lambda e: (e.get("benchmark", ""), e.get("mapper", ""),
+                                      e.get("threads") or 0))
 
 
 def main() -> int:

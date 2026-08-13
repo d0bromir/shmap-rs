@@ -34,12 +34,13 @@ Files: `table_peers.tex`, `table_peers.tsv`. LaTeX label: `tab:peers`.
 
 **Transformed by**
 
-1. One benchmark (B01) and one metric (Containment), because a two-page note has room for four rows; table_mapper_comparison carries every dataset and metric.
-2. Records is the PAF line count, which is what both the runner and the external corpus record as `mapped`. It is NOT a count of reads mapped.
-3. Mapq 60 and the index/map split exist only for shmap-rs and the C++; the peers emit no comparable confidence and their runs are one phase, so their wall time goes in the map column and the rest are em-dashed.
-4. shmap-rs and the C++ are taken at -@1; the peers at whatever thread count their cached run used, which is printed rather than normalised away.
-5. Agreement is parsed from the concordance check's good= field, which is the share of the peer's mappings shmap-rs places compatibly.
-6. peak_rss_gb = peak_rss_kb / 1048576.
+1. One benchmark (B01) and one metric (Containment); table_mapper_comparison carries every dataset and metric.
+2. shmap-rs is shown across (1, 4, 8, 16, 32) because the suite measures its thread sweep on every run. The C++ appears once: it has no threading. The peers appear at whatever thread count their cached corpus run used, which is one value per mapper -- sweeping them means re-running them, which the corpus is not currently built to do.
+3. Records is the PAF line count, which is what both the runner and the external corpus record as `mapped`. It is NOT a count of reads mapped.
+4. Mapq 60 and the index/map split exist only for shmap-rs and the C++; the peers emit no comparable confidence and their runs are one phase, so their wall time goes in the map column and the rest are em-dashed.
+5. shmap-rs and the C++ are taken at -@1; the peers at whatever thread count their cached run used, which is printed rather than normalised away.
+6. Agreement is parsed from the concordance check's good= field, which is the share of the peer's mappings shmap-rs places compatibly.
+7. peak_rss_gb = peak_rss_kb / 1048576.
 
 **Presented as**
 
@@ -49,6 +50,7 @@ booktabs tabular, one row per tool.
 
 - RECORDS ARE NOT READS. Both counts are PAF lines. shmap-rs and the C++ emit one line per mapped read, so for them the two coincide; Winnowmap2 emits secondary alignments, which is why its record count exceeds the number of reads in the input. Read this column as output volume, never as sensitivity.
 - An em dash means the figure does not exist for that tool, not that it is zero. No peer reports a mapq comparable with shmap-rs's, and neither is run twice to separate indexing from mapping.
+- The peers are NOT single-threaded and are not shown at one thread. Both were run at the thread count in suite.toml, which the recorded command line in the corpus manifest carries verbatim -- Winnowmap2 with -t 32. Comparing a shmap-rs row at one thread with a peer row at thirty-two compares different amounts of hardware, and the thread column is in the table so that is visible rather than assumed.
 - AGREEMENT IS CONCORDANCE, NEVER ACCURACY. Winnowmap2 is the most accurate long-read mapper available and is still an estimate, not ground truth; the only accuracy number in this suite comes from the simulated benchmark, whose reads carry true positions.
 - The map-time column compares tools doing different amounts of work: shmap-rs and the C++ emit mappings only, and the peers were run to emit the same, but their algorithms differ in what they compute on the way.
 - mapquik is a low-divergence mapper by its own paper's account and is not run on the ONT benchmark at all; its numbers here are also specific to a host with AVX-512, since its SIMD and scalar paths are not interchangeable.
