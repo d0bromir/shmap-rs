@@ -65,8 +65,8 @@
 
 \input{macros.tex}
 
-\title{\vspace{-1.0cm}\textbf{shmap-rs: exact, parallel and memory-lean
-       sketch-based long-read mapping}}
+\title{\vspace{-1.0cm}\textbf{shmap-rs: an exact, parallel and memory-lean
+       Rust port of shmap}}
 % The byline comes from .zenodo.json, so the paper and the DOI cannot name
 % different people. Add or reorder authors there, not here.
 % TODO before submission: affiliations.
@@ -79,22 +79,23 @@
 
 \begin{abstract}
 \noindent
-\textbf{Summary:} \emph{map-shmap} maps long reads by comparing FracMinHash
-sketches under a seed heuristic that prunes candidate regions before refining
-them. Its reference implementation is single-threaded and sizes its bucket
+\textbf{Summary:} \emph{map-shmap}, by Ivanov and Medvedev~\cite{shmap}, maps
+long reads by comparing FracMinHash sketches under a seed heuristic that prunes
+candidate regions before refining them. Their reference implementation
+(\url{\shmUpstream}) is single-threaded and sizes its bucket
 accumulator against the \emph{reference}, putting whole-genome mapping outside
-ordinary memory budgets. We present \textbf{shmap-rs}, a Rust implementation
-that leaves the algorithm untouched --- output is byte-identical --- and
-rebuilds the data structures and the parallel decomposition around it. Against
-the tuned C++ reference it is \shmSpeedupXMin--\shmSpeedupXMax$\times$ faster
-single-threaded, uses \shmRssRatioMin--\shmRssRatioMax$\times$ less peak memory
-and makes that footprint a property of the query rather than of the genome, and
-adds thread parallelism the reference lacks, reaching \shmScaleXPeak$\times$ on
-\shmCoresX{} cores. Every claim is measured on two architectures, whose runs
+ordinary memory budgets. We present \textbf{shmap-rs}, a Rust port that leaves
+the algorithm untouched --- output is byte-identical --- and rebuilds the data
+structures and the parallel decomposition around it. Against the tuned C++ it
+is \shmSpeedupXMin--\shmSpeedupXMax$\times$ faster single-threaded, uses
+\shmRssRatioMin--\shmRssRatioMax$\times$ less peak memory and makes that
+footprint a property of the query rather than of the genome, and adds thread
+parallelism the reference lacks, reaching \shmScaleXPeak$\times$ on
+\shmCoresX{} cores. Every claim is measured on two architectures whose runs
 agree on every algorithmic counter.\\[0.2em]
-\textbf{Availability:} \url{https://github.com/d0bromir/shmap-rs}, \shmLicense,
-version~\shmVersion. Suite, result sets and the generator of every figure here
-are in the repository.\\[0.2em]
+\textbf{Availability:} original \url{\shmUpstream}; this port
+\url{https://github.com/d0bromir/shmap-rs}, \shmLicense, version~\shmVersion,
+with the suite, result sets and the generator of every figure here.\\[0.2em]
 \textbf{Contact:} ORCID \shmOrcids.
 \end{abstract}
 
@@ -104,11 +105,16 @@ Sketch-based mappers compare a read to a genome in the space of a few thousand
 hashes rather than a few billion bases~\cite{mash}.
 \emph{map-shmap}~\cite{shmap} sketches read and reference by FracMinHash,
 accumulates seed matches into overlapping buckets, prunes them with an
-admissible seed heuristic, and refines the survivors with a sliding window. Its
-cost is dominated by dependent memory references rather than arithmetic, which
-is why it was worth re-engineering rather than re-designing. No change may
-alter a single output record, so every number below compares two
-implementations of one algorithm.
+admissible seed heuristic, and refines the survivors with a sliding window.
+
+\textbf{Everything mapping-relevant here is Ivanov's.} The algorithm, the seed
+heuristic and its admissibility argument, the metrics, the parameterisation and
+the C++ implementation we measure against are all his; this paper contributes
+no algorithmic idea and reports no accuracy improvement, because there is none
+to report. What it contributes is engineering: the same algorithm's cost
+is dominated by dependent memory references rather than arithmetic, and that
+was worth re-engineering. No change may alter a single output record, so every
+number below compares two implementations of one algorithm --- his.
 
 \section{Implementation}
 
@@ -132,10 +138,8 @@ threads built it and output stays byte-identical.
 \textbf{Hot-loop work.} Repetitive seeds accumulate in place at constant
 integer cost rather than through a scratch hash map; the rolling nucleotide
 hash~\cite{nthash} keeps rotations precomputed and iteration free of bounds
-checks; final bucket ordering uses an unstable sort over a packed key
-reproducing exactly what a stable sort would give --- the optimisation the
-original paper specifies, made deterministic, which the reference's
-\texttt{std::sort} does not guarantee.
+checks; and the original's packed-key bucket sort is made deterministic, which
+the reference's \texttt{std::sort} does not guarantee.
 
 Exactness is enforced, not asserted: output is identical across every thread
 count (\shmDetChecks{} of \shmDetTotal{} checks) and against the reference, and
@@ -154,13 +158,12 @@ $\theta=\shmParamTheta$, $\delta=\shmParamDelta$, $\phi=\shmParamPhi$. Machines:
 \shmMeasuredX{} and \shmMeasuredA.
 
 \textbf{Both machines run the same computation}, which licenses every
-comparison below. The mapper is deterministic, so its counters --- reads
-mapped, confident calls, buckets seeded, refined and reported --- must be
-identical on both for one commit. They are, on \shmAgreeCells{} of
-\shmAgreeTotal{} benchmark--metric pairs.
+comparison below. The mapper is deterministic, so reads mapped, confident
+calls and buckets seeded, refined and reported must be identical on both for
+one commit. They are, on \shmAgreeCells{} of \shmAgreeTotal{} pairs.
 
-\textbf{Speed.} Table~\ref{tab:xarch:speedup}: both terms of each ratio come
-from the same host, so host speed cancels.
+\textbf{Speed.} Table~\ref{tab:xarch:speedup}, both terms of each ratio from
+the same host so host speed cancels:
 \shmSpeedupXMin--\shmSpeedupXMax$\times$ (median \shmSpeedupXMedian$\times$) on
 \texttt{\shmHostX}, \shmSpeedupAMin--\shmSpeedupAMax$\times$ (median
 \shmSpeedupAMedian$\times$) on \texttt{\shmHostA}. The reference is built
@@ -184,7 +187,7 @@ single-threaded figure, where bounded read-ahead dominates --- and reaches
 \shmRssRsCap~GB at \shmCapThreads{} on \shmRssRsCapBench. Even that worst cell
 keeps a \shmRssRatioCap$\times$ advantage, on cores the reference cannot use.
 
-{\tikzset{every picture/.append style={scale=0.86, every node/.style={scale=0.86}}}% lint-ok: figure scale, layout not measurement
+{\tikzset{every picture/.append style={scale=0.86, every node/.style={scale=0.81}}}% lint-ok: figure scale, layout not measurement
 \input{x86_64/fig_stage_breakdown.tex}}
 
 \textbf{Where the time goes.} Figure~\ref{fig:stages} gives every stage's share
@@ -201,8 +204,8 @@ threads then falls back; \texttt{\shmHostA} climbs monotonically to
 \shmScaleAPeak$\times$ at \shmScaleAPeakThreads. Matrix medians
 \shmScaleXKnee$\times$ against \shmScaleAKnee$\times$ at \shmKneeThreads{}
 threads, \shmScaleXCap$\times$ against \shmScaleACap$\times$ at \shmCapThreads.
-Not the instruction set: \texttt{\shmHostX} has \shmTopologyX{} against
-\shmTopologyA. The ceiling is memory-bandwidth contention on the shared index,
+Not the instruction set but the topologies above: the ceiling is
+memory-bandwidth contention on the shared index,
 appearing as soon as a run spans more than one socket; \texttt{numactl} to one
 node recovers most of it.
 
@@ -216,16 +219,17 @@ confident.
 nobody writes down gets retried. The sketching loop is load-port bound at six
 level-one loads per base, which sinks both SIMD (more lanes, same ports) and
 two-bit packing (removes the wrong two loads). Prefetching the pruning lookups
-is at best break-even. Per-node index replication --- five implementations, one
-bypassing the allocator for correct placement --- was slower than doing nothing
-wherever a run spanned more than one socket.
+is at best break-even. Per-node index replication, in five implementations, was slower
+than doing nothing wherever a run spanned more than one socket.
 
 \section{Conclusion}
 
-The headroom was not algorithmic: the change that mattered most was a data
-structure sized by the query rather than by the reference. Every number, table
-and figure here is regenerated from the committed result sets by scripts in the
-repository, and CI fails if any drifts from what it reports.
+The headroom was not algorithmic --- which is the point. Ivanov's seed
+heuristic on sketches is what makes the mapping decisions, and it is unchanged
+here down to the byte; the change that mattered most was a data structure sized
+by the query rather than by the reference. Every number, table and figure here
+is regenerated from the committed result sets by scripts in the repository, and
+CI fails if any drifts from what it reports.
 
 \small
 \vspace{0.4em}

@@ -413,6 +413,14 @@ def _and_list(names: list[str], sep: str) -> str:
     return f"{', '.join(names[:-1])} {sep} {names[-1]}"
 
 
+def _upstream_url() -> str:
+    """The work this one derives from, as the archive record declares it."""
+    for rel in zenodo().get("related_identifiers", []):
+        if str(rel.get("relation", "")) == "isDerivedFrom":
+            return str(rel.get("identifier", "")).strip()
+    return ""
+
+
 def _orcid_line() -> str:
     parts = []
     for person in zenodo().get("creators", []):
@@ -527,6 +535,9 @@ MACROS: list[Macro] = [
                    "acknowledged. Change the archive record, not the draft.",)),
     Macro("Orcids", "", "ORCID of each author, in the same order.",
           ".zenodo.json :: creators[].orcid", lambda c: _orcid_line() or MISSING),
+    Macro("Upstream", "", "Repository of the original implementation this ports.",
+          ".zenodo.json :: related_identifiers[relation=isDerivedFrom].identifier",
+          lambda c: _upstream_url() or MISSING),
     Macro("Contributors", "", "Project members credited on the archive but not authors.",
           ".zenodo.json :: contributors[].name",
           lambda c: _and_list(_people("contributors"), "and") or MISSING),
