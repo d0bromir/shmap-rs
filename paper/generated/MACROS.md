@@ -42,6 +42,7 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmLicense` | MPL-2.0 | — | Licence the implementation is published under. | `Cargo.toml :: package.license` |
 | `\shmAuthors` | Dobromir Panchev \and Pesho Ivanov | — | Byline, in the archive's own creator order. | `.zenodo.json :: creators[].name` |
 | `\shmOrcids` | Panchev 0009-0000-2636-2593; Ivanov 0000-0002-8119-3849 | — | ORCID of each author, in the same order. | `.zenodo.json :: creators[].orcid` |
+| `\shmUpstream` | https://github.com/pesho-ivanov/shmap | — | Repository of the original implementation this ports. | `.zenodo.json :: related_identifiers[relation=isDerivedFrom].identifier` |
 | `\shmContributors` | Dobromir Petrov | — | Project members credited on the archive but not authors. | `.zenodo.json :: contributors[].name` |
 | `\shmParamK` | 25 | — | k-mer length. | `benchmarks/data/suite.toml :: params.paper.k` |
 | `\shmParamR` | 0.01 | — | FracMinHash sampling rate. | `benchmarks/data/suite.toml :: params.paper.hashratio` |

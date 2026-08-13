@@ -23,6 +23,7 @@ macro	value	unit	source	meaning
 \shmLicense	MPL-2.0		Cargo.toml :: package.license	Licence the implementation is published under.
 \shmAuthors	Dobromir Panchev \and Pesho Ivanov		.zenodo.json :: creators[].name	Byline, in the archive's own creator order.
 \shmOrcids	Panchev 0009-0000-2636-2593; Ivanov 0000-0002-8119-3849		.zenodo.json :: creators[].orcid	ORCID of each author, in the same order.
+\shmUpstream	https://github.com/pesho-ivanov/shmap		.zenodo.json :: related_identifiers[relation=isDerivedFrom].identifier	Repository of the original implementation this ports.
 \shmContributors	Dobromir Petrov		.zenodo.json :: contributors[].name	Project members credited on the archive but not authors.
 \shmParamK	25		benchmarks/data/suite.toml :: params.paper.k	k-mer length.
 \shmParamR	0.01		benchmarks/data/suite.toml :: params.paper.hashratio	FracMinHash sampling rate.
