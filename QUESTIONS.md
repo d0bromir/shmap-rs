@@ -310,14 +310,21 @@ variable on its own; size against L3 is the right one. Recorded in
 [RESULTS.md §11](RESULTS.md#11-what-to-try-next); the branch is kept because the whole loss sits in
 a merge tuned for a regime three orders of magnitude larger in entry count.
 
-**A latent panic was found on the way, and is still on `main`.** `plan_dense`'s over-size early
-return replaces `dense` with an empty `Vec` while `touched` still holds ids into the array just
-dropped, and the retirement loop that would clear them sits *after* that return
-([`src/buckets.rs`](src/buckets.rs) `plan_dense`). It needs all three of a read abandoned after
-adding but before extracting, a following read over `MAX_DENSE_SLOTS`, and a return to the dense
-path — which is why no run has hit it. The fix (hoisting retirement to the one point every exit
-passes through) is on this branch and was never taken to `main` independently, as it should have
-been.
+**A latent panic was found on the way, and is now fixed** — `fix-dense-retire-panic`, PR #43,
+merged 2026-08-13. `plan_dense`'s over-size early return replaced `dense` with an empty `Vec` while
+`touched` still held ids into the array just dropped, and the retirement loop that would clear them
+sat *after* that return. It needed all three of a read abandoned after adding but before extracting,
+a following read over `MAX_DENSE_SLOTS`, and a return to the dense path, which is why no run had hit
+it; `map_reads` catches per read, so it would have surfaced as one failed read rather than a crash.
+Retirement is now a named step at the top of `plan_dense` ([`src/buckets.rs`](src/buckets.rs)), on
+the one path every exit passes through, so a future early return cannot reintroduce the hazard by
+forgetting to replicate it. `an_abandoned_read_does_not_leak_into_the_next_dense_read` walks the
+three steps and fails against the previous ordering with the real message
+(`index out of bounds: the len is 0 but the index is 50`). Full suite: **ACCEPT**, 0 failures, all
+111 comparable cells identical in `mapped` and `mapq60`.
+
+This is the piece of Q13 that stood alone, as this branch's own commit message said it should. The
+occupancy selector it was found under remains unmerged.
 
 ## Q14 — Stop building the per-read seed table nothing reads
 
