@@ -1,0 +1,213 @@
+% shmap-rs -- companion note: the optimizations, layer by layer.
+%
+% Same discipline as manuscript.tex: THE PROSE CONTAINS NO NUMERALS. Measured
+% quantities are \shm... macros from generated/macros.tex; Table 1 is generated
+% from PORT_CHANGES.md by benchmarks/scripts/optimizations.py, which also
+% carries the C++ citations, so "compared to the C++" is checkable rather than
+% asserted. A line needing a digit that is not a measurement ends with
+% `% lint-ok: <reason>`.
+%
+%   python3 benchmarks/scripts/optimizations.py       refresh Table 1
+%   python3 benchmarks/scripts/manuscript.py          refresh the macros
+%   python3 benchmarks/scripts/manuscript.py --lint   catch a hand-typed number
+%   python3 benchmarks/scripts/build_paper.py         typeset both notes
+%
+% TO FILL IN BEFORE SUBMISSION: affiliations, and the final venue of the
+% map-shmap reference, which is a draft at the time of writing.
+
+\documentclass[10pt,a4paper,twocolumn]{article}
+
+\usepackage[margin=1.7cm]{geometry}
+\setlength{\columnsep}{0.7cm}
+\usepackage{booktabs}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue!45!black,urlcolor=blue!45!black,
+            citecolor=blue!45!black}
+
+\makeatletter
+\renewcommand\section{\@startsection{section}{1}{0pt}%
+  {2.0ex \@plus .3ex \@minus .2ex}{0.6ex \@plus.2ex}{\normalsize\bfseries}}
+\makeatother
+
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.70}
+\renewcommand{\textfraction}{0.06}
+\renewcommand{\floatpagefraction}{0.75}
+
+\makeatletter
+\def\input@path{{generated/}{generated/cross-arch/}%
+                {paper/generated/}{paper/generated/cross-arch/}{./}}
+\makeatother
+
+\input{macros.tex}
+
+\title{\vspace{-1.0cm}\textbf{What makes a sketch-based long-read mapper
+       cheaper: nine changes to shmap, by the layer they act on}}
+% The byline comes from .zenodo.json, as in the companion note.
+% TODO before submission: affiliations.
+\author{\shmAuthors}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-0.7cm}
+
+\begin{abstract}
+\noindent
+\textbf{Summary:} shmap-rs is a Rust port of \emph{map-shmap}~\cite{shmap}
+that is \shmSpeedupXMin--\shmSpeedupXMax$\times$ faster single-threaded and
+uses \shmRssRatioMin--\shmRssRatioMax$\times$ less peak memory while producing
+byte-identical output. This companion note accounts for where that came from.
+\shmNumOptimizations{} changes are responsible; all \shmNumExactOptimizations{}
+of them preserve output exactly, none alters a mapping decision, and each is
+compared against the upstream source it replaces at a pinned revision. They are
+presented in the order they had to be discovered: the cost structure the
+algorithm implies, the data structure that structure argues for, the
+algorithmic identities that let work be skipped, the parallel decomposition,
+and only last the code. That order is the result rather than the presentation:
+the largest wins are in the first two layers, and instruction-level work ---
+the layer that usually attracts attention --- is worth least here, and is where
+four further attempts measured negative.\\[0.2em]
+\textbf{Availability:} original \url{\shmUpstream}; this port
+\url{https://github.com/d0bromir/shmap-rs}, \shmLicense, version~\shmVersion.
+\end{abstract}
+
+\input{table_optimizations.tex}
+
+\section{The theoretical base}
+
+\emph{map-shmap}~\cite{shmap} is Ivanov and Medvedev's, and nothing below
+changes what it computes. It sketches read and reference by FracMinHash,
+attributes each seed match to the overlapping fixed-width buckets whose window
+contains it, prunes buckets with an admissible seed heuristic, and refines the
+survivors with a sliding window. Its per-read cost has three factors --- reads,
+matches examined, and a logarithmic term in reference size --- and the
+important property for an implementer is which of them is paid in
+\emph{arithmetic} and which in \emph{memory traffic}.
+
+Almost all of it is memory traffic: seeds are looked up in an index far larger
+than the last-level cache, the buckets they touch are scattered across an array
+sized by the reference, and the refinement sweep walks a window last touched by
+a different read. Profiling agrees --- \texttt{\shmTopStage} is the costliest
+stage, \shmTopStageShare\% of CPU on average, and pointer-chasing rather than
+arithmetic.
+
+Two consequences order everything else. A change that reduces \emph{how much
+memory is touched} outranks one that reduces instructions issued, because the
+machine is waiting either way; and the sizes that matter are those set by the
+\emph{reference}, since a whole-genome run cannot escape them --- which points
+at the accumulator.
+
+\section{The data structure}
+
+The C++ allocates one dense bucket array per reference segment, sized so that
+every window the algorithm could ever use has a slot
+(\texttt{buckets.h}, Table~\ref{tab:optimizations}). The width is a compile-time
+minimum rather than the width any particular read will use, so a human genome
+costs about fifteen gigabytes before a single read is mapped, and that cost is
+paid whether one read is mapped or millions.
+
+The observation that removes it is that \emph{a read can only touch buckets
+within its own span}. The array does not have to be indexed by reference
+bucket; it has to be indexed by the buckets this read can reach, which is set by
+the read's own half-length. shmap-rs sizes it that way and keeps a sparse map as
+the fallback, and the two paths are tested to agree exactly. The footprint stops
+being a property of the genome and becomes a property of the query:
+\shmRssRsMin--\shmRssRsMax~GB single-threaded against \shmRssCpp~GB.
+
+One change, in one data structure, and it is most of the memory result. It also
+removed a contention bottleneck that had made multithreading nearly useless: a
+per-worker copy of a genome-sized array does not scale, and no thread tuning
+would have rescued it. The data structure had to be right before the parallel
+decomposition could be.
+
+\section{The algorithmic identities}
+
+Three changes skip work by proving it need not be done. None is an
+approximation; each is an identity, and the byte-identical output is the check.
+
+\textbf{The second-best search repeats the first.} Computing mapq needs the
+second-best mapping, and the C++ searches for it with a second full pass over
+the same surviving buckets (\texttt{shmap.h}, Table~\ref{tab:optimizations}). On
+the two fixed-length metrics, scoring a bucket turns out to be a pure function
+of its \emph{location}: it never reads the mutable state that pruning updates
+between the passes, and it restores its own scratch exactly. The second pass can
+therefore replay the first's scores. It is deliberately not applied to the two
+bucket-based metrics, where the score is built out of exactly that mutable
+state, so the identity does not hold. Because the acceptance threshold ratchets
+upward during the first pass, a bucket discarded late there can still clear the
+second pass's flatter cutoff --- so the win is partial by construction, which is
+why it is roughly two calls in five and not all of them.
+
+\textbf{A repetitive seed does not need a hash map.} The C++ builds a fresh
+scratch hash map per seed to accumulate its hits; the hits are already sorted,
+which makes the map redundant, and the same buckets can be accumulated in place
+at constant integer cost per hit.
+
+\textbf{An unstable sort can reproduce a stable one.} Ordering the final buckets
+by descending match count is the original paper's own
+Algorithm~4 ``Optimization~2''. % lint-ok: the source paper's own numbering, a citation
+Packing the tie-break into the sort key makes an unstable sort reproduce
+exactly what a stable sort would give, over keys a quarter the size of the
+records. Here the port is stronger than the source rather than
+merely faster: the C++'s \texttt{std::sort} guarantees no particular order among
+equal keys, even between its own runs, and this does.
+
+\section{The parallel decomposition}
+
+\shmNumParallelOptimizations{} of the \shmNumOptimizations{} exist only because
+the C++ is single-threaded, so they replace nothing upstream: threaded read
+mapping, hash-sharded index storage with chunked reference sketching, and a
+two-pass count-then-fill FASTA reader. The constraint that shapes all three is
+that output must not depend on thread count, which rules out any decomposition
+whose result depends on completion order. A sketch window is a pure function of
+the bases under it; a shard's contents are determined by the hash and not by
+which worker filled it; the FASTA reader's second pass writes exactly what its
+first counted. Determinism is checked rather than assumed, on every thread count
+and benchmark (\shmDetChecks{} of \shmDetTotal{} checks).
+
+The ceiling is again memory, not scheduling: on the four-socket machine scaling
+stops near \shmScaleXKnee$\times$, while a single-NUMA-node machine running the
+identical binary continues to \shmScaleACap$\times$. Per-node index replication
+was implemented five ways to remove it and net-regressed every time.
+
+\section{The code}
+
+Only two of the \shmNumOptimizations{} are instruction-level, and they are last
+because they are worth least. The sketching hot loop precomputes its rotation
+tables, iterates without bounds checks, hashes once per lookup instead of twice,
+and sizes its output buffer from the actual distribution. The allocation work
+stores a single query position inline rather than in a one-element vector, has
+matches borrow their seeds instead of copying them, indexes the difference
+histogram densely, and discards the reference sequence after sketching, where
+the C++ keeps a second full copy of the genome for the whole run.
+
+Their effects are in Table~\ref{tab:optimizations}: real, but small beside the
+first two layers. The stronger evidence for the ordering is negative ---
+hand-written SIMD sketching, two-bit packing, software prefetching of the
+pruning lookups and per-node index replication were each built or probed at
+full scale and each measured a loss or a wash. The sketching loop is load-port
+bound at six level-one loads per base, so more lanes add pressure where there
+is none to spare, and packing removes the wrong two of those loads. When a
+workload waits on memory, instruction-level effort is the layer with least left
+in it.
+
+\section{What none of them changed}
+
+All \shmNumExactOptimizations{} preserve output exactly, enforced rather than
+claimed: the mapping is byte-identical across every thread count and against
+the C++, ground-truth accuracy is unchanged at \shmAccMin--\shmAccMax\%, and
+any drop in mapped or confident reads blocks a merge.
+Table~\ref{tab:optimizations} is generated from the repository's own account of
+what changed, each row citing upstream at \texttt{\shmCppCommit}, so this note
+cannot drift from the code.
+
+\small
+\begin{thebibliography}{9}
+\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}
+\bibitem{shmap} Ivanov,P. and Medvedev,P. map-shmap: practical long-read mapping with a seed heuristic on sketches. Manuscript in preparation.
+\end{thebibliography}
+
+\end{document}

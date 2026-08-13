@@ -59,13 +59,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run import load_suite  # noqa: E402
 from layout import REPO  # noqa: E402
 from charts import time_stages  # noqa: E402
+from optimizations import LAYER_ORDER, parse as parse_optimizations  # noqa: E402
 from crossarch import (  # noqa: E402
     ArchSet, METRIC_ORDER, REFERENCE, SUBJECT,
     input_digest, load_hosts, load_sets, set_id,
 )
 
 OUT = REPO / "paper" / "generated"
-DRAFT = REPO / "paper" / "manuscript.tex"
+
+# Every document written in these macros. The lint and the undefined-macro
+# check run over all of them, so a second paper cannot quietly acquire a
+# hand-typed number that the first one is forbidden.
+DRAFTS = [REPO / "paper" / "manuscript.tex",
+          REPO / "paper" / "optimizations.tex"]
+DRAFT = DRAFTS[0]
 
 # Every macro is \shm<Name>. One prefix, so `--lint` can find the draft's uses
 # with a single pattern, and so a macro can never collide with LaTeX's own or a
@@ -431,6 +438,25 @@ def _orcid_line() -> str:
     return "; ".join(parts)
 
 
+def _optimizations() -> tuple[list[dict], str]:
+    """PORT_CHANGES.md's optimization rows, parsed once per process.
+
+    Read rather than restated: the companion paper claims to list every
+    optimization, and a hand-maintained count is how such a claim goes quietly
+    wrong when a tenth one lands.
+    """
+    global _OPT_CACHE
+    if _OPT_CACHE is None:
+        try:
+            _OPT_CACHE = parse_optimizations()
+        except SystemExit:
+            _OPT_CACHE = ([], "")
+    return _OPT_CACHE
+
+
+_OPT_CACHE: tuple[list[dict], str] | None = None
+
+
 def cargo_field(key: str) -> str:
     """One `[package]` field, read rather than retyped.
 
@@ -541,6 +567,24 @@ MACROS: list[Macro] = [
     Macro("Contributors", "", "Project members credited on the archive but not authors.",
           ".zenodo.json :: contributors[].name",
           lambda c: _and_list(_people("contributors"), "and") or MISSING),
+
+    # -- the optimizations, from PORT_CHANGES.md -----------------------------
+    Macro("NumOptimizations", "", "Optimizations the companion paper accounts for.",
+          "PORT_CHANGES.md :: the current-state table",
+          lambda c: str(len(_optimizations()[0])) if _optimizations()[0] else MISSING),
+    Macro("NumExactOptimizations", "", "How many of them leave output byte-identical.",
+          "PORT_CHANGES.md :: the current-state table, Exact? column",
+          lambda c: str(sum(1 for r in _optimizations()[0]
+                            if r["exact"].strip().lower().startswith("yes")))
+          if _optimizations()[0] else MISSING),
+    Macro("CppCommit", "", "Upstream revision every C++ citation is taken at.",
+          "PORT_CHANGES.md :: the URL of each quoted block",
+          lambda c: (_optimizations()[1] or MISSING)[:7]),
+    Macro("NumParallelOptimizations", "", "How many exist only because the C++ is single-threaded.",
+          "PORT_CHANGES.md, classified by benchmarks/scripts/optimizations.py",
+          lambda c: str(sum(1 for r in _optimizations()[0]
+                            if r["layer"] == "parallelism"))
+          if _optimizations()[0] else MISSING),
 
     # -- the parameters every headline number is measured at -----------------
     Macro("ParamK", "", "k-mer length.",
@@ -858,10 +902,23 @@ BODY_START = re.compile(r"\\begin\{document\}")
 SKIP_ENVS = ("thebibliography",)
 
 
-def draft_uses(path: Path = DRAFT) -> set[str]:
-    if not path.exists():
-        return set()
-    return set(USE_RE.findall(path.read_text()))
+def draft_uses(path: Path | None = None) -> set[str]:
+    """Macros used by one draft, or by every draft that exists."""
+    paths = [path] if path is not None else [p for p in DRAFTS if p.exists()]
+    used: set[str] = set()
+    for p in paths:
+        if p.exists():
+            used |= set(USE_RE.findall(p.read_text()))
+    return used
+
+
+def lint_drafts() -> list[str]:
+    """Every draft on disk, in declaration order."""
+    out: list[str] = []
+    for p in DRAFTS:
+        if p.exists():
+            out += lint_draft(p)
+    return out
 
 
 def lint_draft(path: Path = DRAFT) -> list[str]:
@@ -913,10 +970,11 @@ def main() -> int:
     a = ap.parse_args()
 
     if a.lint:
-        bad = lint_draft()
-        if not DRAFT.exists():
-            print(f"no draft at {DRAFT}; nothing to lint")
+        present = [p for p in DRAFTS if p.exists()]
+        if not present:
+            print("no drafts on disk; nothing to lint")
             return 0
+        bad = lint_drafts()
         for line in bad:
             print(line, file=sys.stderr)
         if bad:
@@ -925,7 +983,7 @@ def main() -> int:
                   f"the sentence.\n  Add it to MACROS in benchmarks/scripts/manuscript.py.",
                   file=sys.stderr)
             return 1
-        print(f"{DRAFT.name}: no literal numerals in prose")
+        print(", ".join(p.name for p in present) + ": no literal numerals in prose")
         return 0
 
     suite = load_suite()

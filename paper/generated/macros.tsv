@@ -25,6 +25,10 @@ macro	value	unit	source	meaning
 \shmOrcids	Panchev 0009-0000-2636-2593; Ivanov 0000-0002-8119-3849		.zenodo.json :: creators[].orcid	ORCID of each author, in the same order.
 \shmUpstream	https://github.com/pesho-ivanov/shmap		.zenodo.json :: related_identifiers[relation=isDerivedFrom].identifier	Repository of the original implementation this ports.
 \shmContributors	Dobromir Petrov		.zenodo.json :: contributors[].name	Project members credited on the archive but not authors.
+\shmNumOptimizations	9		PORT_CHANGES.md :: the current-state table	Optimizations the companion paper accounts for.
+\shmNumExactOptimizations	9		PORT_CHANGES.md :: the current-state table, Exact? column	How many of them leave output byte-identical.
+\shmCppCommit	63f1103		PORT_CHANGES.md :: the URL of each quoted block	Upstream revision every C++ citation is taken at.
+\shmNumParallelOptimizations	3		PORT_CHANGES.md, classified by benchmarks/scripts/optimizations.py	How many exist only because the C++ is single-threaded.
 \shmParamK	25		benchmarks/data/suite.toml :: params.paper.k	k-mer length.
 \shmParamR	0.01		benchmarks/data/suite.toml :: params.paper.hashratio	FracMinHash sampling rate.
 \shmParamTheta	0.4		benchmarks/data/suite.toml :: params.paper.threshold	Similarity threshold.
