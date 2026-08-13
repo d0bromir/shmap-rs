@@ -91,6 +91,15 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmAccMin` | 98.76 | % | Lowest ground-truth accuracy across metrics on the simulated benchmark. | `current/checks.tsv :: check=ground_truth, detail` |
 | `\shmAccMax` | 99.21 | % | Highest ground-truth accuracy across metrics on the simulated benchmark. | `current/checks.tsv :: check=ground_truth, detail` |
 | `\shmWrongQMax` | 6 | reads | Most confidently-wrong placements any metric produced. | `current/checks.tsv :: check=wrong_q60, detail` |
+| `\shmPeerBench` | B01 | — | Benchmark the peer-tool comparison is measured on. | `benchmarks/scripts/paper.py :: PEER_BENCHMARK` |
+| `\shmPeerRsMapS` | 33.6 | s | shmap-rs mapping seconds on the peer benchmark, single-threaded. | `paper/generated/<arch>/table_peers.tsv :: map_s` |
+| `\shmPeerWinnowMapS` | 1328 | s | Winnowmap2 mapping seconds on the same reads. | `paper/generated/<arch>/table_peers.tsv :: map_s` |
+| `\shmPeerWinnowThreads` | 32 | — | Thread count Winnowmap2 was run at. | `paper/generated/<arch>/table_peers.tsv :: threads` |
+| `\shmPeerWinnowGB` | 9.8 | GB | Winnowmap2 peak resident memory. | `paper/generated/<arch>/table_peers.tsv :: peak_rss_gb` |
+| `\shmPeerMapquikMapS` | 18.0 | s | mapquik mapping seconds on the same reads. | `paper/generated/<arch>/table_peers.tsv :: map_s` |
+| `\shmPeerMapquikGB` | 18.1 | GB | mapquik peak resident memory. | `paper/generated/<arch>/table_peers.tsv :: peak_rss_gb` |
+| `\shmAgreeWinnow` | 96.3 | % | Share of Winnowmap2's mappings shmap-rs places compatibly. | `current/checks.tsv :: concordance_winnowmap2, good=` |
+| `\shmAgreeMapquik` | 96.1 | % | Share of mapquik's mappings shmap-rs places compatibly. | `current/checks.tsv :: concordance_mapquik, good=` |
 | `\shmTopStage` | map: match\_rest | — | Costliest pipeline stage on the reference machine. | `current/profiles.tsv :: cpu_* stage timers at Containment/-@1` |
 | `\shmTopStageShare` | 21.0 | % | Its mean share of total CPU time across benchmarks. | `current/profiles.tsv :: cpu_* stage timers at Containment/-@1` |
 | `\shmShiftStage` | index: reading | — | Stage whose CPU share moves most between the machines. | `current/profiles.tsv :: cpu_* stage timers at Containment/-@1` |
@@ -110,6 +119,8 @@ everyone else, both from one computation so they cannot disagree.
 - `\shmScaleXPeak` — One favourable row, not the machine's typical behaviour; read with ScaleXCap, which is the median across every cell.
 - `\shmScaleAPeak` — One favourable row, not the machine's typical behaviour; read with ScaleACap, which is the median across every cell.
 - `\shmAgreeCells` — Agreement at -@1. Agreement across thread counts is a separate per-machine check (thread_determinism).
+- `\shmAgreeWinnow` — Concordance, not accuracy. Winnowmap2 is the most accurate long-read mapper available and is still an estimate; the suite's only accuracy number comes from the simulated benchmark.
+- `\shmAgreeMapquik` — Concordance, not accuracy; and mapquik is a low-divergence mapper by its own account, not run on the ONT benchmark at all.
 - `\shmMapRatioMin` — The machines differ in cores, sockets, NUMA topology, memory and clock, and none is held fixed. A ratio across them compares two machines we own, not two instruction sets.
 - `\shmMapRatioMax` — The machines differ in cores, sockets, NUMA topology, memory and clock, and none is held fixed. A ratio across them compares two machines we own, not two instruction sets.
 

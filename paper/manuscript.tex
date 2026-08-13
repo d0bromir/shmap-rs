@@ -118,28 +118,21 @@ number below compares two implementations of one algorithm --- his.
 
 \section{Implementation}
 
-\textbf{Accumulator sized by the read, not the reference.} The reference
-allocates a dense array indexed by reference bucket, so its footprint is a
-property of the genome and is paid on every run. A read can only match buckets
-within its own span, so shmap-rs sizes the array by the read's half-length and
-falls back to a sparse map. Almost the whole memory result, and it removed a
-contention bottleneck that had made multithreading nearly useless.
-
-\textbf{Memoised refinement.} The second-best-mapping search repeats scoring
-the best-mapping search has done; shmap-rs replays those scores, removing
-roughly two calls in five into refinement, for the metrics where replay is
-provably sound.
-
-\textbf{Parallelism the reference does not have.} Reference sketching chunked,
-index storage sharded by hash, FASTA parsing a two-pass count-then-fill --- all
-parallel, none order-dependent, so the index does not depend on how many
-threads built it and output stays byte-identical.
-
-\textbf{Hot-loop work.} Repetitive seeds accumulate in place at constant
-integer cost rather than through a scratch hash map; the rolling nucleotide
-hash~\cite{nthash} keeps rotations precomputed and iteration free of bounds
-checks; and the original's packed-key bucket sort is made deterministic, which
-the reference's \texttt{std::sort} does not guarantee.
+Nine changes account for the difference in cost, and they divide by the layer
+they act on. \textbf{One data structure} carries most of it: the reference
+allocates its bucket accumulator against the genome, so its footprint is paid
+on every run whatever the input, while a read can only match buckets within its
+own span --- shmap-rs sizes the array by the read's half-length and falls back
+to a sparse map. \textbf{Three algorithmic identities} skip work by proving it
+need not be done: the second-best-mapping search replays the first's scores
+where that is provably sound, a repetitive seed's hits accumulate in place
+rather than through a scratch hash map, and an unstable sort over a packed key
+reproduces exactly what a stable sort would give.
+\textbf{\shmNumParallelOptimizations{} exist only because the reference is
+single-threaded} --- chunked reference sketching, hash-sharded index storage,
+a two-pass FASTA reader --- none order-dependent, which is what lets output
+stay byte-identical. \textbf{Two are instruction-level}, and worth least. A
+companion note gives each with the upstream source it replaces.
 
 Exactness is enforced, not asserted: output is identical across every thread
 count (\shmDetChecks{} of \shmDetTotal{} checks) and against the reference, and
@@ -158,9 +151,9 @@ $\theta=\shmParamTheta$, $\delta=\shmParamDelta$, $\phi=\shmParamPhi$. Machines:
 \shmMeasuredX{} and \shmMeasuredA.
 
 \textbf{Both machines run the same computation}, which licenses every
-comparison below. The mapper is deterministic, so reads mapped, confident
-calls and buckets seeded, refined and reported must be identical on both for
-one commit. They are, on \shmAgreeCells{} of \shmAgreeTotal{} pairs.
+comparison below: the mapper is deterministic, so its counters must be
+identical on both for one commit, and they are, on \shmAgreeCells{} of
+\shmAgreeTotal{} pairs.
 
 \textbf{Speed.} Table~\ref{tab:xarch:speedup}, both terms of each ratio from
 the same host so host speed cancels:
@@ -190,6 +183,15 @@ keeps a \shmRssRatioCap$\times$ advantage, on cores the reference cannot use.
 {\tikzset{every picture/.append style={scale=0.86, every node/.style={scale=0.81}}}% lint-ok: figure scale, layout not measurement
 \input{x86_64/fig_stage_breakdown.tex}}
 
+\textbf{Against other mappers}, on \shmPeerBench, same host and same reads.
+Mapping costs shmap-rs \shmPeerRsMapS~s single-threaded at \shmRssRsMin~GB;
+Winnowmap2 takes \shmPeerWinnowMapS~s on \shmPeerWinnowThreads{} threads at
+\shmPeerWinnowGB~GB, and mapquik \shmPeerMapquikMapS~s on the same threads but
+at \shmPeerMapquikGB~GB. shmap-rs places \shmAgreeWinnow\% of Winnowmap2's
+mappings compatibly and \shmAgreeMapquik\% of mapquik's --- \emph{concordance,
+not accuracy}: those tools are estimates too, and where they disagree with
+shmap-rs nothing here says which is right.
+
 \textbf{Where the time goes.} Figure~\ref{fig:stages} gives every stage's share
 of \texttt{query\_mapping} for all \shmNumCells{} cells. The costliest is
 \texttt{\shmTopStage} at \shmTopStageShare\% of CPU on average: pointer-chasing
@@ -212,23 +214,20 @@ node recovers most of it.
 \textbf{Accuracy is unchanged, and checked.} On the simulated benchmark, the
 only input with ground truth, reads land within one read length of their true
 position for \shmAccMin--\shmAccMax\% of reads by metric, and at most
-\shmWrongQMax{} reads under any metric are placed wrongly while reported as
-confident.
+\shmWrongQMax{} are placed wrongly while reported as confident.
 
-\textbf{Four things that did not pay}, recorded because a negative result
-nobody writes down gets retried. The sketching loop is load-port bound at six
-level-one loads per base, which sinks both SIMD (more lanes, same ports) and
-two-bit packing (removes the wrong two loads). Prefetching the pruning lookups
-is at best break-even. Per-node index replication, in five implementations, was slower
-than doing nothing wherever a run spanned more than one socket.
+\textbf{Four hypotheses measured negative} and are recorded so they are not
+retried: hand-written SIMD sketching, two-bit packing, prefetching the pruning
+lookups, and per-node index replication. The first two fail for one reason ---
+the sketching loop is load-port bound at six level-one loads per base --- and
+the companion note gives all four.
 
 \section{Conclusion}
 
-The headroom was not algorithmic --- which is the point. Ivanov's seed
-heuristic on sketches is what makes the mapping decisions, and it is unchanged
-here down to the byte; the change that mattered most was a data structure sized
-by the query rather than by the reference. Every number, table and figure here
-is regenerated from the committed result sets by scripts in the repository, and
+The headroom was not algorithmic, which is the point: Ivanov's seed heuristic
+makes every mapping decision here, unchanged down to the byte, and what
+mattered most was a data structure sized by the query rather than the
+reference. Every number here is regenerated from the committed result sets, and
 CI fails if any drifts from what it reports.
 
 \small

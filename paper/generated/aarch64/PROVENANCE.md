@@ -20,6 +20,35 @@ into the paper, and a `.tsv` holding exactly the numbers the fragment draws.
 LaTeX requirements: `booktabs` for the tables, `pgfplots` (`\pgfplotsset{compat=1.18}`)
 for the figures.
 
+## table_peers
+
+**Table** — shmap-rs beside other long-read mappers on the headline real-HiFi dataset, same host, same reads. The thread column is part of the measurement: the peers run at the count their own documentation assumes, shmap-rs at one. \emph{Agreement} is the share of that tool's mappings shmap-rs places compatibly --- concordance, not accuracy: where they differ, nothing here says which is right.
+
+Files: `table_peers.tex`, `table_peers.tsv`. LaTeX label: `tab:peers`.
+
+**Taken from**
+
+- `benchmarks/results/suite-<v>/<arch>/current/results.tsv :: map_s, peak_rss_kb for shmap-rs and cpp-shmap at -@1`
+- `the cached external-mapper corpus :: wall_s, peak_rss_kb, threads`
+- `benchmarks/results/suite-<v>/<arch>/current/checks.tsv :: concordance_<mapper>, the good= field`
+
+**Transformed by**
+
+1. One benchmark (B01) and one metric (Containment), because a two-page note has room for four rows; table_mapper_comparison carries every dataset and metric.
+2. shmap-rs and the C++ are taken at -@1; the peers at whatever thread count their cached run used, which is printed rather than normalised away.
+3. Agreement is parsed from the concordance check's good= field, which is the share of the peer's mappings shmap-rs places compatibly.
+4. peak_rss_gb = peak_rss_kb / 1048576.
+
+**Presented as**
+
+booktabs tabular, one row per tool.
+
+**Read with**
+
+- AGREEMENT IS CONCORDANCE, NEVER ACCURACY. Winnowmap2 is the most accurate long-read mapper available and is still an estimate, not ground truth; the only accuracy number in this suite comes from the simulated benchmark, whose reads carry true positions.
+- The map-time column compares tools doing different amounts of work: shmap-rs and the C++ emit mappings only, and the peers were run to emit the same, but their algorithms differ in what they compute on the way.
+- mapquik is a low-divergence mapper by its own paper's account and is not run on the ONT benchmark at all; its numbers here are also specific to a host with AVX-512, since its SIMD and scalar paths are not interchangeable.
+
 ## table_mapper_comparison
 
 **Table** — Long-read mapping tools on the benchmark suite. Mapq~60 is the count of confident mappings; Missed is the share of input reads either unmapped or below mapq~60; Wrong Q60 counts confident mappings that are wrong against ground truth.

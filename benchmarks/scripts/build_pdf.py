@@ -67,6 +67,7 @@ PREFERRED_ORDER = [
     "fig_crossarch_thread_scaling",
     "fig_crossarch_stages",
     # single architecture
+    "table_peers",
     "table_mapper_comparison",
     "table_seed_heuristic",
     "fig_thread_scaling",

@@ -72,6 +72,15 @@ macro	value	unit	source	meaning
 \shmAccMin	98.76	%	current/checks.tsv :: check=ground_truth, detail	Lowest ground-truth accuracy across metrics on the simulated benchmark.
 \shmAccMax	99.21	%	current/checks.tsv :: check=ground_truth, detail	Highest ground-truth accuracy across metrics on the simulated benchmark.
 \shmWrongQMax	6	reads	current/checks.tsv :: check=wrong_q60, detail	Most confidently-wrong placements any metric produced.
+\shmPeerBench	B01		benchmarks/scripts/paper.py :: PEER_BENCHMARK	Benchmark the peer-tool comparison is measured on.
+\shmPeerRsMapS	33.6	s	paper/generated/<arch>/table_peers.tsv :: map_s	shmap-rs mapping seconds on the peer benchmark, single-threaded.
+\shmPeerWinnowMapS	1328	s	paper/generated/<arch>/table_peers.tsv :: map_s	Winnowmap2 mapping seconds on the same reads.
+\shmPeerWinnowThreads	32		paper/generated/<arch>/table_peers.tsv :: threads	Thread count Winnowmap2 was run at.
+\shmPeerWinnowGB	9.8	GB	paper/generated/<arch>/table_peers.tsv :: peak_rss_gb	Winnowmap2 peak resident memory.
+\shmPeerMapquikMapS	18.0	s	paper/generated/<arch>/table_peers.tsv :: map_s	mapquik mapping seconds on the same reads.
+\shmPeerMapquikGB	18.1	GB	paper/generated/<arch>/table_peers.tsv :: peak_rss_gb	mapquik peak resident memory.
+\shmAgreeWinnow	96.3	%	current/checks.tsv :: concordance_winnowmap2, good=	Share of Winnowmap2's mappings shmap-rs places compatibly.
+\shmAgreeMapquik	96.1	%	current/checks.tsv :: concordance_mapquik, good=	Share of mapquik's mappings shmap-rs places compatibly.
 \shmTopStage	map: match\_rest		current/profiles.tsv :: cpu_* stage timers at Containment/-@1	Costliest pipeline stage on the reference machine.
 \shmTopStageShare	21.0	%	current/profiles.tsv :: cpu_* stage timers at Containment/-@1	Its mean share of total CPU time across benchmarks.
 \shmShiftStage	index: reading		current/profiles.tsv :: cpu_* stage timers at Containment/-@1	Stage whose CPU share moves most between the machines.

@@ -492,6 +492,56 @@ def _stage_shift(c: MCtx) -> tuple[str, str, float]:
     return best
 
 
+def _peer_row(c: MCtx, tool: str) -> dict[str, str]:
+    """One row of the generated peer table.
+
+    Read from `table_peers.tsv` rather than re-derived: paper.py already loads
+    the external-mapper corpus and joins it to the result set, and a second
+    loader here would be a second thing that can disagree about what a peer
+    cost. The table is generated and committed, so this is a file the
+    repository already keeps current.
+    """
+    path = OUT / c.x.arch / "table_peers.tsv"
+    if not path.exists():
+        return {}
+    rows = [ln for ln in path.read_text().splitlines() if not ln.startswith("#")]
+    if not rows:
+        return {}
+    head = rows[0].split("\t")
+    for ln in rows[1:]:
+        cells = ln.split("\t")
+        if cells and cells[0] == tool:
+            return dict(zip(head, cells))
+    return {}
+
+
+def _peer_num(c: MCtx, tool: str, field: str) -> float | None:
+    v = _peer_row(c, tool).get(field, "")
+    try:
+        return float(v)
+    except ValueError:
+        return None
+
+
+def _agreement(c: MCtx, mapper: str) -> float | None:
+    """Share of `mapper`'s mappings that shmap-rs places compatibly.
+
+    Concordance, never accuracy: the peer is an estimate too, and where the two
+    disagree nothing here says which is right. Parsed from the check's own
+    `good=` field rather than recomputed.
+    """
+    from paper import PEER_BENCHMARK, PEER_METRIC
+    for ch in c.x.rs["checks"]:
+        if ch["check"] != f"concordance_{mapper}":
+            continue
+        if ch["benchmark"] != PEER_BENCHMARK or ch["metric"] != PEER_METRIC:
+            continue
+        m = re.search(r"good=([0-9.]+)", ch.get("detail", ""))
+        if m:
+            return 100.0 * float(m.group(1))
+    return None
+
+
 def _gt_fractions(c: MCtx) -> list[float]:
     """Ground-truth accuracy on the simulated benchmark, per metric.
 
@@ -740,6 +790,42 @@ MACROS: list[Macro] = [
                              if re.search(r"(\d+)/", ch["detail"])), default=0)),
           group=True),
 
+    # -- the other mappers ---------------------------------------------------
+    Macro("PeerBench", "", "Benchmark the peer-tool comparison is measured on.",
+          "benchmarks/scripts/paper.py :: PEER_BENCHMARK",
+          lambda c: tex_escape(__import__("paper").PEER_BENCHMARK)),
+    Macro("PeerRsMapS", "s", "shmap-rs mapping seconds on the peer benchmark, single-threaded.",
+          "paper/generated/<arch>/table_peers.tsv :: map_s",
+          lambda c: agg(f1, lambda v: v, _peer_num(c, SUBJECT, "map_s"))),
+    Macro("PeerWinnowMapS", "s", "Winnowmap2 mapping seconds on the same reads.",
+          "paper/generated/<arch>/table_peers.tsv :: map_s",
+          lambda c: agg(lambda v: f"{v:.0f}", lambda v: v,
+                        _peer_num(c, "winnowmap2", "map_s"))),
+    Macro("PeerWinnowThreads", "", "Thread count Winnowmap2 was run at.",
+          "paper/generated/<arch>/table_peers.tsv :: threads",
+          lambda c: agg(lambda v: str(int(v)), lambda v: v,
+                        _peer_num(c, "winnowmap2", "threads"))),
+    Macro("PeerWinnowGB", "GB", "Winnowmap2 peak resident memory.",
+          "paper/generated/<arch>/table_peers.tsv :: peak_rss_gb",
+          lambda c: agg(f1, lambda v: v, _peer_num(c, "winnowmap2", "peak_rss_gb"))),
+    Macro("PeerMapquikMapS", "s", "mapquik mapping seconds on the same reads.",
+          "paper/generated/<arch>/table_peers.tsv :: map_s",
+          lambda c: agg(f1, lambda v: v, _peer_num(c, "mapquik", "map_s"))),
+    Macro("PeerMapquikGB", "GB", "mapquik peak resident memory.",
+          "paper/generated/<arch>/table_peers.tsv :: peak_rss_gb",
+          lambda c: agg(f1, lambda v: v, _peer_num(c, "mapquik", "peak_rss_gb"))),
+    Macro("AgreeWinnow", "%", "Share of Winnowmap2's mappings shmap-rs places compatibly.",
+          "current/checks.tsv :: concordance_winnowmap2, good=",
+          lambda c: agg(f1, lambda v: v, _agreement(c, "winnowmap2")),
+          caveats=("Concordance, not accuracy. Winnowmap2 is the most accurate long-read "
+                   "mapper available and is still an estimate; the suite's only accuracy "
+                   "number comes from the simulated benchmark.",)),
+    Macro("AgreeMapquik", "%", "Share of mapquik's mappings shmap-rs places compatibly.",
+          "current/checks.tsv :: concordance_mapquik, good=",
+          lambda c: agg(f1, lambda v: v, _agreement(c, "mapquik")),
+          caveats=("Concordance, not accuracy; and mapquik is a low-divergence mapper by "
+                   "its own account, not run on the ONT benchmark at all.",)),
+
     # -- where the time goes -------------------------------------------------
     Macro("TopStage", "", "Costliest pipeline stage on the reference machine.",
           "current/profiles.tsv :: cpu_* stage timers at Containment/-@1",
@@ -895,6 +981,35 @@ LINT_OK_RE = re.compile(r"%\s*lint-ok:\s*\S")
 
 NUMERAL_RE = re.compile(r"\d")
 
+
+def proper_nouns() -> list[str]:
+    """Names that legitimately carry a digit: the peer mappers, and ours.
+
+    Taken from the suite definition rather than listed here, so a tool added to
+    the corpus does not need this file edited before its name can be written in
+    a paper. `Winnowmap2` is the case that forces this to exist -- the digit is
+    part of the name, and a per-line exemption for every sentence mentioning it
+    would train the reader to ignore the marker that means something.
+    """
+    try:
+        names = set(load_suite().get("external", {}))
+    except (OSError, ValueError, KeyError):
+        names = set()
+    names.discard("presets")
+    names.discard("enabled")
+    names |= {"shmap-rs", "map-shmap", "shmap"}
+    # Longest first, so `winnowmap2` is removed before a shorter prefix could
+    # match inside it and leave the digit behind.
+    return sorted((n for n in names if any(ch.isdigit() for ch in n)),
+                  key=len, reverse=True)
+
+
+def strip_proper_nouns(line: str) -> str:
+    out = line
+    for n in proper_nouns():
+        out = re.sub(re.escape(n), "", out, flags=re.IGNORECASE)
+    return out
+
 # Everything before \begin{document} is typesetting -- margins, font sizes,
 # pgfplots compat levels -- and the bibliography is publication years. Neither
 # is a measurement, and neither is prose.
@@ -947,7 +1062,8 @@ def lint_draft(path: Path = DRAFT) -> list[str]:
             continue
         if LINT_OK_RE.search(raw):
             continue
-        line = LENGTH_RE.sub("", ADDRESS_RE.sub("", COMMENT_RE.sub("", raw)))
+        line = strip_proper_nouns(
+            LENGTH_RE.sub("", ADDRESS_RE.sub("", COMMENT_RE.sub("", raw))))
         if NUMERAL_RE.search(line):
             bad.append(f"{path.name}:{i}: literal numeral in prose: {raw.strip()}")
     return bad

@@ -209,6 +209,75 @@ class Ctx:
 # builders
 # ---------------------------------------------------------------------------
 
+# The headline benchmark for the peer table: real HiFi against the whole
+# genome, the dataset the rest of the narrative argues on. One benchmark and
+# one metric, because a note has room for four rows and not for forty --
+# `table_mapper_comparison` carries every dataset and every metric.
+PEER_BENCHMARK = "B01"
+PEER_METRIC = "Containment"
+
+
+def build_peers(c: Ctx) -> tuple[str, list[str], list[list]]:
+    """shmap-rs beside the other long-read mappers, on one dataset.
+
+    Cost is directly comparable only in the sense that each row is what that
+    tool needed to map the same reads on the same host; the thread column is
+    part of the measurement, not a footnote, because the peers are run at the
+    thread count their own documentation assumes and shmap-rs is shown at one.
+
+    The agreement column is CONCORDANCE, never accuracy. Winnowmap2 is the
+    most accurate long-read mapper available and is still an estimate; where
+    it and shmap-rs disagree, nothing here says which is right.
+    """
+    bid, metric = PEER_BENCHMARK, PEER_METRIC
+    cols = ["tool", "threads", "map_s", "peak_rss_gb", "agreement_with_shmap_rs"]
+    data: list[list] = []
+
+    for impl in (SUBJECT, REFERENCE):
+        r = next((x for x in c.rows(impl=impl)
+                  if x["benchmark"] == bid and x["metric"] == metric
+                  and x["threads"] == 1), None)
+        if r:
+            data.append([impl, 1,
+                         float(r["map_s"]) if r.get("map_s") not in (None, "") else None,
+                         round(int(r["peak_rss_kb"]) / 1048576, 2), None])
+
+    for e in c.external:
+        if e.get("benchmark") != bid or not e.get("wall_s"):
+            continue
+        # `good=` is the share of this tool's mappings that shmap-rs places
+        # compatibly; the check that computes it is named for the tool.
+        detail = c.check(f"concordance_{e['mapper']}", bid, metric) or ""
+        agree = None
+        for field in detail.split():
+            if field.startswith("good="):
+                try:
+                    agree = round(float(field.split("=", 1)[1]), 4)
+                except ValueError:
+                    agree = None
+        data.append([e["mapper"], e.get("threads"), float(e["wall_s"]),
+                     round(int(e["peak_rss_kb"]) / 1048576, 2)
+                     if e.get("peak_rss_kb") else None,
+                     agree])
+
+    lines = [
+        r"\begin{tabular}{lrrrr}",
+        r"\toprule",
+        r"Tool & \texttt{-@} & Map (s) & Mem (GB) & Agreement \\",
+        r"\midrule",
+    ]
+    for row in data:
+        lines.append(" & ".join([
+            tex_escape(str(row[0])),
+            str(row[1]) if row[1] else dash(),
+            fnum(row[2]) if row[2] is not None else dash(),
+            fnum(row[3]) if row[3] is not None else dash(),
+            fnum(row[4], 4) if row[4] is not None else dash(),
+        ]) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    return "\n".join(lines), cols, data
+
+
 def build_comparison(c: Ctx) -> tuple[str, list[str], list[list]]:
     """The paper's tool-comparison table: sensitivity, confident errors, cost."""
     cols = ["benchmark", "tool", "metric", "threads", "mapped", "mapq60",
@@ -567,6 +636,48 @@ def build_stage_breakdown(c: Ctx) -> tuple[str, list[str], list[list]]:
 # ---------------------------------------------------------------------------
 
 ARTIFACTS: tuple[Artifact, ...] = (
+    Artifact(
+        name="table_peers",
+        kind="table",
+        caption=(r"shmap-rs beside other long-read mappers on the headline real-HiFi "
+                 r"dataset, same host, same reads. The thread column is part of the "
+                 r"measurement: the peers run at the count their own documentation "
+                 r"assumes, shmap-rs at one. \emph{Agreement} is the share of that "
+                 r"tool's mappings shmap-rs places compatibly --- concordance, not "
+                 r"accuracy: where they differ, nothing here says which is right."),
+        label="tab:peers",
+        sources=(
+            "benchmarks/results/suite-<v>/<arch>/current/results.tsv :: map_s, "
+            "peak_rss_kb for shmap-rs and cpp-shmap at -@1",
+            "the cached external-mapper corpus :: wall_s, peak_rss_kb, threads",
+            "benchmarks/results/suite-<v>/<arch>/current/checks.tsv :: "
+            "concordance_<mapper>, the good= field",
+        ),
+        transform=(
+            f"One benchmark ({PEER_BENCHMARK}) and one metric ({PEER_METRIC}), because a "
+            f"two-page note has room for four rows; table_mapper_comparison carries every "
+            f"dataset and metric.",
+            "shmap-rs and the C++ are taken at -@1; the peers at whatever thread count "
+            "their cached run used, which is printed rather than normalised away.",
+            "Agreement is parsed from the concordance check's good= field, which is the "
+            "share of the peer's mappings shmap-rs places compatibly.",
+            "peak_rss_gb = peak_rss_kb / 1048576.",
+        ),
+        presentation="booktabs tabular, one row per tool.",
+        caveats=(
+            "AGREEMENT IS CONCORDANCE, NEVER ACCURACY. Winnowmap2 is the most accurate "
+            "long-read mapper available and is still an estimate, not ground truth; the "
+            "only accuracy number in this suite comes from the simulated benchmark, whose "
+            "reads carry true positions.",
+            "The map-time column compares tools doing different amounts of work: shmap-rs "
+            "and the C++ emit mappings only, and the peers were run to emit the same, but "
+            "their algorithms differ in what they compute on the way.",
+            "mapquik is a low-divergence mapper by its own paper's account and is not run "
+            "on the ONT benchmark at all; its numbers here are also specific to a host "
+            "with AVX-512, since its SIMD and scalar paths are not interchangeable.",
+        ),
+        build=build_peers,
+    ),
     Artifact(
         name="table_mapper_comparison",
         kind="table",
