@@ -364,7 +364,36 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
     /// 240 000-read whole-genome run. The one case that can leave it dirty, a
     /// read abandoned after adding but before extracting, is handled precisely
     /// by clearing just that read's touched slots.
+    /// Retires the slots the *previous* read left behind, before anything can
+    /// change `dense`'s length or drop it.
+    ///
+    /// `extract_dense` drains the slots it takes, so the usual read leaves
+    /// `dense` clean. The exception is a read abandoned after adding but before
+    /// extracting — the case this machinery exists for — whose ids in `touched`
+    /// are valid only against the array they were recorded for.
+    ///
+    /// **This used to run after the sizing loop**, which the loop's early
+    /// return skips: that return replaces `dense` with an empty `Vec` while
+    /// leaving `dense_dirty` set and `touched` populated, so the next dense
+    /// read indexed an emptied array and panicked. `map_reads` catches per
+    /// read, so it would have surfaced as one failed read rather than a crash.
+    /// It takes all three of an abandon, a read over `MAX_DENSE_SLOTS`, and a
+    /// return to the dense path, which is why no run has hit it. Hoisting it
+    /// here puts it on the one path every exit from `plan_dense` passes
+    /// through, so a future exit cannot reintroduce the hazard by forgetting.
+    fn retire_dense_slots(&mut self) {
+        if self.dense_dirty {
+            for &g in &self.touched {
+                self.dense[g as usize] = EMPTY_SLOT;
+            }
+            self.dense_dirty = false;
+        }
+        self.touched.clear();
+    }
+
     fn plan_dense(&mut self) {
+        // Before anything that can change `dense`'s length or drop it.
+        self.retire_dense_slots();
         let tidx = self.tidx;
         let halflen = self.halflen as i64;
         self.seg_base.clear();
@@ -382,13 +411,6 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
                 return;
             }
         }
-        if self.dense_dirty {
-            for &g in &self.touched {
-                self.dense[g as usize] = EMPTY_SLOT;
-            }
-            self.dense_dirty = false;
-        }
-        self.touched.clear();
         // Grown, never shrunk: the tail beyond `total` stays empty and unused,
         // so a later read needing more slots only pays for the difference.
         if self.dense.len() < total as usize {
@@ -885,6 +907,52 @@ mod tests {
                     x.0
                 );
             }
+        }
+    }
+
+    /// Three steps, all three needed. A read abandoned after adding but before
+    /// extracting (`extract_dense` is what normally drains the slots), then a
+    /// read over `MAX_DENSE_SLOTS`, whose early return replaces `dense` with an
+    /// empty `Vec` — leaving `touched` holding ids into an array that no longer
+    /// exists. Retiring the slots only after the sizing loop, as this did, then
+    /// indexed that empty `Vec` on the next dense read and panicked.
+    #[test]
+    fn an_abandoned_read_does_not_leak_into_the_next_dense_read() {
+        // One index, two half-lengths: 2^24/10 slots is under the cap, 2^24/5
+        // is over it.
+        let mut tidx = SketchIndex::new();
+        tidx.segments
+            .push(RefSegment::new(Vec::new(), "seg0".to_string(), 1 << 24, 0));
+        assert!(((1i64 << 24) - 1) / 10 + 2 < MAX_DENSE_SLOTS as i64);
+        assert!(((1i64 << 24) - 1) / 5 + 2 > MAX_DENSE_SLOTS as i64);
+        let mut b: Buckets<true> = Buckets::new(&tidx);
+
+        // Abandoned: added to, never extracted, so its slots stay live.
+        b.clear();
+        assert!(b.set_halflen(10));
+        assert!(b.dense_on);
+        b.add_to_pos(&hit(500, 500, 0), BucketContent::new(1, 0, 1, 500, 500));
+
+        // Over the cap: `dense` is dropped while those slots are still live.
+        b.clear();
+        assert!(b.set_halflen(5));
+        assert!(!b.dense_on);
+        b.propagate_seeds_to_buckets();
+        assert!(b.get_sorted_buckets().is_empty());
+
+        // Back under it. This is the step that panicked.
+        b.clear();
+        assert!(b.set_halflen(10));
+        assert!(b.dense_on);
+        b.add_to_pos(&hit(500, 500, 0), BucketContent::new(1, 0, 1, 500, 500));
+        b.propagate_seeds_to_buckets();
+        let out = b.get_sorted_buckets();
+        assert_eq!(out.len(), 2);
+        for (_, content) in &out {
+            assert_eq!(
+                content.matches, 1,
+                "the abandoned read's contribution survived into this read"
+            );
         }
     }
 
