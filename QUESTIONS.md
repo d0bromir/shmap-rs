@@ -19,15 +19,26 @@ numbers belong in [RESULTS.md](RESULTS.md) or [PORT_CHANGES.md](PORT_CHANGES.md)
 | Q8 | Can SIMD be used in some of the steps of mapping a read? | `q8-simd-mapping-steps` | #17 | merged |
 | Q9 | Software prefetching for the pruning lookups | `q9-prefetch-refine` | #18 | merged |
 | Q10 | 2-bit-packed sequence encoding for sketching | `q10-2bit-packed-sketching` | #20 | merged |
-| Q11 | Visualize the profiling data as charts | `q11-profiling-charts` | #22 | in review |
+| Q11 | Visualize the profiling data as charts | `q11-profiling-charts` | #22 | merged |
+| Q12 | Map each read at a cheaper threshold first | `q12-adaptive-theta` | #39 | dropped |
+| Q13 | Choose the bucket accumulator by occupancy, not by size alone | `q13-dense-occupancy` | — | dropped |
+| Q14 | Stop building the per-read seed table nothing reads | `q14-refine-inner-loop` | — | dropped |
+| Q15 | Probe the index once per read k-mer, not twice | `q15-single-index-probe` | — | dropped |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
-awaiting the benchmark) · **merged** · **dropped** (with the reason in its section).
+awaiting the benchmark) · **merged** · **dropped** (with the reason in its section). An em dash in
+the PR column means the work was measured and settled on its branch without one being opened.
 
-**Seven of the eleven produced no `src/` change.** That is the intended shape: each was a real
-hypothesis, probed or built before being accepted or rejected, and a measured negative is the
-outcome that keeps it from being retried. The probes are in [`profiling/`](profiling/) and the
-verdicts in [RESULTS.md §11](RESULTS.md#11-what-to-try-next).
+**None of the fifteen changed how the mapper computes anything.** Only Q7 touched `src/` at all,
+and that was a doc comment citing a section that no longer existed. That is the intended shape:
+each was a real hypothesis, probed or built before being accepted or rejected, and a measured
+negative is the outcome that keeps it from being retried. The probes are in
+[`profiling/`](profiling/) and the verdicts in [RESULTS.md §11](RESULTS.md#11-what-to-try-next).
+
+**Q12–Q15 were dropped for a different reason than Q5**, and the distinction is the useful part.
+Q5 net-regressed. These four were *exact and positive* — Q12 measured a full-suite ACCEPT — and
+were still not taken, because the merge bar is end-to-end wall time against added complexity, and
+a few percent does not clear it. A change can be correct, measured, and not worth its invariants.
 
 ---
 
@@ -224,7 +235,7 @@ confirms Q1's premise from the opposite direction. Detail in
 
 ## Q11 — Visualize the profiling data as charts
 
-**Asked** 2026-08-09 · `q11-profiling-charts` · PR #22 · **in review**
+**Asked** 2026-08-09 · `q11-profiling-charts` · PR #22 · **merged** 2026-08-09
 
 **Answer:** [`benchmarks/scripts/charts.py`](benchmarks/scripts/charts.py) draws `profiles.tsv` as
 pie charts — hand-written SVG, so it adds no dependency, diffs in review like the tables do, and
@@ -238,6 +249,122 @@ charts were generated from the existing result set with no re-run, as asked.
 [`test_charts.py`](benchmarks/scripts/test_charts.py) pins the aggregation rule, wedge geometry, the
 partition guard and end-to-end rendering (30 assertions), wired into CI; `promote.py` carries
 `chart-*` so a promoted result set stays viewable.
+
+## Q12 — Map each read at a cheaper threshold first
+
+**Worked** 2026-08-12 · `q12-adaptive-theta` · PR #39 · **dropped**
+
+**The ask was not written down at the time.** Q12–Q15 are a per-read optimization pass that
+continues the thread Q10 opened — whether the run of negative results meant nothing else could be
+optimized — but no section here can quote what was asked for each, so none of them pretends to.
+What each one *did* is recorded below and, except for Q12, in the repository.
+
+**Answer: built, exact, a full-suite ACCEPT — and not merged.** Theta reaches `map_read` in exactly
+two places: the seed count `S = (1-(t-d))·m+1` and the bucket sweep's initial threshold. Both get
+cheaper as theta rises, and at the paper parameters `S` is 67.5% of a read's k-mer occurrences while
+the median HiFi read maps at 0.93 — so nearly every read is charged for a threshold far below the
+one it clears. The branch tries one higher rung first and falls back to `-t` only if that finds
+nothing.
+
+The early stop is **exact, not an approximation**: every bucket the run at `-t` would consider is
+either scored identically at the higher rung, pruned there with a seed-heuristic bound already under
+the winning score, or never seeded — and the third case is what `S` is defined to make impossible
+for anything scoring near the threshold. Verified over 90 000 reads from four datasets at every
+metric against the same binary under `SHMAP_NO_ADAPTIVE_THETA=1`: mapping, scores, mapq, winning
+bucket, mapped and mapq-60 counts and B02's ground truth all identical.
+
+**Outcome: ACCEPT, 1.037x end-to-end (1.070x B04, 1.063x B03, 1.003x B05), nothing blocking, C++
+agreement unchanged — and PR #39 closed unmerged.** The stages either half can touch move
+1.05–1.60x, but they are a minority of wall time everywhere in the suite; against +3.7% the branch
+asks the port to carry a second path through `map_read`, a cross-rung reuse contract spanning four
+modules, and a tie-escalation rule that exists only to keep output byte-identical.
+
+**Its evidence is on the branch and nowhere else.** Unlike Q13–Q15, whose findings were taken to
+`main` as documentation, Q12's 461 lines of RESULTS.md (§5c the ladder, §5d a fitted per-read cost
+model) and `profiling/costmodel.py` went with the closed PR. Three things
+are therefore only recoverable from `q12-adaptive-theta`, and the branch is kept for that reason:
+the cost model itself, which is the tool for judging a perf change on this crate rather than
+comparing medians; the finding that **the pruning walk spends 84–92% of its seeds on buckets that
+survive it**; and the finding that **the sweep's tie-break is order-dependent**, since adjacent
+buckets overlap by design and both can cover a locus with the same intersection. Landing that
+material on `main` is separate work and is not done.
+
+## Q13 — Choose the bucket accumulator by occupancy, not by size alone
+
+**Worked** 2026-08-12 · `q13-dense-occupancy` · no PR · **dropped**
+
+**Answer: the premise held, the conclusion did not.** The dense accumulator exists for whole-genome
+`k=15`, where a read makes ~4 M contributions against ~242 k buckets and genuinely accumulates. At
+the paper's operating point the same reference gives the same slot count from the opposite
+direction: a read touches **248 of ~242 000 slots, 0.1% occupancy**, so the array is being used as a
+scatter table — and `MAX_DENSE_SLOTS` cannot tell the two cases apart, because they land at the same
+size. `plan_dense` was given an occupancy test as well, routing 96.5% of HiFi reads to the sparse
+path.
+
+**Outcome: it cancels out.** `match_seeds` 1.143x and `prepare` 1.132x at `-@16` — the
+memory-contention half of the rationale confirmed, since it gains more at 16 threads than at 1 —
+bought at `bucket_merge` 0.607x, leaving `query_mapping` inside the control cell's noise. At 3.9 MB
+the array is L3-resident, so its scatter costs ~40 cycles a miss rather than a DRAM round trip,
+which is cheaper per hit than radix-sorting ~3 800 records is per read. Occupancy is the wrong
+variable on its own; size against L3 is the right one. Recorded in
+[RESULTS.md §11](RESULTS.md#11-what-to-try-next); the branch is kept because the whole loss sits in
+a merge tuned for a regime three orders of magnitude larger in entry count.
+
+**A latent panic was found on the way, and is still on `main`.** `plan_dense`'s over-size early
+return replaces `dense` with an empty `Vec` while `touched` still holds ids into the array just
+dropped, and the retirement loop that would clear them sits *after* that return
+([`src/buckets.rs`](src/buckets.rs) `plan_dense`). It needs all three of a read abandoned after
+adding but before extracting, a following read over `MAX_DENSE_SLOTS`, and a return to the dense
+path — which is why no run has hit it. The fix (hoisting retirement to the one point every exit
+passes through) is on this branch and was never taken to `main` independently, as it should have
+been.
+
+## Q14 — Stop building the per-read seed table nothing reads
+
+**Worked** 2026-08-12 · `q14-refine-inner-loop` · no PR · **dropped**
+
+**Answer: real, exact, and too small.** `p_ht` maps every unique read k-mer to a whole `Seed` — a
+`Kmer`, three counters and a `PMatches` owning a `Vec`, ~72 bytes — and building it clones each one,
+heap allocation included, per read. Its only readers are `lcs` under `bucket_LCS` and the `-v2`
+ground-truth analysis, neither of which runs on the three metrics the suite measures. On every
+benchmark run this repository has made, it was built per read and never read once. It is now built
+only when one of those two will read it; the scoring sweep probes a packed `H2SeedLut` instead.
+Measured inside one binary against `SHMAP_FORCE_P_HT=1`, interleaved, median of 4: **`prepare`
+1.189x, `query_mapping` 1.028x**, control cell 0.993x. A second change keeps the `f64` divide off
+the scoring sweep's common path under plain Containment, where the score is strictly monotone in the
+intersection: `refine` 1.024x.
+
+**One hypothesis died here and should not be retried:** shrinking the sweep's k-mer table payload
+from ~72 bytes to a packed `u32` measured **nothing** (`refine` 0.997x). At 128 k-mers the fat table
+is already near-L1-resident, so size was not what that loop waits on.
+
+**This is also where the measurement method changed.** Comparing two *builds* of this crate
+confounds a change with the code layout `lto = "fat"` / `codegen-units = 1` produced: the divide
+shortcut reads 1.074–1.152x across builds against 1.024x inside one binary, and
+`collect_kmer_info` — which runs before any of it — reproducibly "regressed" 19–23%. A perf claim
+here needs one binary and a runtime switch. `SHMAP_FORCE_P_HT` and `SHMAP_NO_SCORE_SHORTCUT` are
+that switch and are not scaffolding to delete. That finding is load-bearing for every other
+measurement in [RESULTS.md §11](RESULTS.md#11-what-to-try-next).
+
+## Q15 — Probe the index once per read k-mer, not twice
+
+**Worked** 2026-08-12, continuing Q14 · `q15-single-index-probe` · no PR · **dropped**
+
+**Answer: real, exact, and too small — the other half of Q14's ~4%.** `collect_kmer_info` asked the
+index how many hits a k-mer has, via `contains_key`, and discarded the entry; `match_seeds` then
+re-probed the same shard for the hit itself. Both are cache-missing lookups into the multi-GB
+`h2single`/`h2multi` maps. This is the common case, not an edge: of a HiFi read's ~123 unique
+sketched k-mers, 96% are unique in the reference, so nearly every one of the ~84 seeds the mapper
+consumes per read paid a second lookup for a value the first had already found.
+`SketchIndex::lookup` now returns the count and, when it is 1, the hit. Measured inside one binary
+against `SHMAP_NO_SEED_HIT_CACHE=1`, median of 4: **`match_seeds` 1.059x, `query_mapping` 1.025x**,
+control cell 1.007x, and every stage the change cannot reach flat to within 1%.
+
+**Outcome: with Q14, 1.041x on `query_mapping` — about 1.7% of wall** at `-@1` on a 1x read set, on
+one benchmark, metric and thread count. Output byte-identical on 62 148 HiFi reads against the whole
+genome for all three metrics in both arms of every switch, with `validate_paf.py` clean. The merge
+bar is end to end, so both were recorded rather than merged; of the two, the `p_ht` removal is the
+piece that carries its own weight and is independent of the rest.
 
 ---
 
