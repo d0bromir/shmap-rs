@@ -1,0 +1,12 @@
+# Q16: does building for the exact host CPU make this faster?
+#
+# EXPERIMENT BRANCH. Not for main. `target-cpu=native` lets LLVM use every
+# instruction the building machine has, which on a Cascade Lake host means
+# AVX-512 -- an instruction set this project has already measured as costing
+# 14-18% package-wide clock at 64 busy cores (profiling/downclock_probe.rs).
+#
+# It also makes the binary unportable, so a build from this branch must never
+# be shipped or compared across machines: the cross-architecture agreement
+# table depends on both hosts running the same instructions.
+[build]
+rustflags = ["-C", "target-cpu=native"]
