@@ -102,7 +102,15 @@ def sources(tmp: Path) -> list[str]:
     wanted = INPUT_RE.findall(DRAFT.read_text())
     for name in wanted:
         name = name if name.endswith(".tex") else f"{name}.tex"
-        found = sorted(GENERATED.rglob(name))
+        # A name carrying a directory is already unambiguous and is resolved
+        # directly -- that is how a draft says *which* machine's copy of a
+        # per-architecture artifact it means, which the ambiguity error below
+        # tells the author to do.
+        if "/" in name:
+            direct = GENERATED / name
+            found = [direct] if direct.exists() else []
+        else:
+            found = sorted(GENERATED.rglob(name))
         if not found:
             sys.exit(f"error: {DRAFT.name} inputs {name}, which is not in "
                      f"{GENERATED.relative_to(REPO)}/.\n"
@@ -114,7 +122,9 @@ def sources(tmp: Path) -> list[str]:
                      f"once ({rel}).\n"
                      f"  Name the directory in the \\input so the draft says which "
                      f"machine's artifact it means.")
-        shutil.copy(found[0], tmp / name)
+        dest = tmp / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(found[0], dest)
     return wanted
 
 

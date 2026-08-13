@@ -80,21 +80,21 @@
 \begin{abstract}
 \noindent
 \textbf{Summary:} \emph{map-shmap} maps long reads by comparing FracMinHash
-sketches of read and reference under a seed heuristic that prunes candidate
-regions before refining them. Its reference implementation is single-threaded
-and sizes its bucket accumulator against the \emph{reference}, putting
-whole-genome mapping outside ordinary memory budgets. We present
-\textbf{shmap-rs}, a Rust implementation that leaves the algorithm untouched
---- output is byte-identical --- and rebuilds the data structures and the
-parallel decomposition around it. Against the tuned C++ reference it is
-\shmSpeedupXMin--\shmSpeedupXMax$\times$ faster single-threaded, uses
-\shmRssRatioMin--\shmRssRatioMax$\times$ less peak memory, and adds thread
-parallelism the reference lacks, reaching \shmScaleXPeak$\times$ on
+sketches under a seed heuristic that prunes candidate regions before refining
+them. Its reference implementation is single-threaded and sizes its bucket
+accumulator against the \emph{reference}, putting whole-genome mapping outside
+ordinary memory budgets. We present \textbf{shmap-rs}, a Rust implementation
+that leaves the algorithm untouched --- output is byte-identical --- and
+rebuilds the data structures and the parallel decomposition around it. Against
+the tuned C++ reference it is \shmSpeedupXMin--\shmSpeedupXMax$\times$ faster
+single-threaded, uses \shmRssRatioMin--\shmRssRatioMax$\times$ less peak memory
+and makes that footprint a property of the query rather than of the genome, and
+adds thread parallelism the reference lacks, reaching \shmScaleXPeak$\times$ on
 \shmCoresX{} cores. Every claim is measured on two architectures, whose runs
 agree on every algorithmic counter.\\[0.2em]
 \textbf{Availability:} \url{https://github.com/d0bromir/shmap-rs}, \shmLicense,
-version~\shmVersion. The benchmark suite, the result sets and the generators of
-every table here are in the repository.\\[0.2em]
+version~\shmVersion. Suite, result sets and the generator of every figure here
+are in the repository.\\[0.2em]
 \textbf{Contact:} ORCID \shmOrcids.
 \end{abstract}
 
@@ -112,126 +112,120 @@ implementations of one algorithm.
 
 \section{Implementation}
 
-\textbf{A bucket accumulator sized by the read, not the reference.} The
-reference allocates a dense array indexed by reference bucket, so its footprint
-is a property of the genome and is paid on every run. A read can only match
-buckets within its own span, so shmap-rs sizes the array by the read's
-half-length, falling back to a sparse map otherwise. This is almost the whole
-memory result, and it removed a contention bottleneck that had made
-multithreading nearly useless.
+\textbf{Accumulator sized by the read, not the reference.} The reference
+allocates a dense array indexed by reference bucket, so its footprint is a
+property of the genome and is paid on every run. A read can only match buckets
+within its own span, so shmap-rs sizes the array by the read's half-length and
+falls back to a sparse map. Almost the whole memory result, and it removed a
+contention bottleneck that had made multithreading nearly useless.
 
 \textbf{Memoised refinement.} The second-best-mapping search repeats scoring
-the best-mapping search has already done; shmap-rs replays those scores instead,
-removing roughly two calls in five into refinement. It is applied only to the
-metrics where replay is provably sound.
+the best-mapping search has done; shmap-rs replays those scores, removing
+roughly two calls in five into refinement, for the metrics where replay is
+provably sound.
 
-\textbf{Parallelism the reference does not have.} Reference sketching is
-chunked, index storage sharded by hash, FASTA parsing a two-pass
-count-then-fill. All three are parallel and none is order-dependent: the index
-does not depend on how many threads built it, which is what lets output stay
-byte-identical.
+\textbf{Parallelism the reference does not have.} Reference sketching chunked,
+index storage sharded by hash, FASTA parsing a two-pass count-then-fill --- all
+parallel, none order-dependent, so the index does not depend on how many
+threads built it and output stays byte-identical.
 
 \textbf{Hot-loop work.} Repetitive seeds accumulate in place at constant
 integer cost rather than through a scratch hash map; the rolling nucleotide
-hash~\cite{nthash} keeps its rotations precomputed and its iteration free of
-bounds checks; and final bucket ordering uses an unstable sort over a packed
-key reproducing exactly what a stable sort would give --- the optimisation the
+hash~\cite{nthash} keeps rotations precomputed and iteration free of bounds
+checks; final bucket ordering uses an unstable sort over a packed key
+reproducing exactly what a stable sort would give --- the optimisation the
 original paper specifies, made deterministic, which the reference's
 \texttt{std::sort} does not guarantee.
 
-Exactness is enforced, not asserted: the suite checks output is identical
-across every thread count (\shmDetChecks{} of \shmDetTotal{} checks) and
-against the reference, and blocks a merge on any drop in mapped or
-confidently-mapped reads.
+Exactness is enforced, not asserted: output is identical across every thread
+count (\shmDetChecks{} of \shmDetTotal{} checks) and against the reference, and
+any drop in mapped or confidently-mapped reads blocks a merge.
 
 \section{Results}
 
 {\small\input{table_crossarch_speedup.tex}}
-\input{fig_crossarch_thread_scaling.tex}
 
-All measurements are of commit \texttt{\shmCommit}, built with rustc
-\shmRustc{} under suite~\shmSuiteVersion, over \shmNumBenchmarks{} benchmarks
-$\times$ \shmNumMetrics{} similarity metrics --- \shmNumCells{} cells behind
-every range quoted --- at $k=\shmParamK$, $r=\shmParamR$,
-$\theta=\shmParamTheta$, $\delta=\shmParamDelta$, $\phi=\shmParamPhi$. The
-machines are \texttt{\shmHostX} (\shmArchX, \shmTopologyX, \shmCoresX{}
-cores), measured \shmMeasuredX, and \texttt{\shmHostA} (\shmArchA,
-\shmTopologyA, \shmCoresA{} cores), measured \shmMeasuredA.
+Commit \texttt{\shmCommit}, rustc \shmRustc, suite \shmSuiteVersion:
+\shmNumBenchmarks{} benchmarks $\times$ \shmNumMetrics{} metrics,
+\shmNumCells{} cells behind every range, at $k=\shmParamK$, $r=\shmParamR$,
+$\theta=\shmParamTheta$, $\delta=\shmParamDelta$, $\phi=\shmParamPhi$. Machines:
+\texttt{\shmHostX} (\shmArchX, \shmTopologyX, \shmCoresX{} cores) and
+\texttt{\shmHostA} (\shmArchA, \shmTopologyA, \shmCoresA{} cores), measured
+\shmMeasuredX{} and \shmMeasuredA.
 
-\textbf{Both machines run the same computation.} This is the premise of
-everything else, so it is measured rather than assumed. The mapper is
-deterministic, so its counters --- reads mapped, confident calls, buckets
-seeded, refined and reported --- must be identical on both machines for one
-commit. They are, on \shmAgreeCells{} of \shmAgreeTotal{} benchmark--metric
-pairs.
+\textbf{Both machines run the same computation}, which licenses every
+comparison below. The mapper is deterministic, so its counters --- reads
+mapped, confident calls, buckets seeded, refined and reported --- must be
+identical on both for one commit. They are, on \shmAgreeCells{} of
+\shmAgreeTotal{} benchmark--metric pairs.
 
-\textbf{Speed and memory.} Table~\ref{tab:xarch:speedup} gives the
-single-threaded speedup over the C++ on each machine separately; both terms of
-each ratio come from the same host, so the host's speed cancels and what
-remains is a property of the two programs. It is
+\textbf{Speed.} Table~\ref{tab:xarch:speedup}: both terms of each ratio come
+from the same host, so host speed cancels.
 \shmSpeedupXMin--\shmSpeedupXMax$\times$ (median \shmSpeedupXMedian$\times$) on
-\texttt{\shmHostX} and \shmSpeedupAMin--\shmSpeedupAMax$\times$ (median
-\shmSpeedupAMedian$\times$) on \texttt{\shmHostA}. Peak memory is
-\shmRssRsMin--\shmRssRsMax~GB against the reference's \shmRssCpp~GB and, unlike
-it, is a function of the reads rather than the genome. The reference is built
+\texttt{\shmHostX}, \shmSpeedupAMin--\shmSpeedupAMax$\times$ (median
+\shmSpeedupAMedian$\times$) on \texttt{\shmHostA}. The reference is built
 \texttt{-O3 -march=native -flto}, % lint-ok: upstream build flags, not a measurement
-so this is no naive baseline; the advantage widens with input size, and on
-inputs small enough to be startup-dominated the C++ still wins. Mapping the
-same input takes \shmMapRatioMin--\shmMapRatioMax$\times$ as long on
-\texttt{\shmHostA} as on \texttt{\shmHostX}, but the machines differ in far
-more than instruction set, so that ratio compares two machines rather than two
-architectures.
+so this is no naive baseline.
 
-\textbf{Thread scaling, and where it stops.}
-Figure~\ref{fig:xarch:scaling} shows the machines diverging. On the deepest
-benchmark (\shmScaleXPeakBench) \texttt{\shmHostX} reaches
-\shmScaleXPeak$\times$ at \shmScaleXPeakThreads{} threads then falls back,
-while \texttt{\shmHostA} climbs monotonically to \shmScaleAPeak$\times$ at
-\shmScaleAPeakThreads{} on \shmScaleAPeakBench. Across the whole matrix the medians are
+{\tikzset{every picture/.append style={scale=0.90, every node/.style={scale=0.90}}}% lint-ok: figure scale, layout not measurement
+\input{x86_64/fig_memory_vs_threads.tex}}
+
+\textbf{Memory, the larger result.} \shmRssRsMin--\shmRssRsMax~GB
+single-threaded against \shmRssCpp~GB, a
+\shmRssRatioMin--\shmRssRatioMax$\times$ reduction --- but what changes with the
+ratio matters more. The reference sizes its accumulator against the genome, so
+\shmRssCpp~GB is what it costs to map \emph{one} read and what it costs to map
+millions: a property of the index, which a machine either has room for or
+cannot run the tool at all. Sizing by the read's half-length makes it a
+property of the query. Figure~\ref{fig:memorythreads} is why we call the
+headline single-threaded: each worker carries its own accumulator, so peak RSS
+bottoms at \shmRssRsFloor~GB at \shmRssRsFloorThreads{} threads --- under the
+single-threaded figure, where bounded read-ahead dominates --- and reaches
+\shmRssRsCap~GB at \shmCapThreads{} on \shmRssRsCapBench. Even that worst cell
+keeps a \shmRssRatioCap$\times$ advantage, on cores the reference cannot use.
+
+{\tikzset{every picture/.append style={scale=0.86, every node/.style={scale=0.86}}}% lint-ok: figure scale, layout not measurement
+\input{x86_64/fig_stage_breakdown.tex}}
+
+\textbf{Where the time goes.} Figure~\ref{fig:stages} gives every stage's share
+of \texttt{query\_mapping} for all \shmNumCells{} cells. The costliest is
+\texttt{\shmTopStage} at \shmTopStageShare\% of CPU on average: pointer-chasing
+and latency-bound, which is why the profitable changes concerned the shape of
+the data rather than the width of the arithmetic. The profile barely moves
+between machines --- largest shift in any stage's share \shmShiftPP{}
+percentage points, in \texttt{\shmShiftStage}, which is input reading.
+
+\textbf{Thread scaling, and where it stops.} On \shmScaleXPeakBench{}
+\texttt{\shmHostX} reaches \shmScaleXPeak$\times$ at \shmScaleXPeakThreads{}
+threads then falls back; \texttt{\shmHostA} climbs monotonically to
+\shmScaleAPeak$\times$ at \shmScaleAPeakThreads. Matrix medians
 \shmScaleXKnee$\times$ against \shmScaleAKnee$\times$ at \shmKneeThreads{}
-threads, and \shmScaleXCap$\times$ against \shmScaleACap$\times$ at
-\shmCapThreads. The gap is not the instruction set: \texttt{\shmHostX} has
-\shmTopologyX{} and \texttt{\shmHostA} has \shmTopologyA. The ceiling is
-memory-bandwidth contention on the shared index, appearing as soon as a run
-spans more than one socket; confining a run to one node with \texttt{numactl}
-recovers most of the loss.
+threads, \shmScaleXCap$\times$ against \shmScaleACap$\times$ at \shmCapThreads.
+Not the instruction set: \texttt{\shmHostX} has \shmTopologyX{} against
+\shmTopologyA. The ceiling is memory-bandwidth contention on the shared index,
+appearing as soon as a run spans more than one socket; \texttt{numactl} to one
+node recovers most of it.
 
 \textbf{Accuracy is unchanged, and checked.} On the simulated benchmark, the
-only input carrying ground truth, reads land within one read length of their
-true position for \shmAccMin--\shmAccMax\% of reads depending on metric, and at
-most \shmWrongQMax{} reads under any metric are placed wrongly while reported
-as confident --- measured because a regression here must block a merge.
+only input with ground truth, reads land within one read length of their true
+position for \shmAccMin--\shmAccMax\% of reads by metric, and at most
+\shmWrongQMax{} reads under any metric are placed wrongly while reported as
+confident.
 
-\textbf{Where the time goes.} The costliest stage is \texttt{\shmTopStage}, at
-\shmTopStageShare\% of CPU time on average: a pointer-chasing, latency-bound
-loop, which is why the profitable changes concerned the shape of the data
-rather than the width of the arithmetic. The profile barely moves between
-machines --- the largest shift in any stage's share is \shmShiftPP{} percentage
-points, in \texttt{\shmShiftStage}, which is input reading.
-
-\section{What did not pay}
-
-Four hypotheses were built or probed at full scale and measured negative; they
-are recorded because a negative result nobody writes down gets retried.
-Hand-written SIMD sketching loses to the scalar loop, which is load-port bound
-at six level-one loads per base, so extra lanes add pressure where there is
-none to spare; two-bit packing loses for the same reason from the opposite
-direction, removing the wrong two of those loads. Prefetching the pruning
-lookups is at best break-even, out-of-order execution already overlapping them.
-Per-node index replication --- built five ways, including one bypassing the
-allocator for genuinely correct placement --- was slower than doing nothing at
-every thread count spanning more than one socket.
+\textbf{Four things that did not pay}, recorded because a negative result
+nobody writes down gets retried. The sketching loop is load-port bound at six
+level-one loads per base, which sinks both SIMD (more lanes, same ports) and
+two-bit packing (removes the wrong two loads). Prefetching the pruning lookups
+is at best break-even. Per-node index replication --- five implementations, one
+bypassing the allocator for correct placement --- was slower than doing nothing
+wherever a run spanned more than one socket.
 
 \section{Conclusion}
 
-Sketch-based long-read mapping had headroom that was not algorithmic. Sizing
-the accumulator by the query instead of the reference, memoising a search that
-repeated itself, and decomposing indexing to use the cores a machine has
-together give a several-fold improvement in time and close to an order of
-magnitude in memory, without changing output by one byte. The remaining ceiling
-is the memory system, not the code. Every table, figure and number here is
-regenerated from the committed result sets by scripts in the repository, and
-continuous integration fails if any drifts from what it reports.
+The headroom was not algorithmic: the change that mattered most was a data
+structure sized by the query rather than by the reference. Every number, table
+and figure here is regenerated from the committed result sets by scripts in the
+repository, and CI fails if any drifts from what it reports.
 
 \small
 \vspace{0.4em}
@@ -240,6 +234,7 @@ work as a project member.
 \vspace{0.2em}
 
 \begin{thebibliography}{9}
+\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}
 \bibitem{shmap} Ivanov,P. and Medvedev,P. map-shmap: practical long-read mapping with a seed heuristic on sketches. Manuscript in preparation.
 \bibitem{mash} Ondov,B.D. \emph{et al.} (2016) Mash: fast genome and metagenome distance estimation using MinHash. \emph{Genome Biol.}, 17, 132.
 \bibitem{nthash} Mohamadi,H. \emph{et al.} (2016) ntHash: recursive nucleotide hashing. \emph{Bioinformatics}, 32, 3492--3494.

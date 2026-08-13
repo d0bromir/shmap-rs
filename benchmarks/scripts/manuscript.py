@@ -200,6 +200,25 @@ class MCtx:
                 out.append(cpp["peak_rss_kb"] / rs["peak_rss_kb"])
         return out
 
+    def rss_sweep(self, s: ArchSet) -> list[tuple[float, int, str]]:
+        """(GB, threads, benchmark) for every shmap-rs row in the sweep.
+
+        The single-threaded macros describe the headline comparison; this is
+        what the reader needs to know it is a single-threaded one. Peak memory
+        rises with worker count, because each worker carries its own
+        accumulator, so quoting only the -@1 figure would state the best case
+        as though it were the whole story.
+        """
+        out = []
+        for r in s.rs["rows"]:
+            if r["impl"] != SUBJECT or not r["peak_rss_kb"]:
+                continue
+            out.append((r["peak_rss_kb"] / 1048576, r["threads"], r["benchmark"]))
+        return out
+
+    def rss_at(self, s: ArchSet, threads: int) -> list[tuple[float, int, str]]:
+        return [t for t in self.rss_sweep(s) if t[1] == threads]
+
     def scaling(self, s: ArchSet, threads: int) -> list[float]:
         """wall(-@1) / wall(-@t) for every (benchmark, metric) at one t."""
         out = []
@@ -575,6 +594,27 @@ MACROS: list[Macro] = [
           lambda c: agg(f1, max, c.rss_ratios(c.x))),
 
     # -- threads -------------------------------------------------------------
+    Macro("RssRsFloor", "GB", "Lowest peak RSS anywhere in the thread sweep.",
+          "current/results.tsv :: peak_rss_kb, shmap-rs, all thread counts",
+          lambda c: agg(f2, lambda v: min(v)[0], c.rss_sweep(c.x))),
+    Macro("RssRsFloorThreads", "", "Thread count at which it is lowest.",
+          "current/results.tsv :: peak_rss_kb, shmap-rs, all thread counts",
+          lambda c: agg(lambda v: str(int(v)), lambda v: min(v)[1], c.rss_sweep(c.x))),
+    Macro("RssRsCap", "GB", "Highest peak RSS at the sweep cap, across benchmarks.",
+          "current/results.tsv :: peak_rss_kb, shmap-rs at threads=64",
+          lambda c: agg(f2, lambda v: max(v)[0], c.rss_at(c.x, CAP_THREADS))),
+    Macro("RssRsCapBench", "", "Benchmark that reaches it.",
+          "current/results.tsv :: peak_rss_kb, shmap-rs at threads=64",
+          lambda c: agg(lambda v: tex_escape(str(v)), lambda v: max(v)[2],
+                        c.rss_at(c.x, CAP_THREADS))),
+    Macro("RssRatioCap", "x", "Peak-RSS advantage still held at the sweep cap, worst case.",
+          "current/results.tsv :: peak_rss_kb, both implementations",
+          lambda c: agg(f1,
+                        lambda v: statistics.median(c.rss_gb(c.x, REFERENCE)) / max(v)[0],
+                        c.rss_at(c.x, CAP_THREADS)),
+          caveats=("The worst cell at the widest thread count -- the least "
+                   "favourable framing of the memory result, quoted so the "
+                   "single-threaded one is not mistaken for the whole story.",)),
     Macro("KneeThreads", "", "Thread count the prose calls the reference machine's knee.",
           "constant in manuscript.py", lambda c: str(KNEE_THREADS)),
     Macro("CapThreads", "", "Highest thread count both machines sweep.",
