@@ -47,6 +47,7 @@ test rather than a smoke test.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import statistics
 import sys
@@ -86,6 +87,13 @@ CAP_THREADS = 64
 PARAM_SET = "paper"
 
 CARGO_TOML = REPO / "Cargo.toml"
+
+# The byline. Taken from the archive record rather than typed into the draft,
+# for the reason every other number here is: the paper and the DOI have to name
+# the same people, and two hand-maintained lists diverge. Zenodo's own split is
+# preserved -- `creators` are authors, `contributors` are acknowledged -- so the
+# paper says what the archive says rather than reinterpreting it.
+ZENODO_JSON = REPO / ".zenodo.json"
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +365,45 @@ class Macro:
     caveats: tuple[str, ...] = field(default_factory=tuple)
 
 
+def zenodo() -> dict:
+    """The archive record, or an empty one if it is absent."""
+    if not ZENODO_JSON.exists():
+        return {}
+    try:
+        return json.loads(ZENODO_JSON.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _people(key: str) -> list[str]:
+    """Zenodo names are `Family, Given`; a byline wants `Given Family`."""
+    out = []
+    for person in zenodo().get(key, []):
+        name = str(person.get("name", "")).strip()
+        if not name:
+            continue
+        family, _, given = name.partition(",")
+        out.append(tex_escape(f"{given.strip()} {family.strip()}".strip()))
+    return out
+
+
+def _and_list(names: list[str], sep: str) -> str:
+    """`A`, `A sep B`, `A, B sep C` -- the form a byline and a sentence both want."""
+    if len(names) <= 1:
+        return names[0] if names else ""
+    return f"{', '.join(names[:-1])} {sep} {names[-1]}"
+
+
+def _orcid_line() -> str:
+    parts = []
+    for person in zenodo().get("creators", []):
+        orcid = str(person.get("orcid", "")).strip()
+        name = str(person.get("name", "")).strip()
+        if orcid and name:
+            parts.append(f"{tex_escape(name.partition(',')[0])} {tex_escape(orcid)}")
+    return "; ".join(parts)
+
+
 def cargo_field(key: str) -> str:
     """One `[package]` field, read rather than retyped.
 
@@ -451,6 +498,19 @@ MACROS: list[Macro] = [
           "Cargo.toml :: package.version", lambda c: cargo_field("version")),
     Macro("License", "", "Licence the implementation is published under.",
           "Cargo.toml :: package.license", lambda c: tex_escape(cargo_field("license"))),
+
+    # -- the byline, from the archive record --------------------------------
+    Macro("Authors", "", "Byline, in the archive's own creator order.",
+          ".zenodo.json :: creators[].name",
+          lambda c: r" \and ".join(_people("creators")) or MISSING,
+          caveats=("Zenodo's creator/contributor split is preserved rather than "
+                   "reinterpreted: creators are authors, contributors are "
+                   "acknowledged. Change the archive record, not the draft.",)),
+    Macro("Orcids", "", "ORCID of each author, in the same order.",
+          ".zenodo.json :: creators[].orcid", lambda c: _orcid_line() or MISSING),
+    Macro("Contributors", "", "Project members credited on the archive but not authors.",
+          ".zenodo.json :: contributors[].name",
+          lambda c: _and_list(_people("contributors"), "and") or MISSING),
 
     # -- the parameters every headline number is measured at -----------------
     Macro("ParamK", "", "k-mer length.",

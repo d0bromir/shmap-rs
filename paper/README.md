@@ -44,6 +44,12 @@ Both directions are covered. A macro the draft uses but `manuscript.py` no longe
 fails `--check` by name, rather than deep inside a TeX log. A macro defined but unused is
 reported as a note, because the usual cause is a sentence rewritten to hardcode its number.
 
+**The byline is generated too.** `\shmAuthors`, `\shmOrcids` and `\shmContributors` come
+from [`.zenodo.json`](../.zenodo.json), so the paper and the archived DOI cannot name
+different people. Zenodo's own split is preserved rather than reinterpreted: `creators`
+become the byline, `contributors` are acknowledged. Add an author to the archive record,
+not to the draft.
+
 **Two pages is enforced, not intended.** `build_paper.py` counts the pages and exits
 non-zero over budget; it still writes the PDF, because seeing the overflow is how it gets
 fixed. If a re-measurement pushes it over, cut prose — the floats are the evidence.

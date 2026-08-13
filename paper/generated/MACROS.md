@@ -40,6 +40,9 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmSuiteVersion` | 1.0 | — | Benchmark suite version the sets belong to. | `benchmarks/data/suite.toml :: suite_version` |
 | `\shmVersion` | 1.4.0 | — | Release of shmap-rs the paper describes. | `Cargo.toml :: package.version` |
 | `\shmLicense` | MPL-2.0 | — | Licence the implementation is published under. | `Cargo.toml :: package.license` |
+| `\shmAuthors` | Dobromir Panchev \and Pesho Ivanov | — | Byline, in the archive's own creator order. | `.zenodo.json :: creators[].name` |
+| `\shmOrcids` | Panchev 0009-0000-2636-2593; Ivanov 0000-0002-8119-3849 | — | ORCID of each author, in the same order. | `.zenodo.json :: creators[].orcid` |
+| `\shmContributors` | Dobromir Petrov | — | Project members credited on the archive but not authors. | `.zenodo.json :: contributors[].name` |
 | `\shmParamK` | 25 | — | k-mer length. | `benchmarks/data/suite.toml :: params.paper.k` |
 | `\shmParamR` | 0.01 | — | FracMinHash sampling rate. | `benchmarks/data/suite.toml :: params.paper.hashratio` |
 | `\shmParamTheta` | 0.4 | — | Similarity threshold. | `benchmarks/data/suite.toml :: params.paper.threshold` |
@@ -92,6 +95,7 @@ everyone else, both from one computation so they cannot disagree.
 - `\shmTopologyX` — Configuration from benchmarks/data/hosts.toml, not a measurement.
 - `\shmTopologyA` — Configuration from benchmarks/data/hosts.toml, not a measurement.
 - `\shmCommit` — Only meaningful if both sets measure it. build_all() warns and MACROS.md records both when they differ.
+- `\shmAuthors` — Zenodo's creator/contributor split is preserved rather than reinterpreted: creators are authors, contributors are acknowledged. Change the archive record, not the draft.
 - `\shmScaleXPeak` — One favourable row, not the machine's typical behaviour; read with ScaleXCap, which is the median across every cell.
 - `\shmScaleAPeak` — One favourable row, not the machine's typical behaviour; read with ScaleACap, which is the median across every cell.
 - `\shmAgreeCells` — Agreement at -@1. Agreement across thread counts is a separate per-machine check (thread_determinism).

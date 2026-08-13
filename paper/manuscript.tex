@@ -67,8 +67,10 @@
 
 \title{\vspace{-1.0cm}\textbf{shmap-rs: exact, parallel and memory-lean
        sketch-based long-read mapping}}
-% TODO: co-authors and affiliations.
-\author{Dobromir Panchev}
+% The byline comes from .zenodo.json, so the paper and the DOI cannot name
+% different people. Add or reorder authors there, not here.
+% TODO before submission: affiliations.
+\author{\shmAuthors}
 \date{}
 
 \begin{document}
@@ -92,7 +94,8 @@ parallelism the reference lacks, reaching \shmScaleXPeak$\times$ on
 agree on every algorithmic counter.\\[0.2em]
 \textbf{Availability:} \url{https://github.com/d0bromir/shmap-rs}, \shmLicense,
 version~\shmVersion. The benchmark suite, the result sets and the generators of
-every table here are in the repository.
+every table here are in the repository.\\[0.2em]
+\textbf{Contact:} ORCID \shmOrcids.
 \end{abstract}
 
 \section{Introduction}
@@ -231,6 +234,11 @@ regenerated from the committed result sets by scripts in the repository, and
 continuous integration fails if any drifts from what it reports.
 
 \small
+\vspace{0.4em}
+\noindent\textbf{Acknowledgements.} \shmContributors{} contributed to this
+work as a project member.
+\vspace{0.2em}
+
 \begin{thebibliography}{9}
 \bibitem{shmap} Ivanov,P. and Medvedev,P. map-shmap: practical long-read mapping with a seed heuristic on sketches. Manuscript in preparation.
 \bibitem{mash} Ondov,B.D. \emph{et al.} (2016) Mash: fast genome and metagenome distance estimation using MinHash. \emph{Genome Biol.}, 17, 132.
