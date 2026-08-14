@@ -24,12 +24,13 @@ numbers belong in [RESULTS.md](RESULTS.md) or [PORT_CHANGES.md](PORT_CHANGES.md)
 | Q13 | Choose the bucket accumulator by occupancy, not by size alone | `q13-dense-occupancy` | — | dropped |
 | Q14 | Stop building the per-read seed table nothing reads | `q14-refine-inner-loop` | — | dropped |
 | Q15 | Probe the index once per read k-mer, not twice | `q15-single-index-probe` | — | dropped |
+| Q16 | Would `-C target-cpu=native` make it faster? | `q16-target-cpu-native` | #50 | dropped |
 
 Status is one of: **open** (not started) · **in progress** (branch exists) · **in review** (PR open,
 awaiting the benchmark) · **merged** · **dropped** (with the reason in its section). An em dash in
 the PR column means the work was measured and settled on its branch without one being opened.
 
-**None of the fifteen changed how the mapper computes anything.** Only Q7 touched `src/` at all,
+**None of the sixteen changed how the mapper computes anything.** Only Q7 touched `src/` at all,
 and that was a doc comment citing a section that no longer existed. That is the intended shape:
 each was a real hypothesis, probed or built before being accepted or rejected, and a measured
 negative is the outcome that keeps it from being retried. The probes are in
@@ -372,6 +373,65 @@ one benchmark, metric and thread count. Output byte-identical on 62 148 HiFi rea
 genome for all three metrics in both arms of every switch, with `validate_paf.py` clean. The merge
 bar is end to end, so both were recorded rather than merged; of the two, the `p_ht` removal is the
 piece that carries its own weight and is independent of the rest.
+
+## Q16 — Would building for the exact host CPU make it faster?
+
+**Asked** 2026-08-13 · `q16-target-cpu-native` · PR #50 · **dropped**
+
+*„Ще стане ли по-бързо ако променим флаговете на компилатора, т.е. как ще мине с
+`RUSTFLAGS='-C target-cpu=native'`?"*
+
+**Answer: no — it is substantially slower, on both machines.** Measured rather than argued: the
+flag went in as `.cargo/config.toml` so the commit encoded it and `run.py` built it normally, and
+the full suite ran on both hosts against their promoted baselines.
+
+| host | verdict | speedup | worst mapping-time finding |
+|---|---|---|---|
+| `a2` (x86\_64, 4 NUMA nodes) | **BLOCK** | **0.917x** over 105 cells | +18.2% on B04/bucket\_SH |
+| `galaxy` (aarch64, 1 NUMA node) | **REVIEW** | **0.988x** over 105 cells | +3.9% on B02/Jaccard |
+
+Thirteen of `a2`'s fifteen benchmark--metric pairs blocked on mapping time alone, +12.6% to +18.2%.
+
+**The flag was doing something, and that was checked first.** `objdump` finds 970 `%zmm` references
+and 789 AVX-512-only instructions in the native `a2` binary against zero in the release build, and
+791 LSE atomics (`cas`/`ldadd`) in the native `galaxy` binary against ten. The binary the benchmark
+actually built in its worktree was confirmed, not just a hand build, so neither run measured a
+no-op.
+
+**The shape of the loss rules out the mechanism everyone expects.** Geometric mean speedup by
+thread count on `a2`:
+
+| `-@` | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|
+| speedup | 0.840x | 0.869x | 0.899x | 0.896x | 0.955x | 0.988x | 0.985x |
+
+The damage is **worst at one thread and gone by 32**. AVX-512 downclocking is a many-core effect —
+[Q1](#q1--replace-sketchrs-with-an-already-optimised-library)'s addendum measured 14-18% of package
+clock lost only when all 64 cores are busy — so it cannot be what hurts a single-threaded run by
+16%. What is left is the generated code: LLVM auto-vectorises loops that are already load-port
+bound, which is the same wall [Q1](#q1--replace-sketchrs-with-an-already-optimised-library) and
+[Q10](#q10--2-bit-packed-sequence-encoding-for-sketching) hit from two other directions, reached
+this time without anyone writing an intrinsic. The convergence at high thread counts is the memory
+ceiling swamping any code-quality difference, not the flag recovering.
+
+`galaxy` shows the same shape an order of magnitude smaller (0.966x at `-@1`), and is the only place
+the flag ever wins: **+3.3% at `-@64`**, plausibly the LSE atomics paying off where contention is
+highest. It does not come close to justifying an unportable binary.
+
+**Output is unchanged, and that was verified rather than assumed.** All 111 comparable cells match
+in `mapped` and `mapq60` on both hosts, and running the two `galaxy` builds head to head on B02
+gives identical core-12 PAF columns and identical full lines once the wall-clock `t:f:` tag is
+stripped — the rule `thread_determinism` already uses.
+
+**Outcome.** No `src/` change and no build change: the bar set for this question was an average
+improvement above 7%, and the measurement is a 8.3% *regression* on `a2`. The branch keeps the
+`.cargo/config.toml` so the experiment can be rerun; `main` takes only this record.
+
+**One thing left open.** The C++-agreement counter moved on exactly one cell (`galaxy`
+B02/Containment, 123 133 → 123 212 of 125 000) while every other cell held. It is not the flag —
+our output is identical between the two builds — and it rose rather than fell, so
+`impl_agreement` did not block. Unexplained; the baseline run carried nine reference rows forward
+from an earlier commit, which is where to look first.
 
 ---
 

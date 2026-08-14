@@ -1431,6 +1431,7 @@ in [`profiling/`](profiling/) and the branches are named where one exists.
 | 2-bit-packed sequence encoding (Q10) | probed, negative | 1.013 → 1.131 ns/base at its best |
 | Bucket accumulator chosen by occupancy (`q13-dense-occupancy`) | built, cancels out | `match_seeds` 1.14x bought at `bucket_merge` 0.61x |
 | Dead/duplicated per-read work (`q14`, `q15`) | measured, ~4%, not taken | 1.041x on `query_mapping`, ~1.7% of wall |
+| `-C target-cpu=native` (Q16, `q16-target-cpu-native`) | measured, large regression | 0.917x on a2 (BLOCK), 0.988x on galaxy; worst at `-@1`, not `-@64` |
 
 **NUMA index replication.** §3 measures per-read CPU cost rising continuously with thread count —
 +4-45% by 16 threads, +39-138% by 32, +76-240% by 64 — on every benchmark. `numactl` experiments
