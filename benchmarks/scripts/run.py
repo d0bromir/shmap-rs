@@ -1090,8 +1090,16 @@ def main() -> int:
     tiers = None if (args.only or args.tier == "all") else set(args.tier.split(","))
     jobs = plan(suite, reg, impls, repeats_subject, tiers)
     if repeats_subject > 1:
+        # Named explicitly, because a benchmark that pins its own count makes
+        # the blanket claim false and this line is the only place a reader is
+        # told what was measured how many times.
+        pinned = sorted({b["id"] for b in suite["benchmark"]
+                         if "repeats" in b and b["id"] in {j["benchmark"] for j in jobs}})
         print(f"measuring each {SUBJECT_NOTE} row {repeats_subject}x and taking the median "
               f"({platform.node()} is configured for it in hosts.toml)")
+        for bid in pinned:
+            b = next(x for x in suite["benchmark"] if x["id"] == bid)
+            print(f"  except {bid}, which pins repeats = {b['repeats']} in suite.toml")
     probed = sorted({j["benchmark"] for j in jobs if j.get("drift_probe")})
     if probed:
         print(f"drift probe: also measuring the reference on {', '.join(probed)}, so "
