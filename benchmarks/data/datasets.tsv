@@ -37,3 +37,4 @@ LOC-CHR21SIM12K	reads-sim	local-wsl	/home/dobro/ablation-work/reads_chr21sim_12k
 SR-AVITI2X	reads-real	a2	aviti150/reads_aviti_2x.fa	8323421374	41776744	6234584174	149	2.0000	GIAB HG002 Element AVITI 2x150 UltraQ (sequenced 2023-08-24..2024-09-20), StdInsert R1 only, first 2x of hs1
 SR-AVITI4X	reads-real	a2	aviti150/reads_aviti_4x.fa	16645865201	83533936	12469168401	149	4.0000	same stream as SR-AVITI2X, extended to 4x — SR-AVITI2X is its exact prefix
 SR-AVITI7X	reads-real	a2	aviti150/reads_aviti_7x.fa	29129572760	146170565	21821044510	149	7.0000	same stream extended to 7x; the file actually downloaded, the other two are cut from it
+LOC-CHR21SIM12K	reads-sim	local-wsl	/home/dobro/ablation-work/reads_chr21sim_12k.fa	300901519	25000	300000000	12000	0.0962	simulated FROM REF-CHR21 (not hs1) by `profiling/datasets/gen_sim24k.py <chr21.fa> <out> 25000 12000`, seed=42, 0.5% subst; ablation ladder only (benchmarks/scripts/ablation.py) — LOCAL WSL BOX ONLY

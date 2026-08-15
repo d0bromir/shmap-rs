@@ -118,12 +118,14 @@ run "-k17 -W40 -A1 -B1 -O1 -E1 -L0" 200 -t 1 -k17 -W40 -A1 -B1 -O1 -E1 -L0
 run "-x ont2d"                200 -t 1 -x ont2d
 echo
 
-echo "4. the control: defaults do not crash"
-echo "-------------------------------------"
-echo "Without a preset the same reads and the same index are fine, so the"
-echo "index is not corrupt and the reads are not malformed. Short-read"
-echo "defaults on 24 kb reads is not a configuration anyone should use, but"
-echo "it isolates the fault to the long-read preset path."
+echo "4. the control: what plain defaults do"
+echo "---------------------------------------"
+echo "No preset at all, on the same reads and the same index. Short-read"
+echo "defaults on 24 kb reads is not a configuration anyone should use; the"
+echo "point is that it exercises a different code path, so if it survives,"
+echo "neither the index nor the reads are at fault and the long-read preset"
+echo "path is. THE TWO ARCHITECTURES DISAGREE HERE — x86_64 survives this and"
+echo "aarch64 does not — so read the verdict rather than assuming it."
 run "(no preset)" 200 -t 1
 run "(no preset)" 1000 -t 1
 echo

@@ -600,19 +600,27 @@ cmd = "{binary} mem -t {threads} {reference} {reads} > {out_prefix}.sam && {scri
 output = "prefix"   # writes {out_prefix}.paf itself rather than to stdout
 threads = 32
 role = "peer"
-# IT CRASHES ON OUR LONG READS, so B01-B05 are skipped and there are no
-# long-read numbers for it. This is not a configuration we failed to find:
+# IT CRASHES ON OUR LONGEST REAL READS. B01 is skipped and there are no numbers
+# for it. This is not a configuration we failed to find:
 #
-#   `-x pacbio` on real 22-34 kb HiFi reads against hs1 segfaults
-#   deterministically — 60 reads map, 100 do not, and at 100 it dies before
-#   emitting a single record. Thread count makes no difference. `-K` (batch
-#   size) only moves the crash later, never prevents it; nor does relaxing
-#   `-r`, nor spelling the preset out by hand, nor `-x ont2d`. The control is
-#   that the same reads and the same index map fine with no preset at all, so
-#   neither is corrupt.
+#   `-x pacbio` on D1-HIFI23K (real HiFi, 22-34 kb) against hs1 segfaults
+#   deterministically on BOTH architectures — 60 reads map, 100 do not, and at
+#   100 it dies before emitting a single record. Thread count makes no
+#   difference. `-K` (batch size) only lets 91-95 of 200 records out before the
+#   same fault; nor does relaxing `-r`, nor spelling the preset out by hand,
+#   nor `-x ont2d`. On x86_64 the control — the same reads and index with no
+#   preset at all — is fine, so neither is corrupt. ON aarch64 EVEN THAT
+#   CRASHES: the sse2neon build cannot map those reads under any configuration
+#   tried.
+#
+# It is ONLY that dataset. B02 (24 kb simulated), B03/B04 (12.8 kb real HiFi)
+# and B05 (23.8 kb real ONT) all map cleanly on both hosts, which is why the
+# skip list names one benchmark and not five. The first version of this comment
+# claimed all long reads crashed, on the evidence of B01 alone; running every
+# benchmark's own reads is what corrected it, and is section 6 of the report.
 #
 # Reproduced and recorded by benchmarks/scripts/bwa_mem2_longread_crash.sh, on
-# both architectures, with the report committed beside the manifests. The same
+# both architectures, with the reports committed beside the manifests. The same
 # signature — "Re-allocating SMEM data structures due to enc_qdb" then the
 # fault — is open upstream as issue #133 since 2021-03-08.
 #
@@ -622,10 +630,12 @@ role = "peer"
 # reads." `-x pacbio` is inherited from bwa and still accepted, but it is not
 # listed in `bwa-mem2 mem --help`.
 #
-# Hence B06-B08: the only honest place to measure this tool is on short reads,
-# which is also the only place shmap-rs has never been measured. That is the
-# comparison.
-skip_benchmarks = ["B01", "B02", "B03", "B04", "B05"]
+# B04 IS NOT SKIPPED BUT IS EXPENSIVE: ~40 h at -t 32, against Winnowmap2's
+# 2.5 h on the same benchmark, because a short-read aligner doing full
+# Smith-Waterman on 2.4 M reads of 12.8 kb is the wrong tool by about 16x.
+# That ratio is itself worth reporting. Build it with an explicit
+# `--only B04` when there is a machine to spare rather than by surprise.
+skip_benchmarks = ["B01"]
 # No `-x` in the command line above, and none needed: bwa-mem2's DEFAULTS are
 # its short-read configuration. The preset flag exists only for the long-read
 # modes it cannot survive, so leaving it out is both correct and the whole
