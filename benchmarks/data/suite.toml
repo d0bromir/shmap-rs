@@ -531,9 +531,16 @@ note = "HiFi/low-divergence only; skipped on ONT, where it is out of its stated 
 # THIS IS AN ALIGNER, NOT A MAPPER, and the two differences that follow are
 # not cosmetic:
 #
-#   1. It emits SAM with base-level alignments, not PAF. The command line pipes
-#      through sam2paf.py; `time` wraps only the first stage of the pipeline,
-#      so what is measured is bwa-mem2 and not the converter draining it.
+#   1. It emits SAM with base-level alignments, not PAF. The command line
+#      writes SAM to disk and converts it afterwards, in two steps joined by
+#      `&&`, rather than piping. `/usr/bin/time` wraps only the first step
+#      either way, but a pipe would still corrupt the measurement: sam2paf.py
+#      converts ~294 000 records/s, which is the same order as bwa-mem2's
+#      output rate at -t 32, so the converter would intermittently become the
+#      bottleneck and the mapper would block on a full pipe. What that inflates
+#      is exactly the number being measured. Writing SAM is I/O the tool does
+#      in real use; waiting for our Python is not. The SAM is deleted once
+#      converted — B08's is ~58 GB.
 #   2. It does full Smith-Waterman extension where the others stop at
 #      coordinates. On long reads that is a large part of why it is slow here,
 #      and it is work the other mappers never do — so a wall-time ratio
@@ -557,8 +564,8 @@ binary = "~/micromamba/envs/refmappers/bin/bwa-mem2"
 # differs between our two hosts on purpose: x86_64 gets upstream's five SIMD
 # variants plus a dispatcher, aarch64 gets one binary built through sse2neon.
 version_cmd = 'echo "$({binary} version 2>/dev/null) [$(basename $(ls $(dirname {binary})/../conda-meta/bwa-mem2-*.json | head -1) .json)]"'
-cmd = "{binary} mem -t {threads} {reference} {reads} | {scripts}/sam2paf.py"
-output = "stdout"
+cmd = "{binary} mem -t {threads} {reference} {reads} > {out_prefix}.sam && {scripts}/sam2paf.py --stats {out_prefix}.sam > {out_prefix}.paf && rm -f {out_prefix}.sam"
+output = "prefix"   # writes {out_prefix}.paf itself rather than to stdout
 threads = 32
 role = "peer"
 # IT CRASHES ON OUR LONG READS, so B01-B05 are skipped and there are no
