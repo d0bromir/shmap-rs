@@ -86,6 +86,20 @@ def plan_entry(name: str, spec: dict, bench: dict, suite: dict, reg: dict, cache
     if preset is None:
         sys.exit(f"no [external.presets] entry for {bench['id']} — add one; "
                  f"ONT reads must not be mapped with a PacBio preset")
+    # [external.presets] states what the READS are — PacBio or ONT — in
+    # minimap2's vocabulary, because that is what the corpus started with.
+    # bwa-mem2 inherits bwa's names for the same two things (`pacbio`,
+    # `ont2d`), so a mapper that spells them differently declares the
+    # translation here. The alternative, a preset table per mapper, lets the
+    # tables drift and eventually maps an ONT set with a PacBio preset — the
+    # error the check above exists to prevent, reintroduced one mapper at a
+    # time. An unmapped preset is fatal for the same reason a missing one is.
+    pmap = spec.get("preset_map")
+    if pmap is not None and preset not in pmap:
+        sys.exit(f"{name} has no [external.{name}.preset_map] entry for "
+                 f"'{preset}', which {bench['id']} needs")
+    if pmap is not None:
+        preset = pmap[preset]
 
     out_dir = cache / name
     paf = out_dir / f"{bench['id']}.paf"
@@ -103,6 +117,11 @@ def plan_entry(name: str, spec: dict, bench: dict, suite: dict, reg: dict, cache
         threads=spec.get("threads", 32), preset=preset,
         repetitive=expand(spec.get("repetitive", "").format(reference_id=ref_id)) if spec.get("repetitive") else "",
         out_prefix=str(out_dir / bench["id"]),
+        # For a mapper that does not emit PAF. bwa-mem2 is an aligner and
+        # writes SAM, so its command line pipes through sam2paf.py, which
+        # lives beside this file. portable_key() reduces it to a basename, so
+        # a checkout in a different place does not invalidate the cache.
+        scripts=str(HERE),
     )
     cmd = spec["cmd"].format(**fields)
     return dict(
@@ -171,14 +190,19 @@ def run_one(entry: dict, version: str) -> bool:
             return False
 
     tf = entry["out_dir"] / f"{entry['benchmark']}.time"
+    # `time` wraps only the first element of a pipeline, which is what we want:
+    # for bwa-mem2 the measurement is the mapper, not the SAM-to-PAF converter
+    # draining it. pipefail is what makes that safe — without it the exit
+    # status is the converter's, so a mapper that died halfway would be
+    # reported as a success and its truncated PAF cached as if complete.
     wrapped = f"/usr/bin/time -v -o {shlex.quote(str(tf))} {entry['cmd']}"
     t0 = time.time()
     if entry["output"] == "stdout":
         with open(entry["paf"], "w") as fo:
-            rc = subprocess.run(["bash", "-c", wrapped], stdout=fo,
+            rc = subprocess.run(["bash", "-o", "pipefail", "-c", wrapped], stdout=fo,
                                 stderr=subprocess.DEVNULL).returncode
     else:
-        rc = subprocess.run(["bash", "-c", wrapped],
+        rc = subprocess.run(["bash", "-o", "pipefail", "-c", wrapped],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
     wall = time.time() - t0
 
