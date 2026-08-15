@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Convert a SAM stream to PAF, so an aligner can join the concordance corpus.
 
-  bwa-mem2 mem ... | sam2paf.py > out.paf
   sam2paf.py aln.sam > out.paf
+  bwa-mem2 mem ... > aln.sam && sam2paf.py aln.sam > out.paf
 
 Every mapper in `[external]` had emitted PAF natively until bwa-mem2, which is
 an ALIGNER: it produces SAM with base-level alignments. `concordance.py` joins
@@ -10,6 +10,15 @@ PAFs, so the choice was to teach it SAM or to project SAM down to PAF here.
 This is the second, because the projection is the honest direction — a PAF is
 strictly less information than a SAM, so nothing is invented — and because it
 keeps every mapper in the corpus stored in one format that one scorer reads.
+
+NOT IN A PIPE, WHEN THE MAPPER IS BEING TIMED
+---------------------------------------------
+This converts ~294 000 records/s, which is the same order as bwa-mem2's output
+rate at -t 32. Piping the mapper into it would make the converter
+intermittently the bottleneck, and the mapper would then block on a full pipe —
+inflating the single number the corpus exists to measure. suite.toml therefore
+writes SAM to disk and converts afterwards, outside the timed step. Reading
+from stdin still works and is right for anything that is not being timed.
 
 WHY NOT paftools.js
 -------------------

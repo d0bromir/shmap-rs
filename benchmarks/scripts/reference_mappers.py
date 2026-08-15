@@ -176,11 +176,13 @@ def run_one(entry: dict, version: str) -> bool:
             return False
 
     tf = entry["out_dir"] / f"{entry['benchmark']}.time"
-    # `time` wraps only the first element of a pipeline, which is what we want:
-    # for bwa-mem2 the measurement is the mapper, not the SAM-to-PAF converter
-    # draining it. pipefail is what makes that safe — without it the exit
-    # status is the converter's, so a mapper that died halfway would be
-    # reported as a success and its truncated PAF cached as if complete.
+    # `time` wraps only the first command, which is the mapper itself and not
+    # any conversion step chained after it with `&&`. pipefail is set because
+    # a command line that does pipe would otherwise report the LAST stage's
+    # exit status: a mapper that died halfway would be recorded as a success
+    # and its truncated output cached as complete. No mapper pipes today —
+    # bwa-mem2 deliberately does not, see suite.toml — but the failure it
+    # prevents is silent, which is the kind worth pre-empting.
     wrapped = f"/usr/bin/time -v -o {shlex.quote(str(tf))} {entry['cmd']}"
     t0 = time.time()
     if entry["output"] == "stdout":
