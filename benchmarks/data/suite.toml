@@ -387,6 +387,65 @@ reference_override = "~/bench-refs/{reference_id}.oneline.fa"
 skip_benchmarks = ["B05"]
 note = "HiFi/low-divergence only; skipped on ONT, where it is out of its stated design range."
 
+# bwa-mem2 — https://github.com/bwa-mem2/bwa-mem2, IPDPS 2019,
+# doi:10.1109/IPDPS.2019.00041, arXiv:1907.12931.
+#
+# The closest published analogue to what shmap-rs IS, as opposed to what it
+# does. mapquik is the algorithmic peer — sketch-based, minimizer-space, PAF
+# out. bwa-mem2 is the peer in KIND: a from-scratch reimplementation of an
+# established mapper (bwa-mem) whose entire claim is that it produces identical
+# output faster, 1.3-3.1x, by architecture-aware optimisation. That is the same
+# claim this port makes about the C++ shmap, argued in the same venue —
+# a parallel-computing conference rather than a methods journal.
+#
+# THIS IS AN ALIGNER, NOT A MAPPER, and the two differences that follow are
+# not cosmetic:
+#
+#   1. It emits SAM with base-level alignments, not PAF. The command line pipes
+#      through sam2paf.py; `time` wraps only the first stage of the pipeline,
+#      so what is measured is bwa-mem2 and not the converter draining it.
+#   2. It does full Smith-Waterman extension where the others stop at
+#      coordinates. On long reads that is a large part of why it is slow here,
+#      and it is work the other mappers never do — so a wall-time ratio
+#      against it is not a like-for-like algorithmic comparison and must not
+#      be quoted as one. What IS like-for-like is where the reads land, which
+#      is what concordance measures.
+#
+# ON LONG READS IT IS OUT OF ITS DESIGN RANGE. bwa-mem was built for ~100-250 bp
+# reads; `-x pacbio` and `-x ont2d` are its own documented long-read presets and
+# are the honest choice, but nobody maps 24 kb reads with it in 2026. It is
+# included on B01-B05 because a peer that is only ever shown its best case is
+# not evidence, and excluded from nothing — the short-read benchmarks are where
+# it is at home, and both halves are reported together.
+[external.bwa-mem2]
+binary = "~/micromamba/envs/refmappers/bin/bwa-mem2"
+# `bwa-mem2 version` reports 2.2.1 FROM THE 2.3 PACKAGE — upstream never bumped
+# the string. The cache key is keyed on this, so on its own it cannot tell a
+# 2.2.1 corpus from a 2.3 one, and a silent version change is exactly what the
+# staleness check exists to catch. The bioconda package record is appended
+# because it carries the real version and the build hash, and the build hash
+# differs between our two hosts on purpose: x86_64 gets upstream's five SIMD
+# variants plus a dispatcher, aarch64 gets one binary built through sse2neon.
+version_cmd = 'echo "$({binary} version 2>/dev/null) [$(basename $(ls $(dirname {binary})/../conda-meta/bwa-mem2-*.json | head -1) .json)]"'
+cmd = "{binary} mem -t {threads} -x {preset} {reference} {reads} | {scripts}/sam2paf.py"
+output = "stdout"
+threads = 32
+role = "peer"
+# bwa's preset names for the same two things minimap2 calls map-pb / map-ont.
+# Declared rather than duplicated into [external.presets], so there is exactly
+# one statement in this file of what each benchmark's reads ARE. Inline, not a
+# [external.bwa-mem2.preset_map] sub-table: a table header would capture every
+# key written after it, silently moving reference_override into the map.
+preset_map = { "map-pb" = "pacbio", "map-ont" = "ont2d" }
+# It needs an FM-index, not a FASTA, and `bwa-mem2 mem` takes the index PREFIX.
+# The prefix here is a symlink to the registry's hs1.fa with the index files
+# beside it, so the ~10 GB of derived index lands in bench-refs with the other
+# derived inputs and the dataset corpus stays exactly as the registry describes
+# it. Built by benchmarks/scripts/setup_bwa_mem2.sh; needs ~87 GB of RAM, which
+# is why it is a script and not a line in a runbook.
+reference_override = "~/bench-refs/{reference_id}.bwamem2.fa"
+note = "Aligner, not a mapper: emits SAM and does base-level extension. Long-read presets are bwa's own, and long reads are outside what it was built for."
+
 # Which preset each benchmark's reads need. ONT has a different error profile
 # and must not be mapped with the PacBio preset. validate_suite.py checks that
 # every benchmark appears here.
