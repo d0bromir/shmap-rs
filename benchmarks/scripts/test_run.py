@@ -45,14 +45,31 @@ def check_repeats() -> list[str]:
     # Subject rows only: the drift probe contributes reference jobs that do not
     # scale with this count, and counting them would make the identity false
     # for a reason that has nothing to do with repeats.
+    #
+    # Benchmarks that pin their own `repeats` are excluded for the same kind of
+    # reason: they deliberately ignore the host's count, so including them
+    # would make this fail for the override working rather than breaking.
+    pinned = {b["id"] for b in suite["benchmark"] if "repeats" in b}
+
     def n_subject(n):
-        return sum(1 for j in plan(suite, reg, ["shmap-rs"], n) if j["impl"] == "shmap-rs")
+        return sum(1 for j in plan(suite, reg, ["shmap-rs"], n)
+                   if j["impl"] == "shmap-rs" and j["benchmark"] not in pinned)
 
     one, three = n_subject(1), n_subject(3)
     if three != one * 3:
         fail.append(f"repeats=3 planned {three} jobs, expected {one * 3}")
     print(f"  [{'ok  ' if three == one * 3 else 'FAIL'}] repeats multiply the subject matrix"
           f"{'':14} {one} -> {three}")
+
+    if pinned:
+        def n_pinned(n):
+            return sum(1 for j in plan(suite, reg, ["shmap-rs"], n)
+                       if j["impl"] == "shmap-rs" and j["benchmark"] in pinned)
+        p1, p3 = n_pinned(1), n_pinned(3)
+        if p1 != p3:
+            fail.append(f"a benchmark pinning repeats still moved with the host's: {p1} -> {p3}")
+        print(f"  [{'ok  ' if p1 == p3 else 'FAIL'}] but not one that pins its own"
+              f"{'':21} {sorted(pinned)} {p1} -> {p3}")
 
     both = plan(suite, reg, ["shmap-rs", "cpp-shmap"], 3)
     ref = {j["repeats"] for j in both if j["impl"] == "cpp-shmap"}

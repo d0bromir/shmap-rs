@@ -355,8 +355,14 @@ def plan(suite: dict, reg: dict, impls: list[str], repeats_subject: int = 1,
                 if not asked and not probe:
                     continue
                 threads = b["threads"] if spec.get("supports_threads") else b["reference_impl_threads"]
+                # A benchmark may override the host's subject repeat count.
+                # hosts.toml sets it from run-to-run noise, because the gate
+                # has to resolve a few percent; a benchmark whose purpose is a
+                # ratio against another tool by an order of magnitude does not,
+                # and on a2 three repeats of the paper tier is 44 extra hours
+                # for precision nothing reads.
                 repeats = (suite["run"]["reference_impl"]["repeats"]
-                           if spec["role"] == "reference" else repeats_subject)
+                           if spec["role"] == "reference" else b.get("repeats", repeats_subject))
                 for t in threads:
                     for rep in range(repeats):
                         jobs.append(dict(
