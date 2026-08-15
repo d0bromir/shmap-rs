@@ -176,10 +176,19 @@ def main() -> int:
     man = json.loads((src / "manifest.json").read_text())
 
     suite = load_suite()
-    if man.get("suite_version") != suite["suite_version"]:
+    # MAJOR, not the full version, for the reason compare.py gates on MAJOR
+    # and layout.suite_series() files on it: a MINOR bump adds a benchmark and
+    # leaves every existing row comparable (VERSIONING.md §2). A set measured
+    # at 1.0 promoted into a 1.1 repo is a baseline with no rows for the new
+    # benchmarks, which is precisely "the new row simply has no history" and
+    # is what compare.py already handles. Requiring an exact match here meant
+    # the first MINOR bump could not be given a baseline at all.
+    set_major = str(man.get("suite_version", "")).split(".")[0]
+    repo_major = str(suite["suite_version"]).split(".")[0]
+    if set_major != repo_major:
         sys.exit(f"suite version mismatch: set is {man.get('suite_version')}, "
-                 f"repo is {suite['suite_version']}. Promoting across a suite change would "
-                 f"compare figures that are not comparable.")
+                 f"repo is {suite['suite_version']}. Promoting across a MAJOR suite "
+                 f"change would compare figures that are not comparable.")
     if man.get("failures"):
         sys.exit(f"{src.name} has {man['failures']} failure(s) recorded; "
                  f"promoting a failed run would publish numbers the gate rejected")

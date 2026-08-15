@@ -8,21 +8,38 @@
 #   suite_version MINOR bump  -> a benchmark was added; old rows stay comparable
 
 schema = 1
-suite_version = "1.0"
-dataset_version = 1
+suite_version = "1.1"
+dataset_version = 2
 
-# Full matrix, one tier — deliberately not split into a fast PR tier and a slow
-# release tier: a gate that is skipped catches nothing, and this host is idle
-# and free. Measured cost, from the times in ../RESULTS.md:
+# Two tiers, and the reasoning that rejected tiers is worth stating because it
+# was right until it was not.
+#
+# This file used to say: "Full matrix, one tier — deliberately not split into a
+# fast PR tier and a slow release tier: a gate that is skipped catches nothing,
+# and this host is idle and free." That argument rests on a premise, which the
+# same comment supplied: every benchmark costs minutes, and the whole PR run is
+# ~78 min. Under that premise running everything every time is obviously right.
+#
+# The short-read benchmarks break the premise. B08 is 146 million reads, and
+# shmap-rs needs ~10 h for it at -@32 on a2 — not because anything is wrong,
+# but because its sketch is length-proportional and a 150 bp read is 1/160th of
+# a 24 kb one, so per-read costs that amortise away on long reads dominate
+# here. A gate that takes a day is a gate people route around, and "a gate that
+# is skipped catches nothing" then argues for the opposite conclusion.
+#
+# So: `tier = "pr"` (the default when absent) is the gate, unchanged at ~78 min
+# and still the full matrix for every long-read benchmark. `tier = "paper"` is
+# measured on demand — `run.py --tier paper`, or by name with `--only` — like
+# the external-mapper corpus, and for the same reason: it is expensive, it does
+# not change between our commits, and re-running it per PR would burn hours
+# reproducing a number we already have.
+#
+# Measured cost, from the times in ../RESULTS.md:
 #
 #   PR run, C++ cached          ~78 min   105 invocations   (shmap-rs only)
-#   C++ re-measure, 3x median  ~187 min    45 invocations   (only when it is rebuilt)
+#   C++ re-measure, 3x median  ~187 min    45 invocations   (only when rebuilt)
 #   both together              ~265 min   150 invocations
-#
-# The C++ is `role = "reference"`, so a normal PR does not re-run it — its
-# numbers come from the cached set and the run takes ~78 min. B04 is 52 of
-# those minutes on its own; drop it and the suite loses the only benchmark deep
-# enough to read mapping scaling directly.
+#   paper tier (B06-B08)        ~22 h       3 invocations   (on demand)
 [run]
 host = "a2"                       # must match datasets.tsv `host` for every dataset used
 sequential = true                 # never two measured runs at once
@@ -125,6 +142,40 @@ enabled = false
 description = "Cumulative optimization ladder at chromosome scale. [params.paper] with hashratio raised from 0.01 to 0.05, so that per-read hit counts are within reach of a whole-genome run's and the ladder's steps clear the host's noise."
 k = 25
 hashratio = 0.05
+
+# Short reads. Identical to [params.paper] in every value except `hashratio`,
+# deliberately: one variable changes, so a short-read row and a long-read row
+# differ in the reads and the sampling density and in nothing else.
+#
+# WHY hashratio HAS TO CHANGE. shmap sketches a FRACTION of a read's k-mers, so
+# the evidence a read carries is proportional to its length. A 150 bp read has
+# 126 25-mers; at the paper's r = 0.01 it keeps 1.3 of them, and 0.99^126 = 28%
+# of reads keep NONE. A read with an empty sketch is not reported as unmapped —
+# it produces no PAF line at all — so the failure is invisible in a mapped-rate
+# table. This is the design assumption meeting its limit, not a tuning choice.
+#
+# WHY 0.1. Measured, by mapping exact reference substrings whose true position
+# is known, with benchmarks/scripts/probe_short_read_params.py:
+#
+#     r      sketch m   never attempted   placed correctly
+#     0.01        1.3               27%             46.70%
+#     0.04        5.0              0.5%             71.14%
+#     0.10       12.6                0%             73.80%
+#     0.25       31.5                0%             74.39%
+#     1.00      126.0                0%             74.74%
+#
+# The curve is flat past 0.1: every k-mer in the read buys 0.94 points over
+# sampling a tenth of them, for ten times the index. The ~75% ceiling is chrY,
+# which is about half satellite, and is a property of that reference rather
+# than of the mapper — the shape across r is what this chooses on.
+#
+# `k` stays at 25. AVITI UltraQ reads are high quality, so long exact k-mers
+# survive; the problem is sampling density alone, and changing both would make
+# the result uninterpretable.
+[params.short-read]
+description = "150 bp Illumina-class reads. [params.paper] with hashratio raised from 0.01 to 0.1, which is the lowest density that reaches the accuracy plateau — see the table above and probe_short_read_params.py."
+k = 25
+hashratio = 0.1
 threshold = 0.4
 min_diff = 0.075
 max_overlap = 0.3
@@ -196,6 +247,77 @@ reference_impl_threads = [1]
 impls = ["shmap-rs", "cpp-shmap"]
 checks = ["thread_determinism", "validate_paf", "impl_agreement"]
 note = "Maps ~43% at k=25 because ~5-10% error leaves only ~28% of 25-mers intact. Both implementations map identically many reads, so the speed comparison holds; the rate is the platform, not the mapper."
+
+# ---------------------------------------------------------------------------
+# Short reads — tier = "paper", measured on demand, not on every PR
+# ---------------------------------------------------------------------------
+# B01-B05 measure shmap-rs where it is at home and bwa-mem2 where it is not.
+# These three are the other half, and without them the comparison says only
+# that a long-read mapper beats a short-read aligner on long reads.
+#
+# One thread count, one metric, one implementation. Each of those is a cost
+# decision and each is a real loss, so they are stated rather than left to be
+# discovered from the row count:
+#
+#   -@32 only     matches the thread count every external mapper is measured
+#                 at ([external] threads = 32), so the head-to-head is like
+#                 for like. It costs the scaling curve. A -@1 point on B06
+#                 alone would be ~39 h, which buys one number.
+#   Containment   the three metrics differ in how a bucket is refined and
+#                 scored, and at a sketch size of ~12.6 k-mers those
+#                 differences are near the resolution of the estimate itself.
+#                 Three metrics would be 3x the hours for distinctions the
+#                 data cannot carry here.
+#   shmap-rs only the C++ original is single-threaded by design; B06 alone
+#                 would be days, and it would measure the same algorithm at
+#                 1/32 the parallelism. The C++ comparison lives on B01-B05.
+#
+# NO thread_determinism (needs two thread counts), NO ground_truth (real
+# reads, no encoded positions), NO impl_agreement (no second implementation).
+# validate_paf still applies, and concordance against bwa-mem2 is scored
+# automatically from the cached corpus.
+
+[[benchmark]]
+id = "B06"
+title = "Real Illumina-class 150 bp, 2x — short reads, where bwa-mem2 is at home"
+reference = "REF-HS1"
+reads = "SR-AVITI2X"
+params = "short-read"
+metrics = ["Containment"]
+threads = [32]
+reference_impl_threads = [1]
+impls = ["shmap-rs"]
+checks = ["validate_paf"]
+tier = "paper"
+note = "8.3 GB, 41.8M reads. The shallowest rung and the one to run first: it is ~3 h where B08 is ~10 h."
+
+[[benchmark]]
+id = "B07"
+title = "Real Illumina-class 150 bp, 4x — the middle rung"
+reference = "REF-HS1"
+reads = "SR-AVITI4X"
+params = "short-read"
+metrics = ["Containment"]
+threads = [32]
+reference_impl_threads = [1]
+impls = ["shmap-rs"]
+checks = ["validate_paf"]
+tier = "paper"
+note = "16.6 GB, 83.5M reads. B06 is its exact prefix, so depth is the only difference between them."
+
+[[benchmark]]
+id = "B08"
+title = "Real Illumina-class 150 bp, 7x — depth, on the short-read side"
+reference = "REF-HS1"
+reads = "SR-AVITI7X"
+params = "short-read"
+metrics = ["Containment"]
+threads = [32]
+reference_impl_threads = [1]
+impls = ["shmap-rs"]
+checks = ["validate_paf"]
+tier = "paper"
+note = "29.1 GB, 146M reads. Plays the role B04 plays for HiFi: deep enough that mapping dominates indexing, so the ratio is not an indexing artefact."
 
 # ---------------------------------------------------------------------------
 # Checks — every one of these blocks a merge if it fails. See ../VERSIONING.md.
@@ -363,6 +485,11 @@ role = "gold"
 #   meryl print greater-than distinct=0.9998 REF-HS1.meryl > REF-HS1.repetitive.k15.txt
 # For hs1 this yields 66 872 k-mers, ~0.02% of the distinct 15-mers, in ~25 min.
 repetitive = "~/bench-refs/{reference_id}.repetitive.k15.txt"
+# Long-read mapper; not run on B06-B08. minimap2's `sr` preset exists and
+# Winnowmap2 inherits it, but Winnowmap2's weighted-minimizer sampling is built
+# for long reads in repetitive sequence, and 146M short reads through a mapper
+# that needs 2.5 h for 2.4M long ones is not a measurement anyone would make.
+skip_benchmarks = ["B06", "B07", "B08"]
 note = "Emits PAF (no -a): we compare coordinates, and base-level alignment would cost far more for output we do not use."
 
 [external.mapquik]
@@ -410,8 +537,8 @@ reference_override = "~/bench-refs/{reference_id}.oneline.fa"
 # markedly below 97% read-reference identity — the same wall shmap-rs hits on
 # ONT — so it is the right peer for a low-divergence mapper, and the wrong tool
 # to judge ONT results by.
-skip_benchmarks = ["B05"]
-note = "HiFi/low-divergence only; skipped on ONT, where it is out of its stated design range."
+skip_benchmarks = ["B05", "B06", "B07", "B08"]
+note = "HiFi/low-divergence only; skipped on ONT, where it is out of its stated design range, and on the short-read benchmarks, which are far outside it."
 
 # bwa-mem2 — https://github.com/bwa-mem2/bwa-mem2, IPDPS 2019,
 # doi:10.1109/IPDPS.2019.00041, arXiv:1907.12931.
@@ -453,16 +580,40 @@ binary = "~/micromamba/envs/refmappers/bin/bwa-mem2"
 # differs between our two hosts on purpose: x86_64 gets upstream's five SIMD
 # variants plus a dispatcher, aarch64 gets one binary built through sse2neon.
 version_cmd = 'echo "$({binary} version 2>/dev/null) [$(basename $(ls $(dirname {binary})/../conda-meta/bwa-mem2-*.json | head -1) .json)]"'
-cmd = "{binary} mem -t {threads} -x {preset} {reference} {reads} | {scripts}/sam2paf.py"
+cmd = "{binary} mem -t {threads} {reference} {reads} | {scripts}/sam2paf.py"
 output = "stdout"
 threads = 32
 role = "peer"
-# bwa's preset names for the same two things minimap2 calls map-pb / map-ont.
-# Declared rather than duplicated into [external.presets], so there is exactly
-# one statement in this file of what each benchmark's reads ARE. Inline, not a
-# [external.bwa-mem2.preset_map] sub-table: a table header would capture every
-# key written after it, silently moving reference_override into the map.
-preset_map = { "map-pb" = "pacbio", "map-ont" = "ont2d" }
+# IT CRASHES ON OUR LONG READS, so B01-B05 are skipped and there are no
+# long-read numbers for it. This is not a configuration we failed to find:
+#
+#   `-x pacbio` on real 22-34 kb HiFi reads against hs1 segfaults
+#   deterministically — 60 reads map, 100 do not, and at 100 it dies before
+#   emitting a single record. Thread count makes no difference. `-K` (batch
+#   size) only moves the crash later, never prevents it; nor does relaxing
+#   `-r`, nor spelling the preset out by hand, nor `-x ont2d`. The control is
+#   that the same reads and the same index map fine with no preset at all, so
+#   neither is corrupt.
+#
+# Reproduced and recorded by benchmarks/scripts/bwa_mem2_longread_crash.sh, on
+# both architectures, with the report committed beside the manifests. The same
+# signature — "Re-allocating SMEM data structures due to enc_qdb" then the
+# fault — is open upstream as issue #133 since 2021-03-08.
+#
+# It is not a bug we are entitled to be surprised by. Heng Li closed the
+# long-read support request, issue #4, with: "minimap2 is and will be the
+# preferred mapper for long reads. Bwa-mem2 is only optimized for short
+# reads." `-x pacbio` is inherited from bwa and still accepted, but it is not
+# listed in `bwa-mem2 mem --help`.
+#
+# Hence B06-B08: the only honest place to measure this tool is on short reads,
+# which is also the only place shmap-rs has never been measured. That is the
+# comparison.
+skip_benchmarks = ["B01", "B02", "B03", "B04", "B05"]
+# No `-x` in the command line above, and none needed: bwa-mem2's DEFAULTS are
+# its short-read configuration. The preset flag exists only for the long-read
+# modes it cannot survive, so leaving it out is both correct and the whole
+# point.
 # It needs an FM-index, not a FASTA, and `bwa-mem2 mem` takes the index PREFIX.
 # The prefix here is a symlink to the registry's hs1.fa with the index files
 # beside it, so the ~10 GB of derived index lands in bench-refs with the other
@@ -472,12 +623,20 @@ preset_map = { "map-pb" = "pacbio", "map-ont" = "ont2d" }
 reference_override = "~/bench-refs/{reference_id}.bwamem2.fa"
 note = "Aligner, not a mapper: emits SAM and does base-level extension. Long-read presets are bwa's own, and long reads are outside what it was built for."
 
-# Which preset each benchmark's reads need. ONT has a different error profile
-# and must not be mapped with the PacBio preset. validate_suite.py checks that
-# every benchmark appears here.
+# Which preset each benchmark's reads need, in minimap2's vocabulary, which is
+# what the corpus started with. ONT has a different error profile and must not
+# be mapped with the PacBio preset.
+#
+# Every benchmark needs an entry even when the only mapper that runs it ignores
+# presets: this table is the suite's single statement of what each benchmark's
+# reads ARE, and a mapper's command line either references it or does not.
+# bwa-mem2 on B06-B08 does not — its defaults are its short-read mode.
 [external.presets]
 B01 = "map-pb"
 B02 = "map-pb"
 B03 = "map-pb"
 B04 = "map-pb"
 B05 = "map-ont"
+B06 = "sr"
+B07 = "sr"
+B08 = "sr"
