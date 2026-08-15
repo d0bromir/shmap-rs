@@ -86,20 +86,6 @@ def plan_entry(name: str, spec: dict, bench: dict, suite: dict, reg: dict, cache
     if preset is None:
         sys.exit(f"no [external.presets] entry for {bench['id']} — add one; "
                  f"ONT reads must not be mapped with a PacBio preset")
-    # [external.presets] states what the READS are — PacBio or ONT — in
-    # minimap2's vocabulary, because that is what the corpus started with.
-    # bwa-mem2 inherits bwa's names for the same two things (`pacbio`,
-    # `ont2d`), so a mapper that spells them differently declares the
-    # translation here. The alternative, a preset table per mapper, lets the
-    # tables drift and eventually maps an ONT set with a PacBio preset — the
-    # error the check above exists to prevent, reintroduced one mapper at a
-    # time. An unmapped preset is fatal for the same reason a missing one is.
-    pmap = spec.get("preset_map")
-    if pmap is not None and preset not in pmap:
-        sys.exit(f"{name} has no [external.{name}.preset_map] entry for "
-                 f"'{preset}', which {bench['id']} needs")
-    if pmap is not None:
-        preset = pmap[preset]
 
     out_dir = cache / name
     paf = out_dir / f"{bench['id']}.paf"

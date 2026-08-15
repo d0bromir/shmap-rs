@@ -1,4 +1,4 @@
-# shmap-rs dataset registry — dataset_version = 1
+# shmap-rs dataset registry — dataset_version = 2
 #
 # The identity triple (bytes, records, bases) is what a benchmark run re-checks before
 # measuring. A mismatch fails the run rather than silently benchmarking a different file.
@@ -6,6 +6,12 @@
 # results keep pointing at what they actually measured. See ../VERSIONING.md §3.
 #
 # host: a2 (64-core AVX-512, 376 GB RAM, Ubuntu 24.04) unless noted in `host`.
+#
+# v2 adds the SR-AVITI* short-read sets. They are the first non-long-read inputs in the
+# registry, added so that shmap-rs and bwa-mem2 can each be measured inside and outside
+# their design range rather than only where one of them is at home. Built by
+# ../../profiling/datasets/fetch_aviti150.sh; R1 only, single-end, because shmap-rs has
+# no paired-end mode and mate rescue would be an advantage it cannot use.
 
 id	kind	host	path	bytes	records	bases	mean_len	coverage_hs1	source
 REF-HS1	reference	a2	_paper_work/hs1.fa	3179638084	25	3117292070	124691682	1.0000	T2T-CHM13v2.0, UCSC hs1.fa.gz
@@ -24,3 +30,6 @@ DX-CLR6K	reads-real	a2	minshmap_bench/realworld/data_rw/clr.fa	18789978	6000	186
 D2-SIM24K	reads-sim	a2	wgs24k/reads_24kbp_1x.fa	3004619179	125000	3000000000	24000	0.9624	simulated from REF-HS1 by profiling/wgs24k/gen24k.py seed=42, 0.5% subst
 DX-HIFI2K	reads-real	a2	_paper_work/reads.fa	25746266	2000	25676266	12838	0.0082	real HG002 HiFi sample (hifi_sample.fastq) -> FASTA; basis of allchr_real_24kbp
 DX-TINY	reads-sim	a2	minshmap_bench/data/reads.fa	2814022	8000	2399780	299	0.0008	minshmap_bench fixture
+SR-AVITI2X	reads-real	a2	aviti150/reads_aviti_2x.fa	8323421374	41776744	6234584174	149	2.0000	GIAB HG002 Element AVITI 2x150 UltraQ (sequenced 2023-08-24..2024-09-20), StdInsert R1 only, first 2x of hs1
+SR-AVITI4X	reads-real	a2	aviti150/reads_aviti_4x.fa	16645865201	83533936	12469168401	149	4.0000	same stream as SR-AVITI2X, extended to 4x — SR-AVITI2X is its exact prefix
+SR-AVITI7X	reads-real	a2	aviti150/reads_aviti_7x.fa	29129572760	146170565	21821044510	149	7.0000	same stream extended to 7x; the file actually downloaded, the other two are cut from it

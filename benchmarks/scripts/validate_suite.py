@@ -61,9 +61,38 @@ ids = [b["id"] for b in suite["benchmark"]]
 if len(ids) != len(set(ids)):
     errs.append("duplicate benchmark ids")
 
-subject = sum(len(b["metrics"]) * len(b["threads"]) for b in suite["benchmark"])
+# Every benchmark the external corpus will actually attempt needs a preset,
+# because reference_mappers.py exits rather than guess one. A benchmark every
+# mapper skips needs none.
+ext = suite.get("external", {})
+if ext.get("enabled"):
+    ext_mappers = {k: v for k, v in ext.items()
+                   if isinstance(v, dict) and k != "presets"}
+    for b in suite["benchmark"]:
+        runs = [m for m, spec in ext_mappers.items()
+                if b["id"] not in spec.get("skip_benchmarks", [])]
+        if runs and b["id"] not in ext.get("presets", {}):
+            errs.append(f"{b['id']}: no [external.presets] entry, but "
+                        f"{', '.join(sorted(runs))} would run on it")
+
+# Counted per tier and per implementation, because the two now differ by
+# orders of magnitude: the pr tier is the gate every pull request pays, and
+# reporting one total for both invites reading the paper tier's hours as if
+# they were part of it. `impls` is respected because a benchmark that does not
+# list the reference implementation does not invoke it, and counting it anyway
+# overstated the reference column for every benchmark added since.
 refrep = suite["run"]["reference_impl"]["repeats"]
-reference = sum(len(b["metrics"]) * len(b["reference_impl_threads"]) * refrep for b in suite["benchmark"])
+ref_impls = {n for n, s in suite["impl"].items() if s.get("role") == "reference"}
+tiers: dict[str, list[int]] = {}
+for b in suite["benchmark"]:
+    t = b.get("tier", "pr")
+    subj = len(b["metrics"]) * len(b["threads"])
+    ref = (len(b["metrics"]) * len(b["reference_impl_threads"]) * refrep
+           if ref_impls & set(b["impls"]) else 0)
+    acc = tiers.setdefault(t, [0, 0, 0])
+    acc[0] += subj
+    acc[1] += ref
+    acc[2] += 1
 
 import platform
 if absent:
@@ -77,7 +106,11 @@ if absent:
 print(f"suite_version {suite['suite_version']}  dataset_version "
       f"{suite['dataset_version']}  running on {platform.node()} ({arch()})")
 print(f"benchmarks: {len(ids)}  ({', '.join(ids)})")
-print(f"invocations: {subject} subject + {reference} reference = {subject + reference}")
+for t in sorted(tiers, key=lambda x: (x != "pr", x)):
+    subj, ref, n = tiers[t]
+    gate = " — the per-PR gate" if t == "pr" else " — run.py --tier " + t
+    print(f"tier {t}: {n} benchmark(s), {subj} subject + {ref} reference "
+          f"= {subj + ref} invocations{gate}")
 print(f"blocking checks: {', '.join(k for k, v in suite['checks'].items() if v.get('blocking'))}")
 
 if errs:

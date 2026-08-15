@@ -329,10 +329,13 @@ def drift_probe_benchmarks(suite: dict) -> set[str]:
     return set(probe.get("benchmarks", []))
 
 
-def plan(suite: dict, reg: dict, impls: list[str], repeats_subject: int = 1) -> list[dict]:
+def plan(suite: dict, reg: dict, impls: list[str], repeats_subject: int = 1,
+         tiers: set[str] | None = None) -> list[dict]:
     jobs = []
     probe_benches = drift_probe_benchmarks(suite)
     for b in suite["benchmark"]:
+        if tiers is not None and b.get("tier", "pr") not in tiers:
+            continue
         params = suite["params"][b["params"]]
         base = [
             "-k", str(params["k"]),
@@ -1032,6 +1035,10 @@ def main() -> int:
                     help="measure each subject row this many times and take the median "
                          "(default: this host's `repeats` in hosts.toml, else suite.toml)")
     ap.add_argument("--only", help="comma-separated benchmark ids, e.g. B05")
+    ap.add_argument("--tier", default="pr",
+                    help="which benchmark tier to run: 'pr' (default), a named "
+                         "tier such as 'paper', or 'all'. --only reaches any "
+                         "tier without this flag.")
     ap.add_argument("--out", help="result set directory (default: results/suite-<v>/<commit>-<date>)")
     ap.add_argument("--no-compare", action="store_true",
                     help="skip the comparison against current/ (measure only)")
@@ -1071,7 +1078,11 @@ def main() -> int:
                                 capture_output=True, text=True).stdout.strip()
 
     repeats_subject = subject_repeats(suite, args.repeats)
-    jobs = plan(suite, reg, impls, repeats_subject)
+    # --only names benchmarks explicitly, so it selects across every tier:
+    # asking for B06 by name and being told it matched nothing, because it is
+    # not in the default tier, would be obstructive.
+    tiers = None if (args.only or args.tier == "all") else set(args.tier.split(","))
+    jobs = plan(suite, reg, impls, repeats_subject, tiers)
     if repeats_subject > 1:
         print(f"measuring each {SUBJECT_NOTE} row {repeats_subject}x and taking the median "
               f"({platform.node()} is configured for it in hosts.toml)")

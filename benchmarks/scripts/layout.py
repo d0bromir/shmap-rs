@@ -84,9 +84,31 @@ def resolve_dataset(rel: str) -> Path:
     return p if p.is_absolute() else data_root() / p
 
 
+def suite_series(suite_version: str) -> str:
+    """The results directory for a suite version's comparable series.
+
+    Keyed on MAJOR alone, not on the full version string. VERSIONING.md
+    defines a MINOR bump as "a benchmark is added; old results stay
+    comparable", and `compare.py` implements exactly that — it gates
+    comparability on MAJOR and ignores MINOR. Keying this directory on the
+    full string contradicted both: bumping 1.0 to 1.1 pointed `current_dir` at
+    a tree that did not exist, so a pull request had no baseline to be judged
+    against, `promote.py` refused to create one because the versions did not
+    match exactly, and five archived result sets were orphaned — all on a
+    change the policy calls non-breaking. Adding the short-read benchmarks is
+    this repository's first MINOR bump, which is why it had never surfaced.
+
+    The `.0` suffix is kept so the existing `suite-1.0` tree keeps its name.
+    Two baselines, five archived sets and ~20 links in RESULTS.md and
+    QUESTIONS.md address it, and a paper may already cite it; renaming would
+    buy tidiness at the price of breaking published references.
+    """
+    return f"suite-{str(suite_version).split('.')[0]}.0"
+
+
 def arch_dir(suite_version: str, a: str | None = None) -> Path:
-    """`results/suite-<v>/<arch>/` — the root of one architecture's history."""
-    return RESULTS / f"suite-{suite_version}" / (a or arch())
+    """`results/suite-<major>.0/<arch>/` — one architecture's history."""
+    return RESULTS / suite_series(suite_version) / (a or arch())
 
 
 def current_dir(suite_version: str, a: str | None = None) -> Path:
@@ -107,7 +129,7 @@ def reference_mappers_dir(a: str | None = None) -> Path:
 
 def available_arches(suite_version: str) -> list[str]:
     """Architectures that actually have results checked in, in a stable order."""
-    root = RESULTS / f"suite-{suite_version}"
+    root = RESULTS / suite_series(suite_version)
     if not root.is_dir():
         return []
     found = [p.name for p in root.iterdir() if p.is_dir() and (p / "current").is_dir()]
