@@ -248,6 +248,12 @@ note = "Maps ~43% at k=25 because ~5-10% error leaves only ~28% of 25-mers intac
 #   shmap-rs only the C++ original is single-threaded by design; B06 alone
 #                 would be days, and it would measure the same algorithm at
 #                 1/32 the parallelism. The C++ comparison lives on B01-B05.
+#   repeats = 1   a2's hosts.toml asks for three, because the PR gate there
+#                 has to resolve a few percent and the host cannot. Nothing
+#                 here reads at that resolution: the comparison against
+#                 bwa-mem2 is a factor of ~20, and a median of three would
+#                 cost 44 extra hours to sharpen a number whose leading digit
+#                 is the point. galaxy already runs one.
 #
 # NO thread_determinism (needs two thread counts), NO ground_truth (real
 # reads, no encoded positions), NO impl_agreement (no second implementation).
@@ -266,6 +272,7 @@ reference_impl_threads = [1]
 impls = ["shmap-rs"]
 checks = ["validate_paf"]
 tier = "paper"
+repeats = 1
 note = "8.3 GB, 41.8M reads. The shallowest rung and the one to run first: it is ~3 h where B08 is ~10 h."
 
 [[benchmark]]
@@ -280,6 +287,7 @@ reference_impl_threads = [1]
 impls = ["shmap-rs"]
 checks = ["validate_paf"]
 tier = "paper"
+repeats = 1
 note = "16.6 GB, 83.5M reads. B06 is its exact prefix, so depth is the only difference between them."
 
 [[benchmark]]
@@ -294,6 +302,7 @@ reference_impl_threads = [1]
 impls = ["shmap-rs"]
 checks = ["validate_paf"]
 tier = "paper"
+repeats = 1
 note = "29.1 GB, 146M reads. Plays the role B04 plays for HiFi: deep enough that mapping dominates indexing, so the ratio is not an indexing artefact."
 
 # ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 //!
 //! Rust port of https://github.com/pesho-ivanov/shmap (Map-SHmap / sweepmap).
 
+pub mod ablate;
 pub mod analyse_simulated;
 pub mod buckets;
 pub mod handler;

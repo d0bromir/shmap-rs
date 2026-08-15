@@ -410,6 +410,13 @@ impl SketchIndex {
 
         let n_threads = threads.max(1);
         let k = sketcher.k;
+        // Rows 5 and 6, read once per index build. `par_index` covers both
+        // halves of row 5 — chunked sketching and the parallel shard fill —
+        // because they are one change: a segment is split so that more than
+        // one worker can sketch it, and the shards exist so that the inserts
+        // can then be distributed instead of interleaved on the collector.
+        let par_index = !crate::ablate::off(crate::ablate::Opt::ParallelIndex);
+        let par_fasta = !crate::ablate::off(crate::ablate::Opt::ParallelFasta);
 
         /// One contiguous run of k-mer windows of one segment, to be sketched
         /// by whichever worker picks it up. `[w0, w1)` indexes *windows*, not
@@ -520,10 +527,18 @@ impl SketchIndex {
                 let mut fasta_timers = Timers::new();
                 r_timers.start("index_reading");
                 let mut idx = 0u64;
-                read_fasta_parallel(t_file, n_threads, &mut fasta_timers, |segm_name, seq, progress| {
+                read_fasta_parallel(t_file, if par_fasta { n_threads } else { 1 }, &mut fasta_timers, |segm_name, seq, progress| {
                     r_timers.stop("index_reading");
                     let n_windows = seq.len().saturating_sub((k - 1).max(0) as usize);
-                    let per_chunk = chunk_windows(n_windows, n_threads);
+                    // Ablated: one chunk per segment, which is what the
+                    // sketching step did before it was split — a segment is
+                    // then one job, and a single-chromosome reference is one
+                    // worker however many were asked for.
+                    let per_chunk = if par_index {
+                        chunk_windows(n_windows, n_threads)
+                    } else {
+                        n_windows.max(1)
+                    };
                     let n_chunks = n_windows.div_ceil(per_chunk).max(1) as u32;
                     let meta = SegMeta {
                         idx,
@@ -597,7 +612,7 @@ impl SketchIndex {
                         seq_len,
                         sketch,
                         max_matches,
-                        n_threads == 1,
+                        n_threads == 1 || !par_index,
                         counters,
                     );
                     timers.stop("index_collecting");
@@ -616,7 +631,7 @@ impl SketchIndex {
         // stored sketches on all `-@` threads at once. Skipped at `-@ 1`,
         // where `add_segment` already did it inline — see the note there.
         timers.start("index_initializing");
-        if n_threads > 1 {
+        if n_threads > 1 && par_index {
             self.populate_shards(max_matches, n_threads);
         }
         timers.stop("index_initializing");
@@ -627,11 +642,17 @@ impl SketchIndex {
         // each multi-hit list by `(segm_id, r)` to allow binary search.
         // Shards are independent, so this runs on all threads too.
         timers.start("index_finalizing");
-        std::thread::scope(|scope| {
+        if par_index {
+            std::thread::scope(|scope| {
+                for shard in self.shards.iter_mut() {
+                    scope.spawn(move || Self::finalize_shard(shard));
+                }
+            });
+        } else {
             for shard in self.shards.iter_mut() {
-                scope.spawn(move || Self::finalize_shard(shard));
+                Self::finalize_shard(shard);
             }
-        });
+        }
         timers.stop("index_finalizing");
         timers.stop("indexing");
 

@@ -87,6 +87,20 @@ it:
   installed). `~/.profile` puts `~/bin` on the PATH, so it resolves in a login shell but *not* in
   `ssh a2 '<command>'`, which does not read `.profile`. Set `GH_BIN=$HOME/bin/gh` if you drive
   `run.py` non-interactively.
+- **`cargo` has the same problem, and it is fatal rather than degraded.** `~/.cargo/env` is sourced
+  from `~/.profile`, so `ssh a2 'python3 benchmarks/scripts/run.py …'` gets to `prepare_worktree`,
+  tries to build, and dies with `FileNotFoundError: 'cargo'` — after taking the host lock and
+  printing that it verified the datasets, which reads like a successful start. Prefix any
+  non-interactive launch:
+
+  ```sh
+  ssh a2 'export PATH=$HOME/.cargo/bin:$PATH; cd ~/shmap-rs && setsid nohup python3 …'
+  ```
+- **bwa-mem2 and its index** — `benchmarks/scripts/setup_bwa_mem2.sh` installs it from bioconda into
+  the `refmappers` env and builds the FM-index. The index needs **~87 GB of RAM** and about an hour
+  (a2 57 min, galaxy 23 min); the script refuses to start if the memory is not there rather than
+  leaving a truncated index behind. The aarch64 build is *not* the same artefact as the x86_64 one —
+  see the header of that script before quoting any cross-architecture number from it.
 
 ## The authorization gate needs `gh` logged in
 
