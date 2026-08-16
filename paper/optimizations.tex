@@ -209,27 +209,21 @@ code path it replaced. The leftmost bar has all \shmAblRungs{} of them off;
 each bar to the right turns exactly one more back on, in the layer order
 argued above; the rightmost is the shipped build. Adjacent bars therefore
 differ by one change and nothing else --- one binary, one machine, one
-compiler, one input --- which is what makes a step attributable. It is
-attributable to that change \emph{given the ones to its left}, which is the
-only sense in which interacting changes have individual values: what the
+compiler, one input --- which is what makes a step attributable, and
+attributable to that change \emph{given the ones to its left}: what the
 parallel index is worth depends on whether each worker still carries a
-genome-sized accumulator. The whole ladder is run \shmAblRepeats{} times
-round-robin rather than each rung consecutively, so that drift over the
-measurement cannot land on one bar and be read as that change. Every bar's
-mapping is compared byte for byte against the leftmost, and the measurement
-fails rather than reports if one differs --- a stricter test of the exactness
-claim than the suite's, because it holds the input fixed and varies only the
-optimization.
+genome-sized accumulator. The ladder is run \shmAblRepeats{} times
+round-robin, so drift cannot land on one bar and be read as that change, and
+every bar's mapping is compared byte for byte against the leftmost --- a
+stricter test of the exactness claim than the suite's, because it holds the
+input fixed and varies only the optimization.
 
-The switches are not in the released mapper, and that is a deliberate cost of
-this figure rather than an oversight. A branch in the seeding loop and a
-scratch buffer that exist only so that a measurement can be taken are paid for
-by everyone who ever runs the program, and the argument of this note is that
-such costs are exactly what to be ruthless about. They live on a branch that
-is archived and never merged, cited from the repository, so the evidence is
-reproducible without the instrumentation being carried forever. The harness
-refuses to run against a build that lacks them rather than quietly measuring
-one binary \shmAblRungs{} times and drawing a flat ladder.
+Those switches are not in the released mapper, deliberately: a branch and a
+scratch buffer that exist only to be measured are paid for by everyone who
+runs the program, and this note's argument is that such costs are what to be
+ruthless about. They live on an archived, never-merged branch, and the harness
+refuses a build that lacks them rather than measuring one binary
+\shmAblRungs{} times and drawing a flat ladder.
 
 \shmAblNotRungs{} of the \shmNumOptimizations{} cannot be a rung and are
 reported as absent rather than estimated. Threaded read mapping is a
@@ -240,18 +234,32 @@ build-level, so reversing it would be a different binary.
 End to end the ladder is \shmAblSpeedupOne$\times$ at one worker and
 \shmAblSpeedupMax$\times$ at \shmAblThreadsMax{}, for
 \shmAblRssRatioOne$\times$ and \shmAblRssRatioMax$\times$ less peak memory;
-the largest single step is \shmAblTopStep{} (row~\shmAblTopStepRow),
-worth \shmAblTopStepPct\% of the bar before it. Three things there are worth
-saying plainly. The memory result is almost entirely one bar, and it is
-\emph{larger} with more workers, because what it removes was per worker ---
-the scaling argument as a measurement rather than as a reason. The two
-parallelism rungs are flat in the one-worker series because at one worker they
-must be: both take the serial path whichever position the switch is in, so
-that pair of steps is structure and not evidence. And this is chromosome scale
+the largest single step is \shmAblTopStep{} (row~\shmAblTopStepRow), worth
+\shmAblTopStepPct\% of the bar before it. The memory result is almost entirely
+one bar and is \emph{larger} with more workers, because what it removes was
+per worker --- the scaling argument as a measurement rather than a reason. The
+two parallelism rungs are flat at one worker because there they must be, both
+taking the serial path whichever way the switch is set, so that pair of steps
+is structure and not evidence. And this is chromosome scale
 on \shmAblHost{}, a laptop with \shmAblCores{} cores, because the
 pre-optimization accumulator does not fit on that machine once, let alone once
 per worker; the figure is about the relative worth of the changes, not about
 how fast the program is.
+
+\textbf{Why this is not the speedup in the abstract.} The ladder is worth less
+end to end than the \shmSpeedupXMin--\shmSpeedupXMax$\times$ quoted there
+against the C++, and the two do not contradict each other: the ladder's
+baseline was never the C++. It is this port with the ablatable changes off,
+still carrying the allocation-and-layout row and every port-level difference
+that is not a numbered optimization at all. The two compose --- by
+multiplication, not addition. Measured together on one input, one worker, in
+one sitting, the C++ over the shipped mapper is \shmAblTotalX$\times$, of which
+\shmAblPortX$\times$ is what the ladder cannot switch off and
+\shmAblLadderX$\times$ is the ladder itself; the product returns the first,
+which makes this an identity a reader can check rather than an excuse. That
+total sits below the abstract's range for the reason the note gives throughout:
+the C++ accumulator costs a slot per five bases of \emph{the reference}, so a
+chromosome flatters it and a genome does not.
 
 \section{What none of them changed}
 

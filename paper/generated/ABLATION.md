@@ -47,6 +47,36 @@ visibly missing rather than quietly.
 - **Row 4** — threaded read mapping is the gap between the two series, not a step in one.
 - **Row 8** — type- and build-level (PMatches inline, Match borrows its Seed, lto=fat) — reversing it is a different binary, not a different branch.
 
+## Why this is not the paper's speedup over the C++
+
+The obvious objection to this figure is that the ladder is worth far less end to end
+than the note's headline comparison against the C++, so the two look like they
+contradict each other. They do not, and the reason is that **the ladder's baseline was
+never the C++**: it is the *port* with the ablatable changes switched off, still
+carrying row 8 and every port-level difference that is not a numbered optimization at
+all. The two figures compose, and they compose by multiplication:
+
+```
+  C++ / shipped   = 2.22x      measured directly
+  C++ / baseline  = 1.75x      everything the ladder cannot switch off
+  baseline / ship = 1.27x      the whole ladder
+                    1.75 x 1.27 = 2.22x
+```
+
+Measured together, on one input in one sitting, by `ablation.py --reconcile`; the
+numbers are in `reconcile.tsv` beside the ladder. The product has to come back to the
+directly measured total, which is what makes this an arithmetic identity a reviewer
+can check rather than an excuse.
+
+Carrying the switches at all costs 1.02x
+(`instrumented` over `shipped`). That is why the rungs are not tilted by the
+instrumentation, and it is also why the switches are not in the shipped mapper.
+
+One worker throughout, because the C++ is single-threaded by design, and `-x` on none
+of the rows: the C++ has no equivalent, so profiling one side would be measuring the
+instrumentation instead of the program. The ladder itself does use `-x` on every rung,
+where it cancels.
+
 ## Read with
 
 - A step is the change's worth **given every change to its left**, not in isolation.
