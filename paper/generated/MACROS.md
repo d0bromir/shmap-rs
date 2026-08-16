@@ -37,7 +37,7 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmMeasuredX` | 2026-08-10 | — | Date the reference set was measured. | `current/manifest.json :: finished` |
 | `\shmMeasuredA` | 2026-08-10 | — | Date the second set was measured. | `current/manifest.json :: finished` |
 | `\shmRustc` | 1.97.1 | — | Compiler both sets were built with. | `current/manifest.json :: rustc` |
-| `\shmSuiteVersion` | 1.0 | — | Benchmark suite version the sets belong to. | `benchmarks/data/suite.toml :: suite_version` |
+| `\shmSuiteVersion` | 1.1 | — | Benchmark suite version the sets belong to. | `benchmarks/data/suite.toml :: suite_version` |
 | `\shmVersion` | 1.4.1 | — | Release of shmap-rs the paper describes. | `Cargo.toml :: package.version` |
 | `\shmLicense` | MPL-2.0 | — | Licence the implementation is published under. | `Cargo.toml :: package.license` |
 | `\shmAuthors` | Dobromir Panchev \and Pesho Ivanov | — | Byline, in the archive's own creator order. | `.zenodo.json :: creators[].name` |
@@ -48,6 +48,19 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmNumExactOptimizations` | 9 | — | How many of them leave output byte-identical. | `PORT_CHANGES.md :: the current-state table, Exact? column` |
 | `\shmCppCommit` | 63f1103 | — | Upstream revision every C++ citation is taken at. | `PORT_CHANGES.md :: the URL of each quoted block` |
 | `\shmNumParallelOptimizations` | 3 | — | How many exist only because the C++ is single-threaded. | `PORT_CHANGES.md, classified by benchmarks/scripts/optimizations.py` |
+| `\shmAblRungs` | 7 | — | Optimizations the ladder switches back on, one per rung. | `benchmarks/scripts/ablation.py :: LADDER` |
+| `\shmAblNotRungs` | 2 | — | Optimizations that cannot be a rung, and are reported as such. | `benchmarks/scripts/ablation.py :: NOT_ABLATED` |
+| `\shmAblRepeats` | 9 | — | Times the whole ladder was run, round-robin. | `ablation ladder :: manifest.json repeats` |
+| `\shmAblHost` | LAPTOP-6S4BOT55 | — | Machine the ladder was measured on. | `ablation ladder :: manifest.json host` |
+| `\shmAblCores` | 8 | cores | Cores it has. | `ablation ladder :: manifest.json cores` |
+| `\shmAblThreadsMax` | 8 | — | Widest thread count the ladder was measured at. | `ablation ladder :: ladder.tsv threads` |
+| `\shmAblSpeedupOne` | 1.28 | x | End-to-end wall ratio across the whole ladder, one worker. | `ablation ladder :: ladder.tsv wall_s, rung 0 over the last rung` |
+| `\shmAblSpeedupMax` | 1.62 | x | The same ratio at the widest thread count. | `ablation ladder :: ladder.tsv wall_s, rung 0 over the last rung` |
+| `\shmAblRssRatioOne` | 1.62 | x | End-to-end peak-RSS ratio across the ladder, one worker. | `ablation ladder :: ladder.tsv peak_rss_kb, rung 0 over the last rung` |
+| `\shmAblRssRatioMax` | 5.69 | x | The same ratio at the widest thread count. | `ablation ladder :: ladder.tsv peak_rss_kb, rung 0 over the last rung` |
+| `\shmAblTopStep` | refine memo | — | Rung that takes the most wall time out, at the widest thread count. | `ablation ladder :: ladder.tsv, largest step in wall_s` |
+| `\shmAblTopStepPct` | 14.4 | % | How much that rung takes out of the rung before it. | `ablation ladder :: ladder.tsv, largest step in wall_s` |
+| `\shmAblTopStepRow` | 3 | — | Its row in PORT_CHANGES.md. | `ablation ladder :: ladder.tsv row` |
 | `\shmParamK` | 25 | — | k-mer length. | `benchmarks/data/suite.toml :: params.paper.k` |
 | `\shmParamR` | 0.01 | — | FracMinHash sampling rate. | `benchmarks/data/suite.toml :: params.paper.hashratio` |
 | `\shmParamTheta` | 0.4 | — | Similarity threshold. | `benchmarks/data/suite.toml :: params.paper.threshold` |
@@ -106,6 +119,8 @@ everyone else, both from one computation so they cannot disagree.
 - `\shmTopologyA` — Configuration from benchmarks/data/hosts.toml, not a measurement.
 - `\shmCommit` — Only meaningful if both sets measure it. build_all() warns and MACROS.md records both when they differ.
 - `\shmAuthors` — Zenodo's creator/contributor split is preserved rather than reinterpreted: creators are authors, contributors are acknowledged. Change the archive record, not the draft.
+- `\shmAblSpeedupOne` — Not a speedup over the C++, and not the paper's headline figure: it is this binary against itself with its own optimizations switched off.
+- `\shmAblRssRatioMax` — Larger than the one-worker ratio because the accumulator row 1 removes was per worker; that is the measurement, not an artefact.
 - `\shmRssRatioCap` — The worst cell at the widest thread count -- the least favourable framing of the memory result, quoted so the single-threaded one is not mistaken for the whole story.
 - `\shmScaleXPeak` — One favourable row, not the machine's typical behaviour; read with ScaleXCap, which is the median across every cell.
 - `\shmScaleAPeak` — One favourable row, not the machine's typical behaviour; read with ScaleACap, which is the median across every cell.

@@ -93,7 +93,10 @@ fn mask() -> u32 {
                 Some((_, o, _)) => m |= bit(*o),
                 None => {
                     let known: Vec<&str> = SWITCHES.iter().map(|(n, _, _)| *n).collect();
-                    eprintln!("ERROR: {ENV}: unknown switch {name:?}; known: {}, all", known.join(", "));
+                    eprintln!(
+                        "ERROR: {ENV}: unknown switch {name:?}; known: {}, all",
+                        known.join(", ")
+                    );
                     std::process::exit(2);
                 }
             }

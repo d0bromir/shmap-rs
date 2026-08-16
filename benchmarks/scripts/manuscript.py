@@ -60,6 +60,7 @@ from run import load_suite  # noqa: E402
 from layout import REPO  # noqa: E402
 from charts import time_stages  # noqa: E402
 from optimizations import LAYER_ORDER, parse as parse_optimizations  # noqa: E402
+from ablation import NOT_ABLATED, load_ladder  # noqa: E402
 from crossarch import (  # noqa: E402
     ArchSet, METRIC_ORDER, REFERENCE, SUBJECT,
     input_digest, load_hosts, load_sets, set_id,
@@ -457,6 +458,70 @@ def _optimizations() -> tuple[list[dict], str]:
 _OPT_CACHE: tuple[list[dict], str] | None = None
 
 
+def _ablation() -> tuple[list[dict], dict]:
+    """The cumulative ablation ladder, parsed once per process.
+
+    A separate measurement from the promoted suite sets, on a separate
+    machine, so it is loaded separately and every macro built from it carries
+    `Abl` in its name. Absent is not an error, for the reason a missing second
+    architecture is not: a ladder that has not been measured yet is early, not
+    stale, and the macros then read `---` rather than a number nobody made.
+    """
+    global _ABL_CACHE
+    if _ABL_CACHE is None:
+        try:
+            rows, man, _ = load_ladder()
+            _ABL_CACHE = (rows, man)
+        except SystemExit:
+            _ABL_CACHE = ([], {})
+    return _ABL_CACHE
+
+
+_ABL_CACHE: tuple[list[dict], dict] | None = None
+
+
+def _abl_series(threads: int | None = None) -> list[dict]:
+    """One thread count's rungs, in ladder order. `None` = the widest one."""
+    rows, _ = _ablation()
+    if not rows:
+        return []
+    t = threads if threads is not None else max(r["threads"] for r in rows)
+    return sorted((r for r in rows if r["threads"] == t), key=lambda r: r["rung"])
+
+
+def _abl_threads(which: int) -> int | None:
+    rows, _ = _ablation()
+    if not rows:
+        return None
+    return sorted({r["threads"] for r in rows})[which]
+
+
+def _abl_ratio(threads: int | None, key: str) -> str:
+    """Rung 0 over the last rung: what the whole ladder is worth end to end."""
+    s = _abl_series(threads)
+    if not s or not s[-1][key]:
+        return MISSING
+    return f2(s[0][key] / s[-1][key])
+
+
+def _abl_biggest_step(threads: int | None) -> tuple[str, float, str]:
+    """The rung that takes the most wall time out, as (label, %, row).
+
+    Reported rather than asserted: which change dominates is exactly the kind
+    of claim that ages badly, and on this input it is not the one the note's
+    narrative order puts first.
+    """
+    s = _abl_series(threads)
+    best = ("", 0.0, "")
+    for prev, r in zip(s, s[1:]):
+        if not prev["wall_s"]:
+            continue
+        gain = 100.0 * (prev["wall_s"] - r["wall_s"]) / prev["wall_s"]
+        if gain > best[1]:
+            best = (r["label"].removeprefix("+ "), gain, r["row"])
+    return best
+
+
 def cargo_field(key: str) -> str:
     """One `[package]` field, read rather than retyped.
 
@@ -585,6 +650,58 @@ MACROS: list[Macro] = [
           lambda c: str(sum(1 for r in _optimizations()[0]
                             if r["layer"] == "parallelism"))
           if _optimizations()[0] else MISSING),
+
+    # -- the cumulative ablation ladder --------------------------------------
+    #
+    # A different measurement from every macro above and below: one machine,
+    # one input, one binary, with each optimization switched off and put back
+    # one at a time. It answers "what is each change worth", which the suite
+    # cannot, and it is not comparable with the suite's absolute figures --
+    # different host, different reference, different sampling rate. Every one
+    # of these carries `Abl` so the two can never be read as one series.
+    Macro("AblRungs", "", "Optimizations the ladder switches back on, one per rung.",
+          "benchmarks/scripts/ablation.py :: LADDER",
+          lambda c: str(len(_abl_series()) - 1) if _abl_series() else MISSING),
+    Macro("AblNotRungs", "", "Optimizations that cannot be a rung, and are reported as such.",
+          "benchmarks/scripts/ablation.py :: NOT_ABLATED",
+          lambda c: str(len(NOT_ABLATED))),
+    Macro("AblRepeats", "", "Times the whole ladder was run, round-robin.",
+          "ablation ladder :: manifest.json repeats",
+          lambda c: str(_ablation()[1].get("repeats", "")) or MISSING),
+    Macro("AblHost", "", "Machine the ladder was measured on.",
+          "ablation ladder :: manifest.json host",
+          lambda c: tex_escape(str(_ablation()[1].get("host", ""))) or MISSING),
+    Macro("AblCores", "cores", "Cores it has.",
+          "ablation ladder :: manifest.json cores",
+          lambda c: str(_ablation()[1].get("cores", "")) or MISSING),
+    Macro("AblThreadsMax", "", "Widest thread count the ladder was measured at.",
+          "ablation ladder :: ladder.tsv threads",
+          lambda c: str(_abl_threads(-1) or MISSING)),
+    Macro("AblSpeedupOne", "x", "End-to-end wall ratio across the whole ladder, one worker.",
+          "ablation ladder :: ladder.tsv wall_s, rung 0 over the last rung",
+          lambda c: _abl_ratio(_abl_threads(0), "wall_s"),
+          caveats=("Not a speedup over the C++, and not the paper's headline figure: it is "
+                   "this binary against itself with its own optimizations switched off.",)),
+    Macro("AblSpeedupMax", "x", "The same ratio at the widest thread count.",
+          "ablation ladder :: ladder.tsv wall_s, rung 0 over the last rung",
+          lambda c: _abl_ratio(None, "wall_s")),
+    Macro("AblRssRatioOne", "x", "End-to-end peak-RSS ratio across the ladder, one worker.",
+          "ablation ladder :: ladder.tsv peak_rss_kb, rung 0 over the last rung",
+          lambda c: _abl_ratio(_abl_threads(0), "peak_rss_kb")),
+    Macro("AblRssRatioMax", "x", "The same ratio at the widest thread count.",
+          "ablation ladder :: ladder.tsv peak_rss_kb, rung 0 over the last rung",
+          lambda c: _abl_ratio(None, "peak_rss_kb"),
+          caveats=("Larger than the one-worker ratio because the accumulator row 1 removes "
+                   "was per worker; that is the measurement, not an artefact.",)),
+    Macro("AblTopStep", "", "Rung that takes the most wall time out, at the widest thread count.",
+          "ablation ladder :: ladder.tsv, largest step in wall_s",
+          lambda c: tex_escape(_abl_biggest_step(None)[0]) or MISSING),
+    Macro("AblTopStepPct", "%", "How much that rung takes out of the rung before it.",
+          "ablation ladder :: ladder.tsv, largest step in wall_s",
+          lambda c: f1(_abl_biggest_step(None)[1]) if _abl_series() else MISSING),
+    Macro("AblTopStepRow", "", "Its row in PORT_CHANGES.md.",
+          "ablation ladder :: ladder.tsv row",
+          lambda c: _abl_biggest_step(None)[2] or MISSING),
 
     # -- the parameters every headline number is measured at -----------------
     Macro("ParamK", "", "k-mer length.",

@@ -527,7 +527,8 @@ impl SketchIndex {
                 let mut fasta_timers = Timers::new();
                 r_timers.start("index_reading");
                 let mut idx = 0u64;
-                read_fasta_parallel(t_file, if par_fasta { n_threads } else { 1 }, &mut fasta_timers, |segm_name, seq, progress| {
+                let fasta_threads = if par_fasta { n_threads } else { 1 };
+                read_fasta_parallel(t_file, fasta_threads, &mut fasta_timers, |segm_name, seq, progress| {
                     r_timers.stop("index_reading");
                     let n_windows = seq.len().saturating_sub((k - 1).max(0) as usize);
                     // Ablated: one chunk per segment, which is what the

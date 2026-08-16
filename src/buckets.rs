@@ -732,7 +732,7 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
                     )
                 })
                 .collect();
-            out.sort_by(|a, b| b.1.matches.cmp(&a.1.matches));
+            out.sort_by_key(|e| std::cmp::Reverse(e.1.matches));
             return out;
         }
 

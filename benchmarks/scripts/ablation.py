@@ -100,24 +100,40 @@ NAME = "figure_ablation"
 # sets: a wall-clock second is a property of the machine that spent it.
 SET_ROOT = RESULTS / "ablation"
 
-# The parameter set every headline number in the paper is measured at, so the
-# ladder describes the same program the rest of the paper does.
-PARAM_SET = "paper"
+# The parameter set the ladder is measured at, and why it is not the paper's:
+# see the comment above `[params.ablation]` in suite.toml.
+PARAM_SET = "ablation"
 METRIC = "Containment"
 
-# `(rung label, SHMAP_ABLATE switch this rung turns back on, PORT_CHANGES row)`
-# in the companion note's layer order. Rung 0 is everything off; each entry
-# below adds exactly one switch to the ones above it.
-LADDER: list[tuple[str, str, int]] = [
-    ("read-sized buckets", "bucket-array", 1),
-    ("streamed seeds", "stream-seeds", 2),
-    ("refine memo", "refine-memo", 3),
-    ("packed sort key", "packed-sort", 9),
-    ("parallel index", "parallel-index", 5),
-    ("parallel FASTA", "parallel-fasta", 6),
-    ("sketch loop", "sketch-loop", 7),
+# `(rung label, SHMAP_ABLATE switch this rung turns back on, PORT_CHANGES row,
+#   the `-x` timer that row's "What it optimizes" column names)` in the
+# companion note's layer order. Rung 0 is everything off; each entry below adds
+# exactly one switch to the ones above it.
+#
+# The targeted timer matters because at chromosome scale a change worth 40% of
+# its own stage can be worth 2% of the wall, which is inside the noise of any
+# laptop. The stage is the claim PORT_CHANGES.md actually makes for the row;
+# the wall is what a user pays. The ladder reports both and lets neither stand
+# in for the other.
+LADDER: list[tuple[str, str, int, str]] = [
+    ("read-sized buckets", "bucket-array", 1, "bucket_merge"),
+    ("streamed seeds", "stream-seeds", 2, "match_seeds"),
+    ("refine memo", "refine-memo", 3, "match_rest"),
+    ("packed sort key", "packed-sort", 9, "bucket_merge"),
+    ("parallel index", "parallel-index", 5, "indexing"),
+    ("parallel FASTA", "parallel-fasta", 6, "index_reading"),
+    ("sketch loop", "sketch-loop", 7, "index_sketching"),
 ]
 BASELINE = "pre-optimization"
+
+# Every timer kept in the TSV, so a reader can check a row against a stage the
+# figure does not draw. `indexing` and `mapping` are wall; the rest are CPU
+# summed across workers and must never be divided into them — the same rule
+# profiles.tsv states in its own header.
+STAGES = ["indexing", "mapping", "index_reading", "index_sketching",
+          "index_collecting", "index_finalizing", "query_mapping", "sketching",
+          "prepare", "seeding", "match_seeds", "bucket_merge", "match_rest",
+          "refine", "match_rest_for_best2"]
 
 # Rows that exist but cannot be a rung, and why. Printed in the provenance and
 # the caption: an optimization missing from a figure that claims to account
@@ -131,7 +147,7 @@ NOT_ABLATED: dict[int, str] = {
 
 def switches_at(i: int) -> list[str]:
     """The switches still ablated at rung `i` (0 = baseline, everything off)."""
-    return [s for _, s, _ in LADDER[i:]]
+    return [s for _, s, _, _ in LADDER[i:]]
 
 
 def rung_label(i: int) -> str:
@@ -140,6 +156,10 @@ def rung_label(i: int) -> str:
 
 def rung_row(i: int) -> str:
     return "" if i == 0 else str(LADDER[i - 1][2])
+
+
+def rung_stage(i: int) -> str:
+    return "" if i == 0 else LADDER[i - 1][3]
 
 
 # ---------------------------------------------------------------------------
@@ -180,10 +200,17 @@ def verify_dataset(reg: dict, ds_id: str, full: bool) -> Path:
 
 def measure(binary: Path, ref: Path, reads: Path, params: list[str],
             threads: int, ablate: list[str], workdir: Path, tag: str) -> dict:
-    """One invocation: wall seconds, peak RSS, and a digest of the mapping."""
+    """One invocation: wall seconds, peak RSS, stage timers, mapping digest.
+
+    `-x` is passed on every rung, never on some — the instrumentation costs a
+    little wall clock, and a ladder that paid it on one rung and not the next
+    would report that difference as an optimization.
+    """
     paf, tf = workdir / f"{tag}.paf", workdir / f"{tag}.time"
+    prof = workdir / f"{tag}.json"
     cmd = ["/usr/bin/time", "-v", "-o", str(tf), str(binary),
-           "-s", str(ref), "-p", str(reads), *params, "-m", METRIC, "-@", str(threads)]
+           "-s", str(ref), "-p", str(reads), *params, "-m", METRIC, "-@", str(threads),
+           "-x", "--profile-log", str(prof)]
     env = dict(os.environ)
     if ablate:
         env["SHMAP_ABLATE"] = ",".join(ablate)
@@ -194,6 +221,7 @@ def measure(binary: Path, ref: Path, reads: Path, params: list[str],
     if rc != 0:
         sys.exit(f"{tag} exited {rc}: {shlex.join(cmd)}")
     wall, rss = parse_time_v(tf)
+    timers = json.loads(prof.read_text())["global"]["timers_secs"]
 
     # Columns 1-12 only: column 13 is the per-read wall clock, which differs
     # between two runs of the *same* build and would defeat the check this
@@ -204,9 +232,10 @@ def measure(binary: Path, ref: Path, reads: Path, params: list[str],
             mapped += 1
             h.update("\t".join(line.rstrip("\n").split("\t")[:12]).encode())
             h.update(b"\n")
-    paf.unlink()
-    tf.unlink()
-    return dict(wall_s=wall, peak_rss_kb=rss, mapped=mapped, paf_sha=h.hexdigest()[:16])
+    for p in (paf, tf, prof):
+        p.unlink()
+    return dict(wall_s=wall, peak_rss_kb=rss, mapped=mapped, paf_sha=h.hexdigest()[:16],
+                stages={s: float(timers.get(s, 0.0)) for s in STAGES})
 
 
 def run_ladder(a: argparse.Namespace) -> int:
@@ -262,23 +291,28 @@ def run_ladder(a: argparse.Namespace) -> int:
             got = [r for r in raw if r["threads"] == threads and r["rung"] == i]
             rows.append(dict(
                 threads=threads, rung=i, label=rung_label(i), row=rung_row(i),
-                switch="" if i == 0 else LADDER[i - 1][1],
+                switch="" if i == 0 else LADDER[i - 1][1], stage=rung_stage(i),
                 ablated=",".join(switches_at(i)),
                 wall_s=round(statistics.median(g["wall_s"] for g in got), 3),
                 wall_min_s=round(min(g["wall_s"] for g in got), 3),
                 wall_max_s=round(max(g["wall_s"] for g in got), 3),
                 peak_rss_kb=int(statistics.median(g["peak_rss_kb"] for g in got)),
-                mapped=got[0]["mapped"], paf_sha=got[0]["paf_sha"]))
+                mapped=got[0]["mapped"], paf_sha=got[0]["paf_sha"],
+                **{f"s_{s}": round(statistics.median(g["stages"][s] for g in got), 3)
+                   for s in STAGES}))
 
     outdir = SET_ROOT / arch() / "current"
     outdir.mkdir(parents=True, exist_ok=True)
-    cols = ["threads", "rung", "label", "row", "switch", "ablated", "wall_s",
-            "wall_min_s", "wall_max_s", "peak_rss_kb", "mapped", "paf_sha"]
+    cols = (["threads", "rung", "label", "row", "switch", "stage", "ablated",
+             "wall_s", "wall_min_s", "wall_max_s", "peak_rss_kb", "mapped", "paf_sha"]
+            + [f"s_{s}" for s in STAGES])
     with open(outdir / "ladder.tsv", "w") as fo:
         fo.write("# Cumulative optimization ladder — GENERATED by benchmarks/scripts/ablation.py\n")
         fo.write("# rung 0 has every ablatable optimization off; each rung adds one back.\n")
-        fo.write("# wall_s and peak_rss_kb are medians over the repeats; paf_sha is identical\n")
-        fo.write("# on every row by construction (the run fails otherwise).\n")
+        fo.write("# wall_s, peak_rss_kb and every s_* are medians over the repeats; paf_sha is\n")
+        fo.write("# identical on every row by construction (the run fails otherwise).\n")
+        fo.write("# s_indexing and s_mapping are WALL; every other s_* is CPU summed across\n")
+        fo.write("# workers and will exceed the wall at -@N. Never divide one by the other.\n")
         fo.write("\t".join(cols) + "\n")
         for r in rows:
             fo.write("\t".join(str(r[c]) for c in cols) + "\n")
@@ -341,6 +375,8 @@ def load_ladder(a: str | None = None) -> tuple[list[dict], dict, Path]:
             r[k] = int(r[k])
         for k in ("wall_s", "wall_min_s", "wall_max_s"):
             r[k] = float(r[k])
+        for k in [f"s_{s}" for s in STAGES]:
+            r[k] = float(r.get(k, 0.0) or 0.0)
     return rows, json.loads(m.read_text()), d
 
 
@@ -373,36 +409,86 @@ def header(man: dict, dig: str, comment: str) -> list[str]:
     ]
 
 
-# Two series, distinguished by mark as well as colour: the note is printed in
-# greyscale as often as not.
-SERIES = [("blue!70!black", "*"), ("orange!85!black", "square*")]
+# Two series, one per thread count. Distinguished by fill density as well as
+# hue, because the note is printed in greyscale as often as not and two bars
+# that differ only in colour are then the same bar.
+SERIES = [("blue!70!black", 25), ("orange!85!black", 70)]
+
+
+def decade_ticks(lo: float, hi: float) -> list[str]:
+    """A 1-2-5 tick sequence covering `[lo, hi]`, as plain integers.
+
+    pgfplots' own log ticks read `10^{2.5}`, which is unreadable as a number
+    of megabytes. These are the values a reader would write down.
+    """
+    out: list[str] = []
+    mag = 1.0
+    while mag <= hi * 10:
+        for m in (1, 2, 5):
+            v = mag * m
+            if lo * 0.75 <= v <= hi * 1.4:
+                out.append(f"{v:g}")
+        mag *= 10
+    return out or [f"{lo:g}", f"{hi:g}"]
 
 
 def axis(rows: list[dict], threads: list[int], key: str, scale: float,
-         ylabel: str, extra: str = "") -> list[str]:
-    """One panel: rung on x, `key` on y, one plot per thread count."""
+         ylabel: str, spread: bool = False, log: bool = False) -> list[str]:
+    """One panel, as its own tikzpicture: rung on x, `key` on y, one bar per
+    thread count.
+
+    `spread` draws each bar's min..max over the repeats as an error bar. It is
+    on for wall clock and off for peak RSS because only one of the two is
+    noisy: a step whose bar overlaps its neighbour's whiskers has not been
+    resolved by this host, and a reader has to be able to see that rather than
+    be told the median and left to assume it.
+
+    `log` is for peak RSS, where the two series differ by an order of
+    magnitude at the baseline and by a few percent everywhere else. On a
+    linear axis the one-worker series is a flat line under the other's first
+    bar, which reads as "row 1 does nothing at one worker" -- the opposite of
+    what was measured. A log axis is read as ratios, which is what this panel
+    is about.
+    """
+    labels = ",".join("{" + tex_escape(r["label"]) + "}"
+                      for r in rows if r["threads"] == threads[0])
+    vals = [r[key] * scale for r in rows]
     out = [
+        r"\begin{tikzpicture}",
         r"\begin{axis}[",
-        r"  width=0.47\textwidth, height=4.3cm,",
-        r"  ybar, bar width=3.6pt, ymin=0,",
-        r"  xtick=data, xticklabels={" + ",".join(
-            "{" + tex_escape(r["label"]) + "}" for r in rows if r["threads"] == threads[0]) + "},",
-        r"  x tick label style={rotate=40, anchor=east, font=\tiny},",
+        r"  width=0.50\textwidth, height=4.3cm,",
+        r"  ybar, bar width=4pt,",
+        *((rf"  ymode=log, log origin=infty, ymin={min(vals) * 0.55:.4g}, "
+           rf"ymax={max(vals) * 2.2:.4g},",
+           r"  ytick={" + ",".join(decade_ticks(min(vals), max(vals))) + r"},",
+           r"  yticklabels={" + ",".join(decade_ticks(min(vals), max(vals))) + r"},")
+          if log else (r"  ymin=0,",)),
+        r"  xtick=data, xticklabels={" + labels + "},",
+        r"  x tick label style={rotate=35, anchor=east, font=\tiny},",
         r"  y tick label style={font=\tiny}, ylabel style={font=\scriptsize},",
         r"  ylabel={" + ylabel + "},",
-        r"  enlarge x limits=0.08, grid=major, grid style={gray!20},",
-        r"  legend style={font=\tiny, draw=none, fill=none, at={(0.02,0.97)},",
-        r"                anchor=north west, legend columns=1},",
-        *( [f"  {extra}"] if extra else [] ),
+        r"  enlarge x limits=0.07, ymajorgrids, grid style={gray!25},",
+        r"  legend style={font=\tiny, draw=none, fill=none, at={(0.97,0.97)},",
+        r"                anchor=north east, legend columns=1},",
         r"]",
     ]
-    for (colour, mark), t in zip(SERIES, threads):
-        pts = " ".join(f"({r['rung']},{r[key] * scale:.4g})"
-                       for r in rows if r["threads"] == t)
-        out += [rf"\addplot+[{colour}, fill={colour}!35, mark={mark}, mark size=1pt] "
-                rf"coordinates {{{pts}}};",
+    for (colour, density), t in zip(SERIES, threads):
+        series = [r for r in rows if r["threads"] == t]
+        if spread:
+            pts = " ".join(
+                f"({r['rung']},{r[key] * scale:.4g}) "
+                f"+- (0,{max(0.0, r['wall_max_s'] - r[key]) * scale:.4g}) "
+                f"-= (0,{max(0.0, r[key] - r['wall_min_s']) * scale:.4g})"
+                for r in series)
+            style = (rf"draw={colour}, fill={colour}!{density}, "
+                     r"error bars/.cd, y dir=both, y explicit, "
+                     r"error bar style={gray!60, line width=0.4pt}")
+        else:
+            pts = " ".join(f"({r['rung']},{r[key] * scale:.4g})" for r in series)
+            style = rf"draw={colour}, fill={colour}!{density}"
+        out += [rf"\addplot+[{style}] coordinates {{{pts}}};",
                 rf"\addlegendentry{{\texttt{{-@{t}}}}}"]
-    out.append(r"\end{axis}")
+    out += [r"\end{axis}", r"\end{tikzpicture}"]
     return out
 
 
@@ -410,21 +496,25 @@ def build(rows: list[dict], man: dict) -> tuple[str, list[str], list[list]]:
     threads = sorted({r["threads"] for r in rows})
     ordered = sorted(rows, key=lambda r: (r["threads"], r["rung"]))
 
-    body = [r"\begin{tikzpicture}"]
-    body += axis(ordered, threads, "wall_s", 1.0, r"wall (s)")
-    body += [r"\begin{scope}[xshift=0.50\textwidth]"]
-    body += axis(ordered, threads, "peak_rss_kb", 1 / 1024.0, r"peak RSS (MB)")
-    body += [r"\end{scope}", r"\end{tikzpicture}"]
+    body = axis(ordered, threads, "wall_s", 1.0, r"wall (s)", spread=True)
+    body += [r"\hfill"]
+    body += axis(ordered, threads, "peak_rss_kb", 1 / 1024.0,
+                 r"peak RSS (MB, log)", log=True)
 
-    cols = ["threads", "rung", "label", "port_changes_row", "switch_enabled",
-            "still_ablated", "wall_s", "wall_min_s", "wall_max_s", "peak_rss_mb",
-            "speedup_vs_rung0", "rss_ratio_vs_rung0", "step_wall_pct", "mapped", "paf_sha"]
+    cols = (["threads", "rung", "label", "port_changes_row", "switch_enabled",
+             "still_ablated", "wall_s", "wall_min_s", "wall_max_s", "peak_rss_mb",
+             "speedup_vs_rung0", "rss_ratio_vs_rung0", "step_wall_pct",
+             "targeted_stage", "stage_s_prev_rung", "stage_s", "step_stage_pct",
+             "mapped", "paf_sha"]
+            + [f"s_{s}" for s in STAGES])
     data: list[list] = []
     for t in threads:
         series = [r for r in ordered if r["threads"] == t]
         base = series[0]
         for i, r in enumerate(series):
             prev = series[i - 1] if i else None
+            stage = r["stage"]
+            sk = f"s_{stage}" if stage else ""
             data.append([
                 t, r["rung"], r["label"], r["row"] or "", r["switch"], r["ablated"],
                 f"{r['wall_s']:.3f}", f"{r['wall_min_s']:.3f}", f"{r['wall_max_s']:.3f}",
@@ -432,7 +522,13 @@ def build(rows: list[dict], man: dict) -> tuple[str, list[str], list[list]]:
                 f"{base['wall_s'] / r['wall_s']:.3f}" if r["wall_s"] else "",
                 f"{base['peak_rss_kb'] / r['peak_rss_kb']:.3f}" if r["peak_rss_kb"] else "",
                 "" if prev is None else f"{100.0 * (prev['wall_s'] - r['wall_s']) / prev['wall_s']:.1f}",
+                stage,
+                "" if prev is None or not sk else f"{prev[sk]:.3f}",
+                "" if not sk else f"{r[sk]:.3f}",
+                "" if prev is None or not sk or not prev[sk]
+                else f"{100.0 * (prev[sk] - r[sk]) / prev[sk]:.1f}",
                 r["mapped"], r["paf_sha"],
+                *[f"{r[f's_{s}']:.3f}" for s in STAGES],
             ])
     return "\n".join(body), cols, data
 
@@ -450,11 +546,18 @@ def caption(rows: list[dict], man: dict) -> str:
         r"interacting changes have individual values. The two series are the two thread "
         r"counts; the gap between them is row~4, threaded read mapping, which is a "
         r"capability rather than a branch and so cannot be a rung. Row~8 is type- and "
-        r"build-level and is not ablated at all. Left: wall clock. Right: peak resident "
-        r"set --- one worker's genome-sized accumulator is invisible beside the index, "
-        r"but \texttt{-@" + str(threads[-1]) + r"} workers' copies are not, which is the "
+        r"build-level and is not ablated at all. Left: wall clock, bars at the median over "
+        + str(man.get("repeats", "?")) + r" runs of the whole ladder and whiskers at "
+        r"min--max, so a step this host has not resolved is visible as one. The two "
+        r"parallelism rungs cannot move the one-worker series at all --- at "
+        r"\texttt{-@1} both take the serial path in either position --- so their flat "
+        r"steps there are structure, not noise. "
+        r"Right: peak resident set --- one "
+        r"worker's genome-sized accumulator hides under the index-build peak, but "
+        r"\texttt{-@" + str(threads[-1]) + r"} workers' copies do not, which is the "
         r"scaling argument in one picture. Every rung's mapping is byte-identical; the "
-        r"run fails otherwise. Numbers in \texttt{" + NAME + r".tsv}."
+        r"run fails otherwise. Numbers, per-stage timers and the spread behind every bar "
+        r"in \texttt{" + tex_escape(NAME) + r".tsv}."
     )
 
 
@@ -462,7 +565,7 @@ def render(rows: list[dict], man: dict, dig: str) -> dict[str, str]:
     body, cols, data = build(rows, man)
     tex = "\n".join([
         *header(man, dig, "%"), "%",
-        r"\begin{figure*}[t]", r"\centering", body,
+        r"\begin{figure*}[!t]", r"\centering", body,
         r"\caption{" + caption(rows, man) + "}",
         r"\label{fig:ablation}", r"\end{figure*}", "",
     ])
@@ -512,12 +615,12 @@ def provenance(rows: list[dict], man: dict, dig: str) -> str:
         "Cumulative and left to right: rung 0 has every ablatable optimization off, and each",
         "rung switches exactly one more back on.",
         "",
-        "| rung | label | PORT_CHANGES row | switch turned back on |",
-        "|---|---|---|---|",
-        "| 0 | " + BASELINE + " | — | — (all off) |",
+        "| rung | label | PORT_CHANGES row | switch turned back on | stage that row targets |",
+        "|---|---|---|---|---|",
+        "| 0 | " + BASELINE + " | — | — (all off) | — |",
     ]
-    for i, (label, sw, row) in enumerate(LADDER, 1):
-        out.append(f"| {i} | + {label} | {row} | `{sw}` |")
+    for i, (label, sw, row, stage) in enumerate(LADDER, 1):
+        out.append(f"| {i} | + {label} | {row} | `{sw}` | `{stage}` |")
     out += [
         "",
         "## Not on the ladder",
@@ -539,12 +642,27 @@ def provenance(rows: list[dict], man: dict, dig: str) -> str:
         "- Not comparable with `PORT_CHANGES.md`'s per-row effects, which were each measured",
         "  against the build that change landed on, months apart and on other inputs. That is",
         "  the reason this exists.",
+        "- **The wall column and the stage column answer different questions.** A change that",
+        "  removes 40% of the stage it targets can be worth 2% of a run that stage is 5% of.",
+        "  Both are in the `.tsv` (`step_wall_pct`, `step_stage_pct`); the first is what a user",
+        "  pays and the second is the claim `PORT_CHANGES.md` makes for the row. Neither stands",
+        "  in for the other, and a step whose wall column is inside `wall_min_s`..`wall_max_s`",
+        "  of its neighbour has not been resolved by this host and should be read from the stage.",
+        "- **The two parallelism rungs are no-ops in the one-worker series, by construction.**",
+        "  `parallel-index` and `parallel-fasta` both take the serial path at `-@1` whether the",
+        "  switch is on or off, so those two steps measure nothing there and their sign is the",
+        "  host's noise. They are kept in that series rather than blanked so that both series",
+        "  have the same rungs in the same order, which is what makes them comparable.",
+        "- `s_indexing` and `s_mapping` are wall clock; every other `s_*` is CPU summed across",
+        "  workers, so at `-@N` they exceed the wall. Never divide one by the other.",
         "- Peak RSS is the whole process, so at one worker the accumulator sits under the",
         "  index-build peak and row 1 looks free. It is not: the array is per worker, which is",
         f"  what the `-@{threads[-1]}` series shows.",
-        "- This is a chromosome-scale reference on a laptop, not the whole-genome suite. It is",
-        "  a measurement of the *relative* worth of the changes on one input; the absolute",
-        "  end-to-end figures the paper quotes come from the promoted suite result sets.",
+        "- This is a chromosome-scale reference on a laptop, not the whole-genome suite, and at",
+        "  a higher sampling rate than the paper's headline numbers (see `[params.ablation]` in",
+        "  suite.toml for why). It measures the *relative* worth of the changes on one input",
+        "  under a single-variable protocol; the absolute end-to-end figures the paper quotes",
+        "  come from the promoted suite result sets on the benchmark hosts.",
         "",
     ]
     return "\n".join(out)
@@ -579,8 +697,8 @@ def main() -> int:
 
     if a.list:
         print(f"rung 0  {BASELINE:<24} (every ablatable optimization off)")
-        for i, (label, sw, row) in enumerate(LADDER, 1):
-            print(f"rung {i}  + {label:<22} row {row}, switch {sw!r}")
+        for i, (label, sw, row, stage) in enumerate(LADDER, 1):
+            print(f"rung {i}  + {label:<22} row {row}, switch {sw!r}, stage {stage!r}")
         for row, why in sorted(NOT_ABLATED.items()):
             print(f"not a rung: row {row} — {why}")
         return 0
