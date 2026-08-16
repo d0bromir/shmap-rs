@@ -49,18 +49,18 @@ visibly missing rather than quietly.
 
 ## Why this is not the paper's speedup over the C++
 
-The obvious objection to this figure is that the ladder is worth far less end to end
-than the note's headline comparison against the C++, so the two look like they
-contradict each other. They do not, and the reason is that **the ladder's baseline was
-never the C++**: it is the *port* with the ablatable changes switched off, still
-carrying row 8 and every port-level difference that is not a numbered optimization at
-all. The two figures compose, and they compose by multiplication:
+The ladder is worth less end to end than the note's headline comparison against the
+C++, and the reason is that **the ladder's baseline was never the C++**: it is the
+*port* with the ablatable changes switched off. The C++ is the leftmost bar of the
+figure, and the step from it to that baseline is the single largest one in the whole
+comparison -- larger than the entire ladder to its right. The two compose by
+multiplication:
 
 ```
-  C++ / shipped   = 2.22x      measured directly
-  C++ / baseline  = 1.75x      everything the ladder cannot switch off
-  baseline / ship = 1.27x      the whole ladder
-                    1.75 x 1.27 = 2.22x
+  C++ / shipped   = 2.27x      measured directly
+  C++ / baseline  = 1.67x      the port itself: row 8 plus the rewrite
+  baseline / ship = 1.36x      the whole ladder
+                    1.67 x 1.36 = 2.27x
 ```
 
 Measured together, on one input in one sitting, by `ablation.py --reconcile`; the
@@ -68,14 +68,29 @@ numbers are in `reconcile.tsv` beside the ladder. The product has to come back t
 directly measured total, which is what makes this an arithmetic identity a reviewer
 can check rather than an excuse.
 
-Carrying the switches at all costs 1.02x
-(`instrumented` over `shipped`). That is why the rungs are not tilted by the
-instrumentation, and it is also why the switches are not in the shipped mapper.
+**What is in that first step, and what is not.** Row 8 -- matches borrowing their
+seeds, the single-occurrence case stored inline, `lto`, the bounded read-ahead -- is a
+numbered change but a type- and build-level one, so it cannot be a rung. The rest is
+the port as such: a different language, allocator and standard library. This does not
+separate the two, and doing so would need type surgery rather than a switch. What it
+does rule out is the cheap explanation:
 
-One worker throughout, because the C++ is single-threaded by design, and `-x` on none
-of the rows: the C++ has no equivalent, so profiling one side would be measuring the
-instrumentation instead of the program. The ladder itself does use `-x` on every rung,
-where it cancels.
+- build settings are worth 0.98x
+  (`untuned`: the same source at Cargo's stock release profile, without fat LTO or
+  single-codegen builds), so the first bar is not the Rust merely being built harder.
+
+Carrying the switches at all costs 1.08x
+(`instrumented` over `shipped`). That is small enough that the rungs are not
+meaningfully tilted by the instrumentation, and large enough to be one more reason
+the switches are not in the shipped mapper.
+
+One worker throughout, because the C++ is single-threaded by design. No `-x` on the
+rows the ratios are built from -- the C++ has no equivalent, so profiling one side
+would be measuring the instrumentation instead of the program. The ladder itself does
+use `-x` on every rung, where it cancels; `shipped_x` prices exactly that difference,
+at 1.06x, because the figure puts an
+unprofiled C++ bar next to rungs that are profiled. It biases the first step
+*downwards*, so the port is understated there rather than flattered.
 
 ## Read with
 

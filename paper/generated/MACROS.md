@@ -61,9 +61,10 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmAblTopStep` | refine memo | — | Rung that takes the most wall time out, at the widest thread count. | `ablation ladder :: ladder.tsv, largest step in wall_s` |
 | `\shmAblTopStepPct` | 14.4 | % | How much that rung takes out of the rung before it. | `ablation ladder :: ladder.tsv, largest step in wall_s` |
 | `\shmAblTopStepRow` | 3 | — | Its row in PORT_CHANGES.md. | `ablation ladder :: ladder.tsv row` |
-| `\shmAblTotalX` | 2.22 | x | C++ over the shipped mapper on the ladder's own input. | `ablation reconciliation :: reconcile.json ratios.total` |
-| `\shmAblPortX` | 1.75 | x | C++ over the ladder's baseline — what the ladder cannot switch off. | `ablation reconciliation :: reconcile.json ratios.port` |
-| `\shmAblLadderX` | 1.27 | x | The ladder's own end-to-end ratio, one worker, in the same sitting. | `ablation reconciliation :: reconcile.json ratios.ladder` |
+| `\shmAblTotalX` | 2.27 | x | C++ over the shipped mapper on the ladder's own input. | `ablation reconciliation :: reconcile.json ratios.total` |
+| `\shmAblPortX` | 1.67 | x | C++ over the ladder's baseline — what the ladder cannot switch off. | `ablation reconciliation :: reconcile.json ratios.port` |
+| `\shmAblLadderX` | 1.36 | x | The ladder's own end-to-end ratio, one worker, in the same sitting. | `ablation reconciliation :: reconcile.json ratios.ladder` |
+| `\shmAblBuildTuningX` | 0.98 | x | What this repo's lto/codegen-units settings are worth. | `ablation reconciliation :: reconcile.json ratios.build_tuning` |
 | `\shmParamK` | 25 | — | k-mer length. | `benchmarks/data/suite.toml :: params.paper.k` |
 | `\shmParamR` | 0.01 | — | FracMinHash sampling rate. | `benchmarks/data/suite.toml :: params.paper.hashratio` |
 | `\shmParamTheta` | 0.4 | — | Similarity threshold. | `benchmarks/data/suite.toml :: params.paper.threshold` |
@@ -125,6 +126,7 @@ everyone else, both from one computation so they cannot disagree.
 - `\shmAblSpeedupOne` — Not a speedup over the C++, and not the paper's headline figure: it is this binary against itself with its own optimizations switched off.
 - `\shmAblRssRatioMax` — Larger than the one-worker ratio because the accumulator row 1 removes was per worker; that is the measurement, not an artefact.
 - `\shmAblTotalX` — Chromosome scale, so smaller than the whole-genome headline: the accumulator row 1 removes costs the C++ far more at 3.1 Gbp than at 45 Mbp.
+- `\shmAblBuildTuningX` — Measured against the same source at Cargo's stock release profile, so it prices the build settings and nothing else. It is the answer to the cheap explanation of the port step -- that the Rust is merely built harder -- and it does not support that explanation.
 - `\shmRssRatioCap` — The worst cell at the widest thread count -- the least favourable framing of the memory result, quoted so the single-threaded one is not mistaken for the whole story.
 - `\shmScaleXPeak` — One favourable row, not the machine's typical behaviour; read with ScaleXCap, which is the median across every cell.
 - `\shmScaleAPeak` — One favourable row, not the machine's typical behaviour; read with ScaleACap, which is the median across every cell.
