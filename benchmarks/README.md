@@ -45,12 +45,49 @@ in the runner is host-aware. See [`data/README.md`](data/README.md).
 | `scripts/report.py` | regenerates the marked regions of `../RESULTS.md` and `../README.md` |
 | `scripts/charts.py` | draws pie charts of `profiles.tsv` — the picture of the profiling tables |
 | `scripts/paper.py`, `build_pdf.py`, `crossarch.py` | the paper artifacts, per architecture and across them |
+| `scripts/ablation.py` | the cumulative optimization ladder — what each change is worth, one variable at a time |
 | `scripts/reference_mappers.py` | builds the cached external-mapper corpus (once, not per PR) |
 | `scripts/concordance.py` | scores a shmap-rs PAF against a cached external PAF |
 | `scripts/test_*.py` | the unit tests pinning all of the above; every one runs in CI |
 | `results/<suite>/<arch>/current/` | the baseline a PR is compared against — written by `run.py` |
 | `results/<suite>/<arch>/<ver>-<sha>-<date>/` | archived, immutable result sets — written by `run.py` |
+| `results/ablation/<arch>/current/` | the committed optimization ladder — written by `ablation.py --measure` |
 | `results/reference-mappers/<arch>/manifest.json` | external-corpus provenance: versions, commands, counts |
+
+## The ablation ladder
+
+Separate from the suite, and deliberately so. The suite measures the program; the ladder measures
+the *changes*, by switching each one back to the code path it replaced at run time (`SHMAP_ABLATE`)
+and stepping them back on one at a time. One binary, one machine, one compiler, one input, so
+adjacent rungs differ by exactly one change.
+
+**The switches are not in this mapper.** Instrumenting `match_seeds` and the sketching loop
+permanently so that a figure can be drawn is a cost every user pays forever, and the mapper is
+complicated enough. They live on
+[`archive/ablation-instrumentation`](https://github.com/d0bromir/shmap-rs/tree/archive/ablation-instrumentation),
+which is never merged and exists only as the evidence behind the figure. What is kept here is the
+harness, the recorded ladder and the figure:
+
+```
+python3 benchmarks/scripts/ablation.py --list       # the rungs, in order
+python3 benchmarks/scripts/ablation.py              # regenerate the paper figure from the ladder
+python3 benchmarks/scripts/ablation.py --check      # CI: the figure still matches the ladder
+
+# to re-measure, build the instrumented binary first:
+git worktree add /tmp/abl archive/ablation-instrumentation
+cargo build --release --manifest-path /tmp/abl/Cargo.toml
+python3 benchmarks/scripts/ablation.py --measure --binary /tmp/abl/target/release/shmap
+```
+
+`--measure` refuses a binary without the switches rather than measuring the same build at every
+rung: an unknown environment variable is ignored, not an error, so that failure would otherwise
+produce a flat ladder that looks like a finding.
+
+It is not part of the per-PR gate and is not run on the benchmark hosts' schedule: it is a
+standing measurement, committed under `results/ablation/`, refreshed when the optimizations
+themselves change rather than on every merge. Every rung's PAF is compared byte for byte against
+the baseline's, so it doubles as the strictest available check that the changes are output-
+preserving — the run fails rather than reports if one is not.
 
 ## datasets.tsv
 

@@ -175,6 +175,8 @@ was implemented five ways to remove it and net-regressed every time.
 
 \section{The code}
 
+\input{figure_ablation.tex}
+
 Only two of the \shmNumOptimizations{} are instruction-level, and they are last
 because they are worth least. The sketching hot loop precomputes its rotation
 tables, iterates without bounds checks, hashes once per lookup instead of twice,
@@ -193,6 +195,63 @@ bound at six level-one loads per base, so more lanes add pressure where there
 is none to spare, and packing removes the wrong two of those loads. When a
 workload waits on memory, instruction-level effort is the layer with least left
 in it.
+
+\section{What each one is worth}
+
+Table~\ref{tab:optimizations}'s effects were each measured against the build
+that change landed on, months apart and on different inputs. They are real and
+deliberately not refreshed, but they share no baseline, machine or read set,
+and they do not sum --- so the table cannot say how much of the result is
+which change. Figure~\ref{fig:ablation} answers that separately.
+
+Every change is switchable at run time, in one instrumented build, back to the
+code path it replaced. The leftmost bar has all \shmAblRungs{} of them off;
+each bar to the right turns exactly one more back on, in the layer order
+argued above; the rightmost is the shipped build. Adjacent bars therefore
+differ by one change and nothing else --- one binary, one machine, one
+compiler, one input --- which is what makes a step attributable. It is
+attributable to that change \emph{given the ones to its left}, which is the
+only sense in which interacting changes have individual values: what the
+parallel index is worth depends on whether each worker still carries a
+genome-sized accumulator. The whole ladder is run \shmAblRepeats{} times
+round-robin rather than each rung consecutively, so that drift over the
+measurement cannot land on one bar and be read as that change. Every bar's
+mapping is compared byte for byte against the leftmost, and the measurement
+fails rather than reports if one differs --- a stricter test of the exactness
+claim than the suite's, because it holds the input fixed and varies only the
+optimization.
+
+The switches are not in the released mapper, and that is a deliberate cost of
+this figure rather than an oversight. A branch in the seeding loop and a
+scratch buffer that exist only so that a measurement can be taken are paid for
+by everyone who ever runs the program, and the argument of this note is that
+such costs are exactly what to be ruthless about. They live on a branch that
+is archived and never merged, cited from the repository, so the evidence is
+reproducible without the instrumentation being carried forever. The harness
+refuses to run against a build that lacks them rather than quietly measuring
+one binary \shmAblRungs{} times and drawing a flat ladder.
+
+\shmAblNotRungs{} of the \shmNumOptimizations{} cannot be a rung and are
+reported as absent rather than estimated. Threaded read mapping is a
+capability rather than a branch, so it is the gap between the two series
+instead of a step in one; the allocation-and-layout row is type- and
+build-level, so reversing it would be a different binary.
+
+End to end the ladder is \shmAblSpeedupOne$\times$ at one worker and
+\shmAblSpeedupMax$\times$ at \shmAblThreadsMax{}, for
+\shmAblRssRatioOne$\times$ and \shmAblRssRatioMax$\times$ less peak memory;
+the largest single step is \shmAblTopStep{} (row~\shmAblTopStepRow),
+worth \shmAblTopStepPct\% of the bar before it. Three things there are worth
+saying plainly. The memory result is almost entirely one bar, and it is
+\emph{larger} with more workers, because what it removes was per worker ---
+the scaling argument as a measurement rather than as a reason. The two
+parallelism rungs are flat in the one-worker series because at one worker they
+must be: both take the serial path whichever position the switch is in, so
+that pair of steps is structure and not evidence. And this is chromosome scale
+on \shmAblHost{}, a laptop with \shmAblCores{} cores, because the
+pre-optimization accumulator does not fit on that machine once, let alone once
+per worker; the figure is about the relative worth of the changes, not about
+how fast the program is.
 
 \section{What none of them changed}
 

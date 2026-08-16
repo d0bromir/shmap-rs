@@ -56,6 +56,27 @@ Neither supersedes the other — they're different datasets. RESULTS.md is regen
 suite run and is the one to trust for anything current; the depth measurement is kept here
 because it's real evidence at a scale the standing suite doesn't currently cover.
 
+**A third measurement, which answers a question neither of those can.** Every "Effect, measured"
+above is against *the build that change landed on* — months apart, on different inputs, with
+different compilers. Those figures are real, but they share no baseline and they do not sum, so
+they cannot say how much of the end-to-end result is which change. That is what
+[`benchmarks/scripts/ablation.py`](benchmarks/scripts/ablation.py) exists for: every optimization
+here except rows 4 and 8 can be switched back to the code path it replaced at *run time*
+(`SHMAP_ABLATE`), so a cumulative ladder can be measured with one binary, one machine, one
+compiler and one input, varying one change at a time. Every rung's PAF is compared byte for byte
+against the baseline's — a stricter test of the "Exact?" column than the suite's, because it holds
+the input fixed and varies only the optimization — and the run fails rather than reports if one
+differs.
+
+Those switches are **not in this mapper**, and deliberately so: a branch and a scratch buffer in
+`match_seeds` that exist only so a figure can be drawn are paid for by every user, forever. They
+live on [`archive/ablation-instrumentation`](https://github.com/d0bromir/shmap-rs/tree/archive/ablation-instrumentation),
+which is never merged and is kept only as the evidence behind the figure —
+[zip](https://github.com/d0bromir/shmap-rs/archive/refs/heads/archive/ablation-instrumentation.zip).
+`ablation.py` refuses to run against a binary without them rather than silently measuring the same
+build at every rung. Results and provenance:
+[`paper/generated/ABLATION.md`](paper/generated/ABLATION.md).
+
 **A caveat that has to be stated plainly.** The C++ this is measured against is already a tuned
 `-O3 -march=native -flto` build, not a naive baseline — every number above is against an
 optimized implementation, not a straw man. And the comparison favors shmap-rs more as inputs grow:

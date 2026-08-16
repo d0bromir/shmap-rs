@@ -146,6 +146,13 @@ jobs:
       - name: the manuscript's generated numbers are derived correctly
         run: python3 benchmarks/scripts/test_manuscript.py
 
+      # The ladder is the only thing in the repo that claims what an
+      # individual optimization is worth. A ladder that is not actually
+      # cumulative, or that names a switch the binary does not have, still
+      # typesets -- and attributes every step to the wrong change.
+      - name: the ablation ladder is cumulative and complete
+        run: python3 benchmarks/scripts/test_ablation.py
+
   # Generated artifacts are checked against a committed result set, and every
   # result set that exists today was measured on x86_64. Pinned with --arch so
   # the check does not depend on which runner it lands on.
@@ -200,6 +207,15 @@ jobs:
       # does not classify fails inside the generator by name.
       - name: the optimization table matches PORT_CHANGES.md
         run: python3 benchmarks/scripts/optimizations.py --check
+
+      # The ablation ladder is the note's only measurement of what each
+      # optimization is worth, and it is committed rather than re-measured
+      # here -- CI runners are shared and their wall clocks mean nothing. What
+      # is checked is that the figure still matches the ladder it was drawn
+      # from, which is the same guarantee every other artifact gets. Pinned
+      # with --arch for the reason the block above gives.
+      - name: the ablation figure matches its ladder
+        run: python3 benchmarks/scripts/ablation.py --check --arch x86_64
 
       - name: the manuscript's macros match the result sets
         run: python3 benchmarks/scripts/manuscript.py --check
