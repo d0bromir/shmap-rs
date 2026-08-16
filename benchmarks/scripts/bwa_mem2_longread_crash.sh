@@ -143,11 +143,13 @@ echo
 
 echo "6. every benchmark's own reads"
 echo "------------------------------"
-echo "This is what decides skip_benchmarks in suite.toml, per benchmark rather"
-echo "than by assuming one dataset speaks for the rest. B03/B04 are 12.8 kb,"
-echo "roughly half the length of B01/B02/B05, so they are a separate question."
-echo "The 150 bp set is the control: the same binary, index and code path, on"
-echo "the reads the tool was built for."
+echo "200 reads from each, so this is a lower bound on what breaks and NOT a"
+echo "clean bill of health for anything marked ok. The fault is per-batch, so"
+echo "surviving one batch says nothing about surviving six hundred: at full"
+echo "scale B02, B03 and B05 all segfault too (0/3 on a2, after 3:06, 6:42 and"
+echo "2:36, peaking at 259, 108 and 282 GB), which is why suite.toml skips all"
+echo "five long-read benchmarks and not just B01. B01 is the one that fails"
+echo "even here."
 DATA="${DATA:-$HOME/shmap-rs/benchmarks/data/files}"
 bench_case() {   # bench_case <label> <file> [preset args...]
     local label="$1" file="$2"; shift 2

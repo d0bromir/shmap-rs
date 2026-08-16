@@ -197,7 +197,16 @@ def run_one(entry: dict, version: str) -> bool:
     if rc != 0 or not entry["paf"].exists() or entry["paf"].stat().st_size == 0:
         print(f"  !! {entry['mapper']} {entry['benchmark']} failed (rc={rc}), "
               f"cache entry not written")
-        entry["paf"].unlink(missing_ok=True)
+        # Everything the job may have written under its own name, not just the
+        # PAF. A multi-step command line that dies in the middle never reaches
+        # its own `rm`, and bwa-mem2's intermediate SAM for B08 is ~58 GB —
+        # orphaning that on every failed attempt fills the disk silently. The
+        # .time record is kept deliberately: it is how a failure gets
+        # diagnosed, and it is what showed that the long-read crashes peak at
+        # 259-282 GB before dying.
+        for leftover in entry["out_dir"].glob(f"{entry['benchmark']}.*"):
+            if leftover.suffix != ".time":
+                leftover.unlink(missing_ok=True)
         return False
 
     mapped = sum(1 for _ in open(entry["paf"]))

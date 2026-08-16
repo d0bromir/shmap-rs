@@ -600,29 +600,38 @@ cmd = "{binary} mem -t {threads} {reference} {reads} > {out_prefix}.sam && {scri
 output = "prefix"   # writes {out_prefix}.paf itself rather than to stdout
 threads = 32
 role = "peer"
-# IT CRASHES ON OUR LONGEST REAL READS. B01 is skipped and there are no numbers
-# for it. This is not a configuration we failed to find:
+# IT CRASHES ON EVERY LONG-READ BENCHMARK AT FULL SCALE. B01-B05 are skipped
+# and there are no long-read numbers for it. Two rounds of evidence, and the
+# second overturned the first:
 #
-#   `-x pacbio` on D1-HIFI23K (real HiFi, 22-34 kb) against hs1 segfaults
-#   deterministically on BOTH architectures — 60 reads map, 100 do not, and at
-#   100 it dies before emitting a single record. Thread count makes no
-#   difference. `-K` (batch size) only lets 91-95 of 200 records out before the
-#   same fault; nor does relaxing `-r`, nor spelling the preset out by hand,
-#   nor `-x ont2d`. On x86_64 the control — the same reads and index with no
-#   preset at all — is fine, so neither is corrupt. ON aarch64 EVEN THAT
-#   CRASHES: the sse2neon build cannot map those reads under any configuration
-#   tried.
+#   At 200 reads, only B01 (D1-HIFI23K, real HiFi 22-34 kb) segfaults; B02,
+#   B03 and B05 all map cleanly on both architectures. That looked like a
+#   dataset-specific bug and the skip list was narrowed to B01 alone.
 #
-# It is ONLY that dataset. B02 (24 kb simulated), B03/B04 (12.8 kb real HiFi)
-# and B05 (23.8 kb real ONT) all map cleanly on both hosts, which is why the
-# skip list names one benchmark and not five. The first version of this comment
-# claimed all long reads crashed, on the evidence of B01 alone; running every
-# benchmark's own reads is what corrected it, and is section 6 of the report.
+#   At full scale all three of those crash too — SIGSEGV, 0/3, on a2:
+#     B02  125 k reads   died after 3:06, peak RSS 259 GB
+#     B03  243 k reads   died after 6:42, peak RSS 108 GB
+#     B05   92 k reads   died after 2:36, peak RSS 282 GB
+#   `/usr/bin/time` records "Command terminated by signal 11" and the kernel
+#   logged no OOM kill, so it is a genuine segfault rather than the machine
+#   running out of memory — but it happens having claimed up to 75% of a
+#   376 GB host for ~100 k reads.
 #
-# Reproduced and recorded by benchmarks/scripts/bwa_mem2_longread_crash.sh, on
-# both architectures, with the reports committed beside the manifests. The same
-# signature — "Re-allocating SMEM data structures due to enc_qdb" then the
-# fault — is open upstream as issue #133 since 2021-03-08.
+# THE LESSON IS ABOUT THE PROBE, NOT ONLY THE TOOL: a 200-read sample passing
+# is not evidence that a file passes. The fault is per-batch, so surviving one
+# batch says nothing about surviving six hundred. The crash report script says
+# so where it prints its per-benchmark table.
+#
+# On B01 it is unavoidable at any scale: 60 reads map, 100 do not, and it dies
+# before emitting a record. Thread count makes no difference. `-K` only lets
+# 91-95 of 200 records out before the same fault; nor does relaxing `-r`, nor
+# spelling the preset out by hand, nor `-x ont2d`. On x86_64 the control — the
+# same reads and index with no preset — is fine; on aarch64 even that crashes.
+#
+# Reproduced and recorded by benchmarks/scripts/bwa_mem2_longread_crash.sh on
+# both architectures. The same signature — "Re-allocating SMEM data structures
+# due to enc_qdb" then the fault — is open upstream as issue #133 since
+# 2021-03-08.
 #
 # It is not a bug we are entitled to be surprised by. Heng Li closed the
 # long-read support request, issue #4, with: "minimap2 is and will be the
@@ -630,12 +639,10 @@ role = "peer"
 # reads." `-x pacbio` is inherited from bwa and still accepted, but it is not
 # listed in `bwa-mem2 mem --help`.
 #
-# B04 IS NOT SKIPPED BUT IS EXPENSIVE: ~40 h at -t 32, against Winnowmap2's
-# 2.5 h on the same benchmark, because a short-read aligner doing full
-# Smith-Waterman on 2.4 M reads of 12.8 kb is the wrong tool by about 16x.
-# That ratio is itself worth reporting. Build it with an explicit
-# `--only B04` when there is a machine to spare rather than by surprise.
-skip_benchmarks = ["B01"]
+# Hence B06-B08. The only place this tool can be measured is on short reads,
+# which is also the only place shmap-rs had never been measured. That is the
+# comparison, and it is the whole reason those benchmarks exist.
+skip_benchmarks = ["B01", "B02", "B03", "B04", "B05"]
 # No `-x` in the command line above, and none needed: bwa-mem2's DEFAULTS are
 # its short-read configuration. The preset flag exists only for the long-read
 # modes it cannot survive, so leaving it out is both correct and the whole
