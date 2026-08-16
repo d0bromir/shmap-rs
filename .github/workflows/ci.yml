@@ -212,9 +212,10 @@ jobs:
       # optimization is worth, and it is committed rather than re-measured
       # here -- CI runners are shared and their wall clocks mean nothing. What
       # is checked is that the figure still matches the ladder it was drawn
-      # from, which is the same guarantee every other artifact gets.
+      # from, which is the same guarantee every other artifact gets. Pinned
+      # with --arch for the reason the block above gives.
       - name: the ablation figure matches its ladder
-        run: python3 benchmarks/scripts/ablation.py --check
+        run: python3 benchmarks/scripts/ablation.py --check --arch x86_64
 
       - name: the manuscript's macros match the result sets
         run: python3 benchmarks/scripts/manuscript.py --check

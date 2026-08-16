@@ -117,6 +117,22 @@ check("the recorded rows are the ladder's rows",
 check("the result set names the instrumentation it was built from",
       bool(man.get("instrumentation", {}).get("commit")), True)
 
+print("the figure does not depend on which machine draws it")
+# The ladder is measured on one machine, but the paper carries one figure and
+# CI builds it on two architectures. Resolving the result set on arch() alone
+# made this test and `--check` fail on any runner that had not measured a
+# ladder itself -- a red aarch64 job and a green x86_64 one disagreeing about
+# a file neither had touched.
+_real_arch = a.arch
+try:
+    a.arch = lambda: "not-an-architecture"
+    rows_elsewhere, man_elsewhere, _ = a.load_ladder()
+    check("a host with no ladder of its own still resolves the committed one",
+          (len(rows_elsewhere), man_elsewhere["arch"]), (len(measured), man["arch"]))
+    check("and draws byte-identical artifacts", a.build_all()[0], a.build_all(man["arch"])[0])
+finally:
+    a.arch = _real_arch
+
 print("no optimization is silently missing")
 opt_rows, _ = parse_optimizations()
 declared = {row for _, _, row, _ in a.LADDER} | set(a.NOT_ABLATED)

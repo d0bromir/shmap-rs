@@ -419,7 +419,38 @@ def cpu_model() -> str:
 # the figure
 # ---------------------------------------------------------------------------
 
+def committed_arches() -> list[str]:
+    """Architectures that have a committed ladder, in a stable order."""
+    if not SET_ROOT.is_dir():
+        return []
+    return sorted(p.name for p in SET_ROOT.iterdir()
+                  if (p / "current" / "ladder.tsv").exists())
+
+
 def load_ladder(a: str | None = None) -> tuple[list[dict], dict, Path]:
+    """The committed ladder, which is one measurement rather than one per host.
+
+    Result sets are filed per architecture because a wall-clock second belongs
+    to the machine that spent it. But the paper carries *one* ablation figure,
+    and everything derived from it -- the figure, `--check`, the self-test --
+    has to give the same answer wherever it runs. Resolving on `arch()` alone
+    made all three fail on any machine that had not measured a ladder itself,
+    which is how a green x86_64 job and a red aarch64 job could disagree about
+    a file neither of them changed.
+
+    So: the architecture asked for, else this machine's if it has one, else the
+    only one there is. Two committed ladders and no `--arch` is genuinely
+    ambiguous and says so rather than picking.
+    """
+    have = committed_arches()
+    if a is None:
+        if arch() in have:
+            a = arch()
+        elif len(have) == 1:
+            a = have[0]
+        elif have:
+            sys.exit(f"several committed ablation ladders ({', '.join(have)}); "
+                     f"name one with --arch")
     d = SET_ROOT / (a or arch()) / "current"
     t, m = d / "ladder.tsv", d / "manifest.json"
     if not t.exists() or not m.exists():
@@ -725,8 +756,8 @@ def provenance(rows: list[dict], man: dict, dig: str) -> str:
     return "\n".join(out)
 
 
-def build_all() -> tuple[dict[str, str], dict]:
-    rows, man, d = load_ladder()
+def build_all(a: str | None = None) -> tuple[dict[str, str], dict]:
+    rows, man, d = load_ladder(a)
     dig = digest(d)
     files = render(rows, man, dig)
     files["ABLATION.md"] = provenance(rows, man, dig)
@@ -749,6 +780,8 @@ def main() -> int:
     ap.add_argument("--workdir", default="~/ablation-work", help="scratch for PAFs, deleted as it goes")
     ap.add_argument("--verify-full", action="store_true",
                     help="check records and bases too, not just size")
+    ap.add_argument("--arch", help="which committed ladder to draw (default: this machine's, "
+                                  "or the only one committed)")
     ap.add_argument("--out", help=f"output directory (default: {OUT})")
     a = ap.parse_args()
 
@@ -763,7 +796,7 @@ def main() -> int:
     if a.measure:
         return run_ladder(a)
 
-    files, man = build_all()
+    files, man = build_all(a.arch)
     out = Path(a.out) if a.out else OUT
 
     if a.check:
