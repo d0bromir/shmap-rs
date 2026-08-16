@@ -118,8 +118,10 @@ ARCHIVE_ZIP = ("https://github.com/d0bromir/shmap-rs/archive/refs/heads/"
                "archive/ablation-instrumentation.zip")
 ENV = "SHMAP_ABLATE"
 
-# The parameter set the ladder is measured at, and why it is not the paper's:
-# see the comment above `[params.ablation]` in suite.toml.
+# The parameter set the ladder is measured at by default, and why it is not the
+# paper's: see the comment above `[params.ablation]` in suite.toml. A run with
+# a genome-sized reference should pass `--params paper` instead -- the raised
+# sampling rate exists only to compensate for a small reference.
 PARAM_SET = "ablation"
 METRIC = "Containment"
 
@@ -298,7 +300,7 @@ def run_ladder(a: argparse.Namespace) -> int:
         sys.exit(f"no binary at {binary}; build one from {ARCHIVE_BRANCH} — see --help")
     check_instrumented(binary, ref, reads)
 
-    p = suite["params"][PARAM_SET]
+    p = suite["params"][a.params]
     params = ["-k", str(p["k"]), "-r", str(p["hashratio"]), "-t", str(p["threshold"]),
               "-d", str(p["min_diff"]), "-o", str(p["max_overlap"])]
     thread_counts = [int(t) for t in a.threads.split(",")]
@@ -388,7 +390,7 @@ def run_ladder(a: argparse.Namespace) -> int:
         dirty=bool(git("status", "--porcelain")),
         rustc=rustc_version(),
         suite_version=str(suite["suite_version"]),
-        params=PARAM_SET, metric=METRIC, param_flags=params,
+        params=a.params, metric=METRIC, param_flags=params,
         threads=thread_counts, repeats=a.repeats, reduce="median",
         datasets={a.reference: reg[a.reference], a.reads: reg[a.reads]},
         identity_verified="bytes+records+bases" if a.verify_full else "bytes",
@@ -484,7 +486,7 @@ def run_reconcile(a: argparse.Namespace) -> int:
     check_instrumented(instrumented, ref, reads)
     check_no_tracy(cpp)
 
-    p = suite["params"][PARAM_SET]
+    p = suite["params"][a.params]
     params = ["-k", str(p["k"]), "-r", str(p["hashratio"]), "-t", str(p["threshold"]),
               "-d", str(p["min_diff"]), "-o", str(p["max_overlap"]), "-m", METRIC]
     workdir = Path(a.workdir).expanduser()
@@ -567,7 +569,7 @@ def run_reconcile(a: argparse.Namespace) -> int:
         schema=1, kind="ablation-reconciliation",
         host=platform.node(), arch=arch(), cpu_model=cpu_model(),
         repeats=a.repeats, reduce="median", threads=1, profiling=False,
-        params=PARAM_SET, param_flags=params,
+        params=a.params, param_flags=params,
         datasets={a.reference: reg[a.reference], a.reads: reg[a.reads]},
         binaries={"cpp": str(cpp), "cpp_sha256": sha256_file(cpp),
                   "instrumented": str(instrumented), "shipped": str(shipped)},
@@ -1085,6 +1087,9 @@ def main() -> int:
     ap.add_argument("--workdir", default="~/ablation-work", help="scratch for PAFs, deleted as it goes")
     ap.add_argument("--verify-full", action="store_true",
                     help="check records and bases too, not just size")
+    ap.add_argument("--params", default=PARAM_SET,
+                    help=f"suite.toml parameter set to measure at (default: {PARAM_SET}; "
+                         f"use 'paper' for a genome-sized reference)")
     ap.add_argument("--arch", help="which committed ladder to draw (default: this machine's, "
                                   "or the only one committed)")
     ap.add_argument("--out", help=f"output directory (default: {OUT})")
