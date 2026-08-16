@@ -1,6 +1,12 @@
 {
   "schema": 1,
   "kind": "ablation-ladder",
+  "instrumentation": {
+    "branch": "archive/ablation-instrumentation",
+    "commit": "5d2e779462fd74a4ac92e3e0913b56b6b695c729",
+    "zip": "https://github.com/d0bromir/shmap-rs/archive/refs/heads/archive/ablation-instrumentation.zip",
+    "note": "the run-time switches are not in the shipped mapper; this names the never-merged branch the measured binary was built from"
+  },
   "host": "LAPTOP-6S4BOT55",
   "arch": "x86_64",
   "cpu_model": "11th Gen Intel(R) Core(TM) i7-11370H @ 3.30GHz",

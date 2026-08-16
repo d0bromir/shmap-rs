@@ -4,7 +4,7 @@
 % commit:     c06411eb69e5  (working tree dirty)
 % host:       LAPTOP-6S4BOT55 (8 cores)
 % measured:   2026-08-16
-% inputs:     sha256:d06c32ec2ea91505
+% inputs:     sha256:f63de405b3fc3aff
 % provenance: paper/generated/ABLATION.md
 %
 \begin{figure*}[!t]
@@ -50,6 +50,6 @@
 \addlegendentry{\texttt{-@8}}
 \end{axis}
 \end{tikzpicture}
-\caption{Every optimization, put back one at a time. Rung \emph{pre-optimization} runs the shipped binary with every ablatable change switched off (\texttt{SHMAP\_ABLATE}, \texttt{src/ablate.rs}); each rung to its right switches exactly one more back on, in the layer order this note argues. Adjacent rungs therefore differ by one change and nothing else --- same binary, machine, compiler and input --- so a step is that change's worth \emph{given the ones before it}, which is the only sense in which these interacting changes have individual values. The two series are the two thread counts; the gap between them is row~4, threaded read mapping, which is a capability rather than a branch and so cannot be a rung. Row~8 is type- and build-level and is not ablated at all. Left: wall clock, bars at the median over 9 runs of the whole ladder and whiskers at min--max, so a step this host has not resolved is visible as one. The two parallelism rungs cannot move the one-worker series at all --- at \texttt{-@1} both take the serial path in either position --- so their flat steps there are structure, not noise. Right: peak resident set --- one worker's genome-sized accumulator hides under the index-build peak, but \texttt{-@8} workers' copies do not, which is the scaling argument in one picture. Every rung's mapping is byte-identical; the run fails otherwise. Numbers, per-stage timers and the spread behind every bar in \texttt{figure\_ablation.tsv}.}
+\caption{Every optimization, put back one at a time. Rung \emph{pre-optimization} runs one instrumented build with every ablatable change switched off (\texttt{SHMAP\_ABLATE}); each rung to its right switches exactly one more back on, in the layer order this note argues. Adjacent rungs therefore differ by one change and nothing else --- same binary, machine, compiler and input --- so a step is that change's worth \emph{given the ones before it}, which is the only sense in which these interacting changes have individual values. The two series are the two thread counts; the gap between them is row~4, threaded read mapping, which is a capability rather than a branch and so cannot be a rung. Row~8 is type- and build-level and is not ablated at all. Left: wall clock, bars at the median over 9 runs of the whole ladder and whiskers at min--max, so a step this host has not resolved is visible as one. The two parallelism rungs cannot move the one-worker series at all --- at \texttt{-@1} both take the serial path in either position --- so their flat steps there are structure, not noise. Right: peak resident set --- one worker's genome-sized accumulator hides under the index-build peak, but \texttt{-@8} workers' copies do not, which is the scaling argument in one picture. Every rung's mapping is byte-identical; the run fails otherwise. Numbers, per-stage timers and the spread behind every bar in \texttt{figure\_ablation.tsv}.}
 \label{fig:ablation}
 \end{figure*}

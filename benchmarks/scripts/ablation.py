@@ -25,9 +25,16 @@ question has an answer, because these changes interact. (Row 1 removes a
 per-worker genome-sized array; how much rows 5 and 6 are then worth depends
 entirely on whether that array is still there.)
 
-The switches live in the mapper itself (`src/ablate.rs`, `SHMAP_ABLATE`), not
-in a second build. That is the point: a ladder built from nine binaries would
-measure nine compilations as much as nine changes.
+The switches are one branch, not nine builds: a ladder assembled from nine
+separate compilations would measure nine compilations as much as nine changes.
+But they are also *not in the shipped mapper*. Instrumenting a hot loop
+permanently so that a figure can be drawn is a bad trade -- the mapper is
+complex enough, and every branch and buffer that exists only for measurement
+is carried by every user forever. So the switches live on
+`ARCHIVE_BRANCH`, which is never merged, and this script refuses to run
+against a binary that does not have them (see `check_instrumented`). What
+reaches `main` is the harness, the recorded ladder and the figure -- the
+evidence, not the scaffolding.
 
 ---------------------------------------------------------------------------
 The order of the rungs
@@ -99,6 +106,14 @@ NAME = "figure_ablation"
 # One directory per architecture, for the reason layout.py separates result
 # sets: a wall-clock second is a property of the machine that spent it.
 SET_ROOT = RESULTS / "ablation"
+
+# Where the run-time switches live. Deliberately not on any branch that merges:
+# they exist to be measured once and cited, not to be carried by every user of
+# the mapper forever.
+ARCHIVE_BRANCH = "archive/ablation-instrumentation"
+ARCHIVE_ZIP = ("https://github.com/d0bromir/shmap-rs/archive/refs/heads/"
+               "archive/ablation-instrumentation.zip")
+ENV = "SHMAP_ABLATE"
 
 # The parameter set the ladder is measured at, and why it is not the paper's:
 # see the comment above `[params.ablation]` in suite.toml.
@@ -238,6 +253,38 @@ def measure(binary: Path, ref: Path, reads: Path, params: list[str],
                 stages={s: float(timers.get(s, 0.0)) for s in STAGES})
 
 
+def check_instrumented(binary: Path, ref: Path, reads: Path) -> None:
+    """Refuse a binary whose switches do nothing.
+
+    This is the failure this script most needs to be incapable of. `main`'s
+    mapper does not know `SHMAP_ABLATE`, and an unknown environment variable is
+    not an error -- it is ignored. So a ladder run against a stock build would
+    measure the *same binary* at every rung, succeed, agree byte for byte with
+    itself, and draw a flat figure that looks like a finding. Nothing
+    downstream could tell that apart from a real result.
+
+    The instrumented build exits 2 on an unknown switch name, so a deliberately
+    bogus one separates the two cases in one cheap invocation.
+    """
+    r = subprocess.run([str(binary), "-s", str(ref), "-p", str(reads), "-k", "25"],
+                       capture_output=True, text=True,
+                       env={**os.environ, ENV: "__not_a_switch__"})
+    if r.returncode == 2 and "unknown switch" in r.stderr:
+        return
+    sys.exit(
+        f"{binary} is not an instrumented build: it ignored {ENV} instead of "
+        f"rejecting an unknown switch.\n"
+        f"  Every rung would then measure the same binary, agree with itself, and "
+        f"draw a flat ladder that looks like a result.\n"
+        f"  The switches are deliberately not in the shipped mapper. Build from "
+        f"{ARCHIVE_BRANCH}:\n"
+        f"    git worktree add /tmp/abl {ARCHIVE_BRANCH} && cargo build --release "
+        f"--manifest-path /tmp/abl/Cargo.toml\n"
+        f"    python3 benchmarks/scripts/ablation.py --measure "
+        f"--binary /tmp/abl/target/release/shmap\n"
+        f"  or unpack {ARCHIVE_ZIP}")
+
+
 def run_ladder(a: argparse.Namespace) -> int:
     suite = load_suite()
     reg = load_registry()
@@ -245,7 +292,8 @@ def run_ladder(a: argparse.Namespace) -> int:
     reads = verify_dataset(reg, a.reads, a.verify_full)
     binary = Path(a.binary) if a.binary else REPO / "target" / "release" / "shmap"
     if not binary.exists():
-        sys.exit(f"no binary at {binary}; cargo build --release first")
+        sys.exit(f"no binary at {binary}; build one from {ARCHIVE_BRANCH} — see --help")
+    check_instrumented(binary, ref, reads)
 
     p = suite["params"][PARAM_SET]
     params = ["-k", str(p["k"]), "-r", str(p["hashratio"]), "-t", str(p["threshold"]),
@@ -313,6 +361,8 @@ def run_ladder(a: argparse.Namespace) -> int:
         fo.write("# identical on every row by construction (the run fails otherwise).\n")
         fo.write("# s_indexing and s_mapping are WALL; every other s_* is CPU summed across\n")
         fo.write("# workers and will exceed the wall at -@N. Never divide one by the other.\n")
+        fo.write(f"# measured with the run-time switches from {ARCHIVE_BRANCH}, which is never\n")
+        fo.write("# merged: the shipped mapper carries no ablation code. See manifest.json.\n")
         fo.write("\t".join(cols) + "\n")
         for r in rows:
             fo.write("\t".join(str(r[c]) for c in cols) + "\n")
@@ -322,6 +372,13 @@ def run_ladder(a: argparse.Namespace) -> int:
     manifest = dict(
         schema=1,
         kind="ablation-ladder",
+        instrumentation=dict(
+            branch=ARCHIVE_BRANCH,
+            commit=git("rev-parse", ARCHIVE_BRANCH) or git("rev-parse", f"origin/{ARCHIVE_BRANCH}"),
+            zip=ARCHIVE_ZIP,
+            note="the run-time switches are not in the shipped mapper; this names the "
+                 "never-merged branch the measured binary was built from",
+        ),
         host=platform.node(), arch=arch(),
         cpu_model=cpu_model(), cores=os.cpu_count(),
         commit=git("rev-parse", "HEAD"),
@@ -537,8 +594,8 @@ def caption(rows: list[dict], man: dict) -> str:
     threads = sorted({r["threads"] for r in rows})
     return (
         r"Every optimization, put back one at a time. Rung "
-        r"\emph{" + tex_escape(BASELINE) + r"} runs the shipped binary with every "
-        r"ablatable change switched off (\texttt{SHMAP\_ABLATE}, \texttt{src/ablate.rs}); "
+        r"\emph{" + tex_escape(BASELINE) + r"} runs one instrumented build with every "
+        r"ablatable change switched off (\texttt{SHMAP\_ABLATE}); "
         r"each rung to its right switches exactly one more back on, in the layer order "
         r"this note argues. Adjacent rungs therefore differ by one change and nothing "
         r"else --- same binary, machine, compiler and input --- so a step is that change's "

@@ -4,7 +4,7 @@
 # commit:     c06411eb69e5  (working tree dirty)
 # host:       LAPTOP-6S4BOT55 (8 cores)
 # measured:   2026-08-16
-# inputs:     sha256:d06c32ec2ea91505
+# inputs:     sha256:f63de405b3fc3aff
 # provenance: paper/generated/ABLATION.md
 threads	rung	label	port_changes_row	switch_enabled	still_ablated	wall_s	wall_min_s	wall_max_s	peak_rss_mb	speedup_vs_rung0	rss_ratio_vs_rung0	step_wall_pct	targeted_stage	stage_s_prev_rung	stage_s	step_stage_pct	mapped	paf_sha	s_indexing	s_mapping	s_index_reading	s_index_sketching	s_index_collecting	s_index_finalizing	s_query_mapping	s_sketching	s_prepare	s_seeding	s_match_seeds	s_bucket_merge	s_match_rest	s_refine	s_match_rest_for_best2
 1	0	pre-optimization			bucket-array,stream-seeds,refine-memo,packed-sort,parallel-index,parallel-fasta,sketch-loop	15.420	15.030	18.240	362.1	1.000	1.000						25000	1dba79fe54d8add2	0.521	14.717	0.120	0.127	0.253	0.020	13.406	0.861	4.740	4.136	2.520	0.076	5.176	3.798	1.877

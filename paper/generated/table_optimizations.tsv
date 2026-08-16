@@ -2,7 +2,7 @@
 # artifact:   table_optimizations (table)
 # source:     PORT_CHANGES.md (the account of what changed vs the C++)
 # upstream:   pesho-ivanov/shmap @ 63f1103a6e72 (every citation is at it)
-# inputs:     sha256:5fe5f708fbf181a3
+# inputs:     sha256:13e454588da16082
 # provenance: paper/generated/OPTIMIZATIONS.md
 n	layer	change	targets	effect	exact	cpp
 1	data structure	Dense bucket array sized by the read's own half-length, not the reference	Peak memory; incidentally fixed a multithreading speed bug (§1)	~4 MB/worker vs the C++'s constant ~15 GB — the 6.9-7.4x-less-memory headline (RESULTS.md §1) is almost entirely this. On a 6,000-read whole-genome run: `bucket_merge` 1342.1 s → 39.1 s, whole run 1995.6 s → 725.6 s	Yes — byte-identical output; the dense and sparse-fallback paths are tested to agree exactly	buckets.h:76-97

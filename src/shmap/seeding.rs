@@ -1,7 +1,7 @@
 //! `unique_elements_with_info`, `more_seeds_if_cheap`, `match_seeds`.
 
 use super::SHMapper;
-use crate::buckets::{Buckets, BucketsHash};
+use crate::buckets::Buckets;
 use crate::types::{BucketContent, BucketLoc, Kmer, PMatches, QPos, RPos, Seed, Seeds, SegmId};
 
 /// Emits one finished bucket accumulator from [`SHMapper::match_seeds`]'s
@@ -98,9 +98,6 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     pub fn match_seeds(&mut self, p_unique: &Seeds, buckets: &mut Buckets<'idx, AP>, s: QPos) {
         let mut seed_matches: RPos = 0;
         let halflen = buckets.halflen;
-        // Once per read, not per seed or per hit.
-        let ablate_stream = crate::ablate::off(crate::ablate::Opt::StreamSeeds);
-        let mut scratch: BucketsHash<AP> = BucketsHash::new(halflen);
         while (buckets.i as usize) < p_unique.len() && buckets.seeds < s {
             let seed = &p_unique[buckets.i as usize];
             if seed.hits_in_t > 0 {
@@ -112,26 +109,6 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     let content =
                         BucketContent::new(1, 0, if hit.strand == seed.kmer.strand { 1 } else { -1 }, hit.r, hit.r);
                     buckets.add_to_pos(&hit, content);
-                } else if ablate_stream {
-                    // `shmap.h:105-140`'s shape: a scratch hash map per seed,
-                    // accumulating that seed's hits before the `min(occs)`
-                    // clamp, then one merge per distinct bucket. Reused across
-                    // seeds rather than constructed per seed, so this ablation
-                    // measures the hash map and not an allocator.
-                    //
-                    // Bucket order out of the map is arbitrary, and that is
-                    // sound for the same reason the streaming path's is:
-                    // `Buckets` re-derives its results in location order.
-                    let occs = seed.occs_in_p;
-                    scratch.clear();
-                    for hit in self.tidx.multi_hits(seed.kmer.h) {
-                        let content =
-                            BucketContent::new(1, 0, if hit.strand == seed.kmer.strand { 1 } else { -1 }, hit.r, hit.r);
-                        scratch.add_to_pos(hit, content);
-                    }
-                    for (loc, acc) in &scratch.buckets {
-                        flush_slot(buckets, loc.segm_id, loc.b, acc, occs);
-                    }
                 } else {
                     // Streaming replacement for the per-seed `BucketsHash`:
                     // `h2multi[h]` is sorted by `(segm_id, r)`, and within a

@@ -8,11 +8,10 @@ so its failure modes are worth pinning by name. What is checked here:
     of rungs `i+1..`, so two adjacent rungs differ by one change and no other.
     A ladder that got this wrong would still typeset, and every step in it
     would be attributed to the wrong change;
-  - every switch named in `LADDER` exists in `src/ablate.rs`, and every switch
-    `src/ablate.rs` offers is on the ladder. A rung naming a switch the binary
-    does not know exits at rung 0 with an unknown-switch error; a switch the
-    ladder forgets is an optimization silently missing from a figure that
-    claims to account for all of them;
+  - the declared ladder matches the *recorded* one. The switches live on a
+    never-merged branch, so there is no `src/ablate.rs` in this tree to check
+    against; the committed result set is the better witness anyway, because it
+    says what the measured binary was actually told to ablate at each rung;
   - every optimization in `PORT_CHANGES.md` is either a rung or declared in
     `NOT_ABLATED` with a reason -- the same both-directions check the
     optimization table gets, one document further out;
@@ -96,15 +95,27 @@ check("each rung enables the switch it names",
       [next(iter(adjacent[i])) for i in range(len(a.LADDER))],
       [s for _, s, _, _ in a.LADDER])
 
-print("the ladder and the binary agree about what is switchable")
-src = (REPO / "src" / "ablate.rs").read_text()
-in_rust = set(re.findall(r'^\s*\("([a-z-]+)",\s*Opt::', src, re.M))
-in_ladder = {s for _, s, _, _ in a.LADDER}
-check("every rung's switch exists in src/ablate.rs", sorted(in_ladder - in_rust), [])
-check("every switch in src/ablate.rs is a rung", sorted(in_rust - in_ladder), [])
-rows_rust = {int(r) for r in re.findall(r'^\s*\("[a-z-]+",\s*Opt::\w+,\s*(\d+)\)', src, re.M)}
-check("the rows src/ablate.rs claims are the rows the ladder claims",
-      sorted(rows_rust), sorted({row for _, _, row, _ in a.LADDER}))
+print("the ladder and the recorded measurement agree about what was switched")
+# The switches themselves live on a never-merged branch, so there is no
+# src/ablate.rs here to read. The committed ladder is the better witness
+# anyway: it records what the measured binary was actually told to ablate at
+# each rung, so this checks the declaration against the run rather than
+# against source that could drift from it.
+measured, man, _ = a.load_ladder()
+by_rung = {r["rung"]: r for r in measured if r["threads"] == min(x["threads"] for x in measured)}
+check("rung 0 of the recorded run ablated exactly the ladder's switches",
+      sorted(filter(None, by_rung[0]["ablated"].split(","))),
+      sorted(s for _, s, _, _ in a.LADDER))
+check("the last recorded rung ablated nothing",
+      by_rung[max(by_rung)]["ablated"], "")
+check("every recorded rung enables the switch the ladder says it does",
+      [by_rung[i]["switch"] for i in range(1, len(a.LADDER) + 1)],
+      [s for _, s, _, _ in a.LADDER])
+check("the recorded rows are the ladder's rows",
+      [by_rung[i]["row"] for i in range(1, len(a.LADDER) + 1)],
+      [str(row) for _, _, row, _ in a.LADDER])
+check("the result set names the instrumentation it was built from",
+      bool(man.get("instrumentation", {}).get("commit")), True)
 
 print("no optimization is silently missing")
 opt_rows, _ = parse_optimizations()

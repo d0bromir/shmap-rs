@@ -57,16 +57,31 @@ in the runner is host-aware. See [`data/README.md`](data/README.md).
 ## The ablation ladder
 
 Separate from the suite, and deliberately so. The suite measures the program; the ladder measures
-the *changes*, by switching each one back to the code path it replaced at run time (`SHMAP_ABLATE`,
-[`../src/ablate.rs`](../src/ablate.rs)) and stepping them back on one at a time. One binary, one
-machine, one compiler, one input, so adjacent rungs differ by exactly one change:
+the *changes*, by switching each one back to the code path it replaced at run time (`SHMAP_ABLATE`)
+and stepping them back on one at a time. One binary, one machine, one compiler, one input, so
+adjacent rungs differ by exactly one change.
+
+**The switches are not in this mapper.** Instrumenting `match_seeds` and the sketching loop
+permanently so that a figure can be drawn is a cost every user pays forever, and the mapper is
+complicated enough. They live on
+[`archive/ablation-instrumentation`](https://github.com/d0bromir/shmap-rs/tree/archive/ablation-instrumentation),
+which is never merged and exists only as the evidence behind the figure. What is kept here is the
+harness, the recorded ladder and the figure:
 
 ```
 python3 benchmarks/scripts/ablation.py --list       # the rungs, in order
-python3 benchmarks/scripts/ablation.py --measure    # run it (needs the datasets it names)
 python3 benchmarks/scripts/ablation.py              # regenerate the paper figure from the ladder
 python3 benchmarks/scripts/ablation.py --check      # CI: the figure still matches the ladder
+
+# to re-measure, build the instrumented binary first:
+git worktree add /tmp/abl archive/ablation-instrumentation
+cargo build --release --manifest-path /tmp/abl/Cargo.toml
+python3 benchmarks/scripts/ablation.py --measure --binary /tmp/abl/target/release/shmap
 ```
+
+`--measure` refuses a binary without the switches rather than measuring the same build at every
+rung: an unknown environment variable is ignored, not an error, so that failure would otherwise
+produce a flat ladder that looks like a finding.
 
 It is not part of the per-PR gate and is not run on the benchmark hosts' schedule: it is a
 standing measurement, committed under `results/ablation/`, refreshed when the optimizations

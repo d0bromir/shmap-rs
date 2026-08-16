@@ -204,7 +204,7 @@ deliberately not refreshed, but they share no baseline, machine or read set,
 and they do not sum --- so the table cannot say how much of the result is
 which change. Figure~\ref{fig:ablation} answers that separately.
 
-Every change is switchable at run time, in the shipped binary, back to the
+Every change is switchable at run time, in one instrumented build, back to the
 code path it replaced. The leftmost bar has all \shmAblRungs{} of them off;
 each bar to the right turns exactly one more back on, in the layer order
 argued above; the rightmost is the shipped build. Adjacent bars therefore
@@ -220,6 +220,16 @@ mapping is compared byte for byte against the leftmost, and the measurement
 fails rather than reports if one differs --- a stricter test of the exactness
 claim than the suite's, because it holds the input fixed and varies only the
 optimization.
+
+The switches are not in the released mapper, and that is a deliberate cost of
+this figure rather than an oversight. A branch in the seeding loop and a
+scratch buffer that exist only so that a measurement can be taken are paid for
+by everyone who ever runs the program, and the argument of this note is that
+such costs are exactly what to be ruthless about. They live on a branch that
+is archived and never merged, cited from the repository, so the evidence is
+reproducible without the instrumentation being carried forever. The harness
+refuses to run against a build that lacks them rather than quietly measuring
+one binary \shmAblRungs{} times and drawing a flat ladder.
 
 \shmAblNotRungs{} of the \shmNumOptimizations{} cannot be a rung and are
 reported as absent rather than estimated. Threaded read mapping is a

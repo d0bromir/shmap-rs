@@ -4,6 +4,8 @@
 # identical on every row by construction (the run fails otherwise).
 # s_indexing and s_mapping are WALL; every other s_* is CPU summed across
 # workers and will exceed the wall at -@N. Never divide one by the other.
+# measured with the run-time switches from archive/ablation-instrumentation, which is never
+# merged: the shipped mapper carries no ablation code. See manifest.json.
 threads	rung	label	row	switch	stage	ablated	wall_s	wall_min_s	wall_max_s	peak_rss_kb	mapped	paf_sha	s_indexing	s_mapping	s_index_reading	s_index_sketching	s_index_collecting	s_index_finalizing	s_query_mapping	s_sketching	s_prepare	s_seeding	s_match_seeds	s_bucket_merge	s_match_rest	s_refine	s_match_rest_for_best2
 1	0	pre-optimization				bucket-array,stream-seeds,refine-memo,packed-sort,parallel-index,parallel-fasta,sketch-loop	15.42	15.03	18.24	370748	25000	1dba79fe54d8add2	0.521	14.717	0.12	0.127	0.253	0.02	13.406	0.861	4.74	4.136	2.52	0.076	5.176	3.798	1.877
 1	1	+ read-sized buckets	1	bucket-array	bucket_merge	stream-seeds,refine-memo,packed-sort,parallel-index,parallel-fasta,sketch-loop	15.03	14.63	17.44	229428	25000	1dba79fe54d8add2	0.468	14.498	0.117	0.115	0.215	0.019	13.072	0.856	4.502	4.027	2.444	0.075	5.119	3.718	1.843

@@ -61,12 +61,20 @@ above is against *the build that change landed on* — months apart, on differen
 different compilers. Those figures are real, but they share no baseline and they do not sum, so
 they cannot say how much of the end-to-end result is which change. That is what
 [`benchmarks/scripts/ablation.py`](benchmarks/scripts/ablation.py) exists for: every optimization
-here except rows 4 and 8 is switchable back to the code path it replaced at *run time*, in the
-shipped binary (`SHMAP_ABLATE`, [`src/ablate.rs`](src/ablate.rs)), so a cumulative ladder can be
-measured with one binary, one machine, one compiler and one input, varying one change at a time.
-Every rung's PAF is compared byte for byte against the baseline's — a stricter test of the
-"Exact?" column than the suite's, because it holds the input fixed and varies only the
-optimization — and the run fails rather than reports if one differs. Results and provenance:
+here except rows 4 and 8 can be switched back to the code path it replaced at *run time*
+(`SHMAP_ABLATE`), so a cumulative ladder can be measured with one binary, one machine, one
+compiler and one input, varying one change at a time. Every rung's PAF is compared byte for byte
+against the baseline's — a stricter test of the "Exact?" column than the suite's, because it holds
+the input fixed and varies only the optimization — and the run fails rather than reports if one
+differs.
+
+Those switches are **not in this mapper**, and deliberately so: a branch and a scratch buffer in
+`match_seeds` that exist only so a figure can be drawn are paid for by every user, forever. They
+live on [`archive/ablation-instrumentation`](https://github.com/d0bromir/shmap-rs/tree/archive/ablation-instrumentation),
+which is never merged and is kept only as the evidence behind the figure —
+[zip](https://github.com/d0bromir/shmap-rs/archive/refs/heads/archive/ablation-instrumentation.zip).
+`ablation.py` refuses to run against a binary without them rather than silently measuring the same
+build at every rung. Results and provenance:
 [`paper/generated/ABLATION.md`](paper/generated/ABLATION.md).
 
 **A caveat that has to be stated plainly.** The C++ this is measured against is already a tuned
