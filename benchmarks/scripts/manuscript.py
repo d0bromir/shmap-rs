@@ -60,7 +60,7 @@ from run import load_suite  # noqa: E402
 from layout import REPO  # noqa: E402
 from charts import time_stages  # noqa: E402
 from optimizations import LAYER_ORDER, parse as parse_optimizations  # noqa: E402
-from ablation import NOT_ABLATED, load_ladder  # noqa: E402
+from ablation import NOT_ABLATED, load_ladder, reconciliation  # noqa: E402
 from crossarch import (  # noqa: E402
     ArchSet, METRIC_ORDER, REFERENCE, SUBJECT,
     input_digest, load_hosts, load_sets, set_id,
@@ -504,6 +504,21 @@ def _abl_ratio(threads: int | None, key: str) -> str:
     return f2(s[0][key] / s[-1][key])
 
 
+def _abl_ratio_macro(name: str) -> str:
+    """One ratio from the C++/baseline/shipped reconciliation, or `---`.
+
+    Absent whenever no C++ binary was available to measure against, which is
+    most machines. A missing measurement prints as missing rather than being
+    inferred from the ladder, because the whole point of these three is that
+    they were measured together in one sitting.
+    """
+    rec = reconciliation()
+    if not rec:
+        return MISSING
+    v = rec.get("ratios", {}).get(name)
+    return f2(v) if v else MISSING
+
+
 def _abl_biggest_step(threads: int | None) -> tuple[str, float, str]:
     """The rung that takes the most wall time out, as (label, %, row).
 
@@ -702,6 +717,26 @@ MACROS: list[Macro] = [
     Macro("AblTopStepRow", "", "Its row in PORT_CHANGES.md.",
           "ablation ladder :: ladder.tsv row",
           lambda c: _abl_biggest_step(None)[2] or MISSING),
+
+    # -- reconciling the ladder with the C++ comparison ----------------------
+    #
+    # The note quotes two speedups that look like they contradict each other:
+    # 2-3x over the C++, and a ladder worth much less than that end to end.
+    # They compose by multiplication, because the ladder's baseline is the
+    # PORT with seven changes off, not the C++. These three are measured
+    # together on one input so the product is checkable rather than asserted.
+    Macro("AblTotalX", "x", "C++ over the shipped mapper on the ladder's own input.",
+          "ablation reconciliation :: reconcile.json ratios.total",
+          lambda c: _abl_ratio_macro("total"),
+          caveats=("Chromosome scale, so smaller than the whole-genome headline: the "
+                   "accumulator row 1 removes costs the C++ far more at 3.1 Gbp than at "
+                   "45 Mbp.",)),
+    Macro("AblPortX", "x", "C++ over the ladder's baseline — what the ladder cannot switch off.",
+          "ablation reconciliation :: reconcile.json ratios.port",
+          lambda c: _abl_ratio_macro("port")),
+    Macro("AblLadderX", "x", "The ladder's own end-to-end ratio, one worker, in the same sitting.",
+          "ablation reconciliation :: reconcile.json ratios.ladder",
+          lambda c: _abl_ratio_macro("ladder")),
 
     # -- the parameters every headline number is measured at -----------------
     Macro("ParamK", "", "k-mer length.",

@@ -11,7 +11,7 @@
 \centering
 \begin{tikzpicture}
 \begin{axis}[
-  width=0.50\textwidth, height=4.3cm,
+  width=0.50\textwidth, height=4.0cm,
   ybar, bar width=4pt,
   ymin=0,
   xtick=data, xticklabels={{pre-optimization},{+ read-sized buckets},{+ streamed seeds},{+ refine memo},{+ packed sort key},{+ parallel index},{+ parallel FASTA},{+ sketch loop}},
@@ -31,7 +31,7 @@
 \hfill
 \begin{tikzpicture}
 \begin{axis}[
-  width=0.50\textwidth, height=4.3cm,
+  width=0.50\textwidth, height=4.0cm,
   ybar, bar width=4pt,
   ymode=log, log origin=infty, ymin=123.2, ymax=2808,
   ytick={200,500,1000},
@@ -50,6 +50,6 @@
 \addlegendentry{\texttt{-@8}}
 \end{axis}
 \end{tikzpicture}
-\caption{Every optimization, put back one at a time. Rung \emph{pre-optimization} runs one instrumented build with every ablatable change switched off (\texttt{SHMAP\_ABLATE}); each rung to its right switches exactly one more back on, in the layer order this note argues. Adjacent rungs therefore differ by one change and nothing else --- same binary, machine, compiler and input --- so a step is that change's worth \emph{given the ones before it}, which is the only sense in which these interacting changes have individual values. The two series are the two thread counts; the gap between them is row~4, threaded read mapping, which is a capability rather than a branch and so cannot be a rung. Row~8 is type- and build-level and is not ablated at all. Left: wall clock, bars at the median over 9 runs of the whole ladder and whiskers at min--max, so a step this host has not resolved is visible as one. The two parallelism rungs cannot move the one-worker series at all --- at \texttt{-@1} both take the serial path in either position --- so their flat steps there are structure, not noise. Right: peak resident set --- one worker's genome-sized accumulator hides under the index-build peak, but \texttt{-@8} workers' copies do not, which is the scaling argument in one picture. Every rung's mapping is byte-identical; the run fails otherwise. Numbers, per-stage timers and the spread behind every bar in \texttt{figure\_ablation.tsv}.}
+\caption{Every optimization, put back one at a time. Rung \emph{pre-optimization} runs one instrumented build with every ablatable change switched off (\texttt{SHMAP\_ABLATE}); each rung to its right switches exactly one more back on, so adjacent rungs differ by one change and nothing else. The two series are the two thread counts, and the gap between them is row~4; row~8 is not ablatable. Left: wall clock, median over 9 round-robin runs of the whole ladder, whiskers at min--max, so an unresolved step is visible as one. Right: peak resident set, log scale --- one worker's genome-sized accumulator hides under the index-build peak, \texttt{-@8} workers' copies do not. Every rung's mapping is byte-identical; the run fails otherwise. Numbers, per-stage timers and the spread behind every bar in \texttt{figure\_ablation.tsv}; the decomposition against the C++ in \texttt{reconcile.tsv}.}
 \label{fig:ablation}
 \end{figure*}
