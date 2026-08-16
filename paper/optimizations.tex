@@ -201,10 +201,9 @@ in it.
 \section{What each one is worth}
 
 Table~\ref{tab:optimizations}'s effects were each measured against the build
-that change landed on, months apart and on different inputs. They are real and
-deliberately not refreshed, but they share no baseline, machine or read set,
-and they do not sum --- so the table cannot say how much of the result is
-which change. Figure~\ref{fig:ablation} answers that separately.
+that change landed on, months apart and on different inputs. They share no
+baseline, machine or read set and do not sum, so the table cannot say how much
+of the result is which change. Figure~\ref{fig:ablation} answers that.
 
 Every change is switchable at run time, in one instrumented build, back to the
 code path it replaced. The leftmost bar has all \shmAblRungs{} of them off;
@@ -214,32 +213,27 @@ differ by one change and nothing else --- one binary, one machine, one
 compiler, one input --- which is what makes a step attributable, and
 attributable to that change \emph{given the ones to its left}: what the
 parallel index is worth depends on whether each worker still carries a
-genome-sized accumulator. The ladder is run \shmAblRepeats{} times
-round-robin, so drift cannot land on one bar and be read as that change, and
-every bar's mapping is compared byte for byte against the leftmost --- a
-stricter test of the exactness claim than the suite's, because it holds the
-input fixed and varies only the optimization. Those switches are not in the
-released mapper: a branch and a scratch buffer that exist only to be measured
-are paid for by everyone who runs the program, so they live on an archived,
-never-merged branch, and the harness refuses a build that lacks them rather
-than measuring one binary \shmAblRungs{} times and drawing a flat ladder.
+genome-sized accumulator. Every bar's mapping is compared byte for byte
+against the leftmost --- a stricter test of the exactness claim than the
+suite's, because it holds the input fixed and varies only the optimization.
+Those switches are not in the released mapper: a branch and a scratch buffer
+that exist only to be measured are paid for by everyone who runs the program,
+so they live on an archived, never-merged branch, and the harness refuses a
+build that lacks them rather than measuring one binary \shmAblRungs{} times
+and drawing a flat ladder.
 
 \shmAblNotRungs{} of the \shmNumOptimizations{} cannot be a rung and are
-reported as absent rather than estimated. Threaded read mapping is a
-capability rather than a branch, so it is the gap between the two series
-instead of a step in one; the allocation-and-layout row is type- and
-build-level, so reversing it would be a different binary.
+reported as absent rather than estimated: threaded read mapping is a
+capability rather than a branch, so it is the gap between the two series, and
+the allocation-and-layout row is type-level, as below.
 
 End to end the ladder is \shmAblSpeedupOne$\times$ at one worker and
 \shmAblSpeedupMax$\times$ at \shmAblThreadsMax{}, for
 \shmAblRssRatioOne$\times$ and \shmAblRssRatioMax$\times$ less peak memory;
 the largest single step is \shmAblTopStep{} (row~\shmAblTopStepRow), worth
-\shmAblTopStepPct\% of the bar before it. The memory result is almost entirely
-one bar and is \emph{larger} with more workers, because what it removes was
-per worker --- the scaling argument as a measurement rather than a reason. All
-of it is chromosome scale on \shmAblHost{}, a laptop with \shmAblCores{}
-cores, because the pre-optimization accumulator does not fit on that machine
-once, let alone once per worker.
+\shmAblTopStepPct\% of the bar before it. All of it is chromosome scale on
+\shmAblHost{}, a laptop with \shmAblCores{} cores, because the
+pre-optimization accumulator does not fit there once, let alone per worker.
 
 \textbf{The first bar is the largest, and it is not one of the nine.} The step
 from the C++ to \emph{pre-optimization} --- the port itself, before any
@@ -247,20 +241,31 @@ ablatable change is switched back on --- is \shmAblPortX$\times$, against
 \shmAblLadderX$\times$ for the whole ladder to its right; the two compose by
 multiplication and return the \shmAblTotalX$\times$ measured directly between
 the outer bars, which is what makes the decomposition checkable. Two things
-sit in that bar. One is the allocation-and-layout row, a numbered change but a
-type-level one --- matches borrow their seeds, the single-occurrence case is
-stored inline --- so reversing it is a different program rather than a
-different branch, which is why it cannot be a rung. The other is the rewrite
-as such: a different language, allocator and standard library. This note does
-not separate them, and doing so needs type surgery rather than a switch. It
-does rule out the cheap explanation: the same source at the stock release
-profile, without fat link-time optimization, measures
-\shmAblBuildTuningX$\times$ the shipped build --- indistinguishable from it ---
-so the bar is not the Rust being built harder. The layered story covers the
-ladder; the bar before it is the price of the rewrite.
-That total sits below the abstract's range for the reason argued throughout:
-the C++ accumulator costs a slot per five bases of \emph{the reference}, so a
-chromosome flatters it and a genome does not.
+sit in it. One is the allocation-and-layout row: a numbered change, but
+type-level --- matches borrow their seeds, the single-occurrence case is
+stored inline --- so reversing it is a different program, not a different
+branch, which is why it cannot be a rung. The other is the rewrite itself: a
+different language, allocator and standard library. This note does not
+separate them, and doing so needs type surgery rather than a switch. It does
+rule out the cheap explanation: the same source at the stock release profile,
+without fat link-time optimization, measures \shmAblBuildTuningX$\times$ the
+shipped build --- indistinguishable from it --- so the bar is not the Rust
+being built harder.
+
+\textbf{The memory panel shows the mechanism, not the magnitude.} It has to:
+what the accumulator change removes is a slot per \shmMinHalflen{} bases
+\emph{of the reference}, about a fifth of a gigabyte on the chromosome this
+figure uses and over ten on the genome. So the panel reads
+\shmAblRssRatioOne$\times$ at one worker where the whole-genome comparison
+above reads \shmRssRatioMin--\shmRssRatioMax$\times$, \shmRssCpp~GB against
+\shmRssRsMin--\shmRssRsMax~GB. They are not in tension: the smaller is the
+same effect measured where it is small. The panel shows its \emph{shape},
+which is the argument --- the ratio grows with worker count, to
+\shmAblRssRatioMax$\times$, because the array removed was per worker. The
+genome-scale evidence needs no ablation and is already in the suite: the C++'s
+peak RSS moves by \shmRssCppSpreadMB~MB across every benchmark, whose read
+sets differ by more than an order of magnitude in size. A footprint that does
+not notice its input belongs to the reference.
 
 \section{What none of them changed}
 
@@ -269,8 +274,7 @@ claimed: the mapping is byte-identical across every thread count and against
 the C++, ground-truth accuracy is unchanged at \shmAccMin--\shmAccMax\%, and
 any drop in mapped or confident reads blocks a merge.
 Table~\ref{tab:optimizations} is generated from the repository's own account of
-what changed, each row citing upstream at \texttt{\shmCppCommit}, so this note
-cannot drift from the code.
+what changed, each row citing upstream at \texttt{\shmCppCommit}.
 
 \small
 \begin{thebibliography}{9}

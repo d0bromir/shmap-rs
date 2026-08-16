@@ -82,6 +82,8 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmRssRsMin` | 2.58 | GB | Lowest peak RSS of shmap-rs, single-threaded, reference machine. | `current/results.tsv :: peak_rss_kb at threads=1, shmap-rs` |
 | `\shmRssRsMax` | 2.67 | GB | Highest peak RSS of shmap-rs, single-threaded, reference machine. | `current/results.tsv :: peak_rss_kb at threads=1, shmap-rs` |
 | `\shmRssCpp` | 18.85 | GB | Peak RSS of the C++, reference machine (median over cells). | `current/results.tsv :: peak_rss_kb, cpp-shmap` |
+| `\shmRssCppSpreadMB` | 6 | MB | How far the C++'s peak RSS moves across every benchmark. | `current/results.tsv :: peak_rss_kb, cpp-shmap, max minus min` |
+| `\shmMinHalflen` | 5 | — | Bucket half-length floor; the C++ allocates a slot per this many bases of the reference. | `src/buckets.rs :: MIN_HALFLEN` |
 | `\shmRssRatioMin` | 7.0 | x | Smallest peak-RSS advantage over the C++, paired within a cell. | `current/results.tsv :: peak_rss_kb, both implementations` |
 | `\shmRssRatioMax` | 7.3 | x | Largest peak-RSS advantage over the C++, paired within a cell. | `current/results.tsv :: peak_rss_kb, both implementations` |
 | `\shmRssRsFloor` | 1.85 | GB | Lowest peak RSS anywhere in the thread sweep. | `current/results.tsv :: peak_rss_kb, shmap-rs, all thread counts` |
@@ -127,6 +129,7 @@ everyone else, both from one computation so they cannot disagree.
 - `\shmAblRssRatioMax` — Larger than the one-worker ratio because the accumulator row 1 removes was per worker; that is the measurement, not an artefact.
 - `\shmAblTotalX` — Chromosome scale, so smaller than the whole-genome headline: the accumulator row 1 removes costs the C++ far more at 3.1 Gbp than at 45 Mbp.
 - `\shmAblBuildTuningX` — Measured against the same source at Cargo's stock release profile, so it prices the build settings and nothing else. It is the answer to the cheap explanation of the port step -- that the Rust is merely built harder -- and it does not support that explanation.
+- `\shmRssCppSpreadMB` — This is the operational meaning of 'sized by the reference': the read sets behind these cells differ by more than an order of magnitude in size, and the C++'s footprint does not notice. It is why the ablation ladder cannot show the memory result at chromosome scale.
 - `\shmRssRatioCap` — The worst cell at the widest thread count -- the least favourable framing of the memory result, quoted so the single-threaded one is not mistaken for the whole story.
 - `\shmScaleXPeak` — One favourable row, not the machine's typical behaviour; read with ScaleXCap, which is the median across every cell.
 - `\shmScaleAPeak` — One favourable row, not the machine's typical behaviour; read with ScaleACap, which is the median across every cell.
