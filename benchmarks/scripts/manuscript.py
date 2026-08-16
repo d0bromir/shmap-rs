@@ -96,6 +96,11 @@ PARAM_SET = "paper"
 
 CARGO_TOML = REPO / "Cargo.toml"
 
+# The bucket half-length floor, read from the source. The memory argument is
+# arithmetic on this constant -- the C++ allocates a slot per MIN_HALFLEN bases
+# of the reference -- so the paper reads it rather than repeating it.
+BUCKETS_RS = REPO / "src" / "buckets.rs"
+
 # The byline. Taken from the archive record rather than typed into the draft,
 # for the reason every other number here is: the paper and the DOI have to name
 # the same people, and two hand-maintained lists diverge. Zenodo's own split is
@@ -458,6 +463,15 @@ def _optimizations() -> tuple[list[dict], str]:
 _OPT_CACHE: tuple[list[dict], str] | None = None
 
 
+def _min_halflen() -> str:
+    """`MIN_HALFLEN` from the source, not from memory."""
+    try:
+        m = re.search(r"MIN_HALFLEN\s*:\s*\w+\s*=\s*(\d+)", BUCKETS_RS.read_text())
+    except OSError:
+        return MISSING
+    return m.group(1) if m else MISSING
+
+
 def _ablation() -> tuple[list[dict], dict]:
     """The cumulative ablation ladder, parsed once per process.
 
@@ -800,6 +814,17 @@ MACROS: list[Macro] = [
     Macro("RssCpp", "GB", "Peak RSS of the C++, reference machine (median over cells).",
           "current/results.tsv :: peak_rss_kb, cpp-shmap",
           lambda c: agg(f2, statistics.median, c.rss_gb(c.x, REFERENCE))),
+    Macro("RssCppSpreadMB", "MB", "How far the C++'s peak RSS moves across every benchmark.",
+          "current/results.tsv :: peak_rss_kb, cpp-shmap, max minus min",
+          lambda c: (f"{(max(v := c.rss_gb(c.x, REFERENCE)) - min(v)) * 1024:.0f}"
+                     if c.rss_gb(c.x, REFERENCE) else MISSING),
+          caveats=("This is the operational meaning of 'sized by the reference': the read sets "
+                   "behind these cells differ by more than an order of magnitude in size, and "
+                   "the C++'s footprint does not notice. It is why the ablation ladder cannot "
+                   "show the memory result at chromosome scale.",)),
+    Macro("MinHalflen", "", "Bucket half-length floor; the C++ allocates a slot per this many "
+                            "bases of the reference.",
+          "src/buckets.rs :: MIN_HALFLEN", lambda c: _min_halflen()),
     Macro("RssRatioMin", "x", "Smallest peak-RSS advantage over the C++, paired within a cell.",
           "current/results.tsv :: peak_rss_kb, both implementations",
           lambda c: agg(f1, min, c.rss_ratios(c.x))),

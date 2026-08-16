@@ -63,6 +63,8 @@ macro	value	unit	source	meaning
 \shmRssRsMin	2.58	GB	current/results.tsv :: peak_rss_kb at threads=1, shmap-rs	Lowest peak RSS of shmap-rs, single-threaded, reference machine.
 \shmRssRsMax	2.67	GB	current/results.tsv :: peak_rss_kb at threads=1, shmap-rs	Highest peak RSS of shmap-rs, single-threaded, reference machine.
 \shmRssCpp	18.85	GB	current/results.tsv :: peak_rss_kb, cpp-shmap	Peak RSS of the C++, reference machine (median over cells).
+\shmRssCppSpreadMB	6	MB	current/results.tsv :: peak_rss_kb, cpp-shmap, max minus min	How far the C++'s peak RSS moves across every benchmark.
+\shmMinHalflen	5		src/buckets.rs :: MIN_HALFLEN	Bucket half-length floor; the C++ allocates a slot per this many bases of the reference.
 \shmRssRatioMin	7.0	x	current/results.tsv :: peak_rss_kb, both implementations	Smallest peak-RSS advantage over the C++, paired within a cell.
 \shmRssRatioMax	7.3	x	current/results.tsv :: peak_rss_kb, both implementations	Largest peak-RSS advantage over the C++, paired within a cell.
 \shmRssRsFloor	1.85	GB	current/results.tsv :: peak_rss_kb, shmap-rs, all thread counts	Lowest peak RSS anywhere in the thread sweep.

@@ -56,7 +56,7 @@ GENERATED = REPO / "paper" / "generated"
 
 # The documents this repository publishes. A page budget per document, because
 # each one is written to a format: the applications note is two pages, the
-# companion three, and one that quietly grows a page is a submission that
+# companion four, and one that quietly grows a page is a submission that bounces.
 # bounces.
 DOCUMENTS: dict[str, dict] = {
     "manuscript": {
@@ -68,13 +68,14 @@ DOCUMENTS: dict[str, dict] = {
     "optimizations": {
         "tex": REPO / "paper" / "optimizations.tex",
         "pdf": REPO / "paper" / "optimizations.pdf",
-        # Three, not two, and the third is the ablation ladder. A companion
-        # that lists nine optimizations without measuring any of them under a
-        # controlled protocol is the weaker document, and the full-width
-        # figure plus the section that reads it does not fit in two pages
-        # alongside Table 1. Raised deliberately and once, with this note, so
-        # that it stays a budget rather than becoming a habit.
-        "pages": 3,
+        # Grown twice, each time for a measurement the note could not make
+        # before: first the ablation ladder, then the decomposition against
+        # the C++ and the memory scaling that goes with it. A companion that
+        # lists nine optimizations without measuring any of them is the weaker
+        # document, and so is one whose figure appears to contradict its own
+        # headline. Raised deliberately and recorded here so it stays a budget
+        # rather than becoming a habit.
+        "pages": 4,
         "what": "the companion: every optimization, by the layer it acts on",
     },
 }
