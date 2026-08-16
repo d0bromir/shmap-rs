@@ -128,6 +128,33 @@ const PER_READ_COUNTERS: &[&str] = &[
     // threshold, so on its own it says nothing about what refining costs.
     "refined_buckets",
     "refine_memo_hits",
+    // Reads rejected before seeding because their sketch is below
+    // MIN_HALFLEN. Counted rather than merely skipped: these reads were
+    // previously emitting malformed PAF, and a silent rejection would make
+    // the mapped-rate drop that replaces it just as hard to see.
+    "unmappable_short_sketch",
+];
+
+/// Every timer a read can accumulate, registered up front for the same reason
+/// `PER_READ_COUNTERS` is: so the set does not depend on which path the read
+/// took. `range_ratio` panics on an unregistered name and returns 0.0 for a
+/// registered one that never ran, so pre-registering is what makes an early
+/// return safe -- a read rejected before seeding has no `match_seeds` to
+/// report, and reporting zero is both true and what the reader expects.
+const PER_READ_TIMERS: &[&str] = &[
+    "query_mapping",
+    "sketching",
+    "prepare",
+    "seeding",
+    "match_seeds",
+    "bucket_merge",
+    "match_rest",
+    "match_rest_for_best",
+    "match_rest_for_best2",
+    "output",
+    "seed_heuristic",
+    "match_collect",
+    "refine",
 ];
 
 /// Everything a single `map_read` call would otherwise have written
@@ -634,7 +661,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         self.counters.clear();
         self.counters.init(PER_READ_COUNTERS);
         self.timers.clear();
-        self.timers.init(&["seed_heuristic", "match_collect", "refine"]);
+        self.timers.init(PER_READ_TIMERS);
         buckets.clear();
 
         self.timers.start("query_mapping");
@@ -708,17 +735,52 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             ((1.0 - theta2) * m as f64) as QPos + 1
         };
 
-        if AP {
-            buckets.set_halflen(p_seq.len() as QPos);
+        let bucketable = if AP {
+            buckets.set_halflen(p_seq.len() as QPos)
         } else {
-            buckets.set_halflen(m);
-        }
+            buckets.set_halflen(m)
+        };
 
         self.counters.inc("kmers_sketched", m as i64);
         self.counters.inc("kmers", m as i64);
         self.counters.inc("kmers_unique", p_unique.len() as i64);
         self.counters.inc("kmers_seeds", s as i64);
         self.timers.stop("prepare");
+
+        // `set_halflen` returns false when the read's sketch is below
+        // `MIN_HALFLEN`, and its own doc comment says the caller should treat
+        // that as "too small to map". The caller dropped the value, and the
+        // algorithm documentation's `if buckets.halflen < MIN_HALFLEN: goto
+        // unmapped` was simply not implemented.
+        //
+        // What that cost, found by B06: a read of length k or k+1 has one or
+        // two sketched k-mers, and the query interval reported for it is
+        // `read_len - k - 1`, which is -1 and 0 respectively. PAF requires
+        // `0 <= qstart < qend`, so every such read emitted a malformed record —
+        // 172 of them in 41.8 M on B06. The C++ does not merely misreport
+        // here, it segfaults on the same reads (see
+        // benchmarks/scripts/probe_short_read_defect.py).
+        //
+        // Rejecting rather than clamping the coordinate, because the geometry
+        // really is degenerate: below MIN_HALFLEN the dense accumulator is
+        // switched off and a "mapping" rests on one to four k-mers. This also
+        // drops a small number of reads that were previously reported with
+        // VALID coordinates (sketch 3 or 4), which is a real behaviour change
+        // and is why it is stated here rather than described as a coordinate
+        // fix. No read with a sketch of 5 or more is affected, so every
+        // long-read benchmark is byte-identical.
+        if !bucketable {
+            self.counters.inc1("unmappable_short_sketch");
+            self.timers.stop("query_mapping");
+            self.timers.start("output");
+            let unmapped_line = Some(MappingPaf::unmapped_line(query_id, p_seq.len() as QPos));
+            self.timers.stop("output");
+            return Ok(ReadOutput {
+                stdout: String::new(),
+                unmapped_line,
+                paul_row: None,
+            });
+        }
 
         self.timers.start("match_seeds");
         self.match_seeds(&p_unique, buckets, s);
