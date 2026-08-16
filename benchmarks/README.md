@@ -76,8 +76,17 @@ python3 benchmarks/scripts/ablation.py --check      # CI: the figure still match
 # to re-measure, build the instrumented binary first:
 git worktree add /tmp/abl archive/ablation-instrumentation
 cargo build --release --manifest-path /tmp/abl/Cargo.toml
-python3 benchmarks/scripts/ablation.py --measure --binary /tmp/abl/target/release/shmap
+python3 benchmarks/scripts/ablation.py --measure --reference REF-HS1 --reads D6-ONT24K \
+    --params paper --threads 1,8 --repeats 5 --binary /tmp/abl/target/release/shmap
+python3 benchmarks/scripts/ablation.py --reconcile --reference REF-HS1 --reads D6-ONT24K \
+    --params paper --cpp ~/Pesho/shmap/release/shmap --binary /tmp/abl/target/release/shmap
 ```
+
+**Run it on a machine that can hold the accumulator.** The whole point of the first rung is the
+pre-optimization bucket array, which the C++ sizes by the reference — about 15 GB per *worker* on
+the human genome. At `-@8` the baseline rung peaks near 78 GB, so the ladder is measured on
+`galaxy` (128 cores, 246 GB). On a laptop it has to fall back to a chromosome, where the C++'s
+accumulator is a fifth of a gigabyte and the memory result is invisible.
 
 `--measure` refuses a binary without the switches rather than measuring the same build at every
 rung: an unknown environment variable is ignored, not an error, so that failure would otherwise

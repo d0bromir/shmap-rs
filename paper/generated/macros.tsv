@@ -31,21 +31,24 @@ macro	value	unit	source	meaning
 \shmNumParallelOptimizations	3		PORT_CHANGES.md, classified by benchmarks/scripts/optimizations.py	How many exist only because the C++ is single-threaded.
 \shmAblRungs	7		benchmarks/scripts/ablation.py :: LADDER	Optimizations the ladder switches back on, one per rung.
 \shmAblNotRungs	2		benchmarks/scripts/ablation.py :: NOT_ABLATED	Optimizations that cannot be a rung, and are reported as such.
-\shmAblRepeats	9		ablation ladder :: manifest.json repeats	Times the whole ladder was run, round-robin.
-\shmAblHost	LAPTOP-6S4BOT55		ablation ladder :: manifest.json host	Machine the ladder was measured on.
-\shmAblCores	8	cores	ablation ladder :: manifest.json cores	Cores it has.
+\shmAblRepeats	5		ablation ladder :: manifest.json repeats	Times the whole ladder was run, round-robin.
+\shmAblHost	galaxy		ablation ladder :: manifest.json host	Machine the ladder was measured on.
+\shmAblCores	128	cores	ablation ladder :: manifest.json cores	Cores it has.
 \shmAblThreadsMax	8		ablation ladder :: ladder.tsv threads	Widest thread count the ladder was measured at.
-\shmAblSpeedupOne	1.28	x	ablation ladder :: ladder.tsv wall_s, rung 0 over the last rung	End-to-end wall ratio across the whole ladder, one worker.
-\shmAblSpeedupMax	1.62	x	ablation ladder :: ladder.tsv wall_s, rung 0 over the last rung	The same ratio at the widest thread count.
-\shmAblRssRatioOne	1.62	x	ablation ladder :: ladder.tsv peak_rss_kb, rung 0 over the last rung	End-to-end peak-RSS ratio across the ladder, one worker.
-\shmAblRssRatioMax	5.69	x	ablation ladder :: ladder.tsv peak_rss_kb, rung 0 over the last rung	The same ratio at the widest thread count.
-\shmAblTopStep	refine memo		ablation ladder :: ladder.tsv, largest step in wall_s	Rung that takes the most wall time out, at the widest thread count.
-\shmAblTopStepPct	14.4	%	ablation ladder :: ladder.tsv, largest step in wall_s	How much that rung takes out of the rung before it.
-\shmAblTopStepRow	3		ablation ladder :: ladder.tsv row	Its row in PORT_CHANGES.md.
-\shmAblTotalX	2.27	x	ablation reconciliation :: reconcile.json ratios.total	C++ over the shipped mapper on the ladder's own input.
-\shmAblPortX	1.67	x	ablation reconciliation :: reconcile.json ratios.port	C++ over the ladder's baseline — what the ladder cannot switch off.
-\shmAblLadderX	1.36	x	ablation reconciliation :: reconcile.json ratios.ladder	The ladder's own end-to-end ratio, one worker, in the same sitting.
-\shmAblBuildTuningX	0.98	x	ablation reconciliation :: reconcile.json ratios.build_tuning	What this repo's lto/codegen-units settings are worth.
+\shmAblSpeedupOne	1.21	x	ablation ladder :: ladder.tsv wall_s, rung 0 over the last rung	End-to-end wall ratio across the whole ladder, one worker.
+\shmAblSpeedupMax	2.06	x	ablation ladder :: ladder.tsv wall_s, rung 0 over the last rung	The same ratio at the widest thread count.
+\shmAblRssRatioOne	4.19	x	ablation ladder :: ladder.tsv peak_rss_kb, rung 0 over the last rung	End-to-end peak-RSS ratio across the ladder, one worker.
+\shmAblRssRatioMax	36.00	x	ablation ladder :: ladder.tsv peak_rss_kb, rung 0 over the last rung	The same ratio at the widest thread count.
+\shmAblTopStep	parallel FASTA		ablation ladder :: ladder.tsv, largest step in wall_s	Rung that takes the most wall time out, at the widest thread count.
+\shmAblTopStepPct	24.6	%	ablation ladder :: ladder.tsv, largest step in wall_s	How much that rung takes out of the rung before it.
+\shmAblTopStepRow	6		ablation ladder :: ladder.tsv row	Its row in PORT_CHANGES.md.
+\shmAblTotalX	2.64	x	ablation reconciliation :: reconcile.json ratios.total	C++ over the shipped mapper on the ladder's own input.
+\shmAblPortX	2.15	x	ablation reconciliation :: reconcile.json ratios.port	C++ over the ladder's baseline — what the ladder cannot switch off.
+\shmAblLadderX	1.23	x	ablation reconciliation :: reconcile.json ratios.ladder	The ladder's own end-to-end ratio, one worker, in the same sitting.
+\shmAblRssTotalX	7.49	x	ablation reconciliation :: reconcile.json rows, cpp over shipped	Peak RSS of the C++ over the shipped mapper, measured beside the ladder on the whole genome.
+\shmAblRssPortX	1.70	x	ablation reconciliation :: reconcile.json rows, cpp over baseline	How much of that the port itself accounts for.
+\shmAblRssLadderX	4.42	x	ablation reconciliation :: reconcile.json rows, baseline over shipped	How much of it the ladder accounts for.
+\shmAblBuildTuningX	---	x	ablation reconciliation :: reconcile.json ratios.build_tuning	What this repo's lto/codegen-units settings are worth.
 \shmParamK	25		benchmarks/data/suite.toml :: params.paper.k	k-mer length.
 \shmParamR	0.01		benchmarks/data/suite.toml :: params.paper.hashratio	FracMinHash sampling rate.
 \shmParamTheta	0.4		benchmarks/data/suite.toml :: params.paper.threshold	Similarity threshold.

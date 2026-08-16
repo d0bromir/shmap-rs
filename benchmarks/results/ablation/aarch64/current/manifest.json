@@ -7,21 +7,21 @@
     "zip": "https://github.com/d0bromir/shmap-rs/archive/refs/heads/archive/ablation-instrumentation.zip",
     "note": "the run-time switches are not in the shipped mapper; this names the never-merged branch the measured binary was built from"
   },
-  "host": "LAPTOP-6S4BOT55",
-  "arch": "x86_64",
-  "cpu_model": "11th Gen Intel(R) Core(TM) i7-11370H @ 3.30GHz",
-  "cores": 8,
-  "commit": "c06411eb69e58431464dfb9fd089c7db5a50516f",
+  "host": "galaxy",
+  "arch": "aarch64",
+  "cpu_model": "unknown",
+  "cores": 128,
+  "commit": "fbff1afcf41ba3f1d538e76ddab10c2edb7bcdc1",
   "dirty": true,
-  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
-  "suite_version": "1.1",
-  "params": "ablation",
+  "rustc": "unknown",
+  "suite_version": "1.0",
+  "params": "paper",
   "metric": "Containment",
   "param_flags": [
     "-k",
     "25",
     "-r",
-    "0.05",
+    "0.01",
     "-t",
     "0.4",
     "-d",
@@ -33,35 +33,35 @@
     1,
     8
   ],
-  "repeats": 9,
+  "repeats": 5,
   "reduce": "median",
   "datasets": {
-    "REF-CHR21": {
+    "REF-HS1": {
       "kind": "reference",
-      "host": "local-wsl",
-      "path": "/home/dobro/_paper_work/chr21.fa",
-      "rel": "/home/dobro/_paper_work/chr21.fa",
-      "bytes": "45734843",
-      "records": "1",
-      "bases": "45090682"
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa",
+      "rel": "_paper_work/hs1.fa",
+      "bytes": "3179638084",
+      "records": "25",
+      "bases": "3117292070"
     },
-    "LOC-CHR21SIM12K": {
-      "kind": "reads-sim",
-      "host": "local-wsl",
-      "path": "/home/dobro/ablation-work/reads_chr21sim_12k.fa",
-      "rel": "/home/dobro/ablation-work/reads_chr21sim_12k.fa",
-      "bytes": "300901519",
-      "records": "25000",
-      "bases": "300000000"
+    "D6-ONT24K": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/ont24k/reads_ont24k.fa",
+      "rel": "ont24k/reads_ont24k.fa",
+      "bytes": "2193635779",
+      "records": "92220",
+      "bases": "2191178243"
     }
   },
   "identity_verified": "bytes+records+bases",
   "binary": "shmap 1.4.1",
-  "started": "2026-08-16T06:16:15.919707+00:00",
-  "finished": "2026-08-16T06:38:28.063626+00:00",
-  "duration_s": 1332.1,
-  "invocations": 144,
-  "paf_sha": "1dba79fe54d8add2",
+  "started": "2026-08-16T13:35:46.199625+00:00",
+  "finished": "2026-08-16T13:56:03.965934+00:00",
+  "duration_s": 1217.8,
+  "invocations": 80,
+  "paf_sha": "c06e9dfd2761be8e",
   "not_ablated": {
     "4": "threaded read mapping is the gap between the two series, not a step in one",
     "8": "type- and build-level (PMatches inline, Match borrows its Seed, lto=fat) \u2014 reversing it is a different binary, not a different branch"

@@ -212,10 +212,10 @@ of the result is which change. Figure~\ref{fig:ablation} answers that.
 The result being decomposed is Figure~\ref{fig:vscpp}: at one worker, where
 the comparison is like for like, the port is
 \shmSpeedupXMin--\shmSpeedupXMax$\times$ the C++ on the whole genome and uses
-\shmRssRatioMin--\shmRssRatioMax$\times$ less peak memory. The ladder below is
-measured on a chromosome, for the reason its own paragraph gives, so its
-absolute ratios are smaller; what it contributes is which change earned which
-part.
+\shmRssRatioMin--\shmRssRatioMax$\times$ less peak memory. The ladder is
+measured on the whole genome too, and reproduces both --- which is what makes
+it a decomposition of that result rather than a separate story about a smaller
+one.
 
 Every change is switchable at run time, in one instrumented build, back to the
 code path it replaced. The leftmost bar has all \shmAblRungs{} of them off;
@@ -239,13 +239,13 @@ reported as absent rather than estimated: threaded read mapping is a
 capability rather than a branch, so it is the gap between the two series, and
 the allocation-and-layout row is type-level, as below.
 
-End to end the ladder is \shmAblSpeedupOne$\times$ at one worker and
-\shmAblSpeedupMax$\times$ at \shmAblThreadsMax{}, for
-\shmAblRssRatioOne$\times$ and \shmAblRssRatioMax$\times$ less peak memory;
-the largest single step is \shmAblTopStep{} (row~\shmAblTopStepRow), worth
-\shmAblTopStepPct\% of the bar before it. All of it is chromosome scale on
-\shmAblHost{}, a laptop with \shmAblCores{} cores, because the
-pre-optimization accumulator does not fit there once, let alone per worker.
+Measured on the whole genome on \shmAblHost{}, which has \shmAblCores{} cores
+and the memory to hold the pre-optimization accumulator once per worker ---
+the reason this figure could not be produced on a smaller machine. End to end
+the C++ is \shmAblTotalX$\times$ the shipped mapper here and uses
+\shmAblRssTotalX$\times$ the peak memory, which is the headline of
+Figure~\ref{fig:vscpp} reproduced inside the ladder's own protocol; both
+decompose across the bars.
 
 \textbf{The step into the ladder is the largest, and it is not one of the
 nine.} Getting from the C++ to \emph{pre-optimization} --- the port itself,
@@ -253,9 +253,8 @@ before any ablatable change is switched back on --- is \shmAblPortX$\times$,
 against \shmAblLadderX$\times$ for the whole ladder that follows it; the two
 compose by multiplication and return the \shmAblTotalX$\times$ measured
 directly between the ends, which is what makes the decomposition checkable.
-It is measured rather than drawn, because the C++ takes no profiling flag and
-the ladder's rungs all carry one. Two things sit in it. One is the allocation-and-layout row: a numbered change, but
-type-level --- matches borrow their seeds, the single-occurrence case is
+Two things sit in it. One is the allocation-and-layout row: a numbered change,
+but type-level --- matches borrow their seeds, the single-occurrence case is
 stored inline --- so reversing it is a different program, not a different
 branch, which is why it cannot be a rung. The other is the rewrite itself: a
 different language, allocator and standard library. This note does not
@@ -265,20 +264,19 @@ without fat link-time optimization, measures \shmAblBuildTuningX$\times$ the
 shipped build --- indistinguishable from it --- so the bar is not the Rust
 being built harder.
 
-\textbf{The memory panel shows the mechanism, not the magnitude.} It has to:
-what the accumulator change removes is a slot per \shmMinHalflen{} bases
-\emph{of the reference}, about a fifth of a gigabyte on the chromosome this
-figure uses and over ten on the genome. So the panel reads
-\shmAblRssRatioOne$\times$ at one worker where the whole-genome comparison
-above reads \shmRssRatioMin--\shmRssRatioMax$\times$, \shmRssCpp~GB against
-\shmRssRsMin--\shmRssRsMax~GB. They are not in tension: the smaller is the
-same effect measured where it is small. The panel shows its \emph{shape},
-which is the argument --- the ratio grows with worker count, to
-\shmAblRssRatioMax$\times$, because the array removed was per worker. The
-genome-scale evidence needs no ablation and is already in the suite: the C++'s
-peak RSS moves by \shmRssCppSpreadMB~MB across every benchmark, whose read
-sets differ by more than an order of magnitude in size. A footprint that does
-not notice its input belongs to the reference.
+\textbf{Memory is where the layering is starkest.} The
+\shmAblRssTotalX$\times$ splits \shmAblRssPortX$\times$ for the port against
+\shmAblRssLadderX$\times$ for the ladder, and almost all of the second is one
+bar: the accumulator the C++ sizes by the reference, a slot per
+\shmMinHalflen{} bases of it. That is why the C++'s own footprint barely moves
+between benchmarks --- \shmRssCppSpreadMB~MB across read sets differing by
+more than an order of magnitude in size --- and it is why the ratio in the
+right-hand panel \emph{grows} with worker count, from
+\shmAblRssRatioOne$\times$ at one worker to \shmAblRssRatioMax$\times$ at
+\shmAblThreadsMax{}: the array is per worker, so the thing removed is
+multiplied by the thread count while what remains is not. A footprint that
+does not notice its input belongs to the reference, and that is exactly what
+this change stops paying for.
 
 \section{What none of them changed}
 

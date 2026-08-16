@@ -1,0 +1,97 @@
+{
+  "schema": 1,
+  "kind": "ablation-reconciliation",
+  "host": "galaxy",
+  "arch": "aarch64",
+  "cpu_model": "unknown",
+  "repeats": 5,
+  "reduce": "median",
+  "threads": 1,
+  "profiling": false,
+  "params": "paper",
+  "param_flags": [
+    "-k",
+    "25",
+    "-r",
+    "0.01",
+    "-t",
+    "0.4",
+    "-d",
+    "0.075",
+    "-o",
+    "0.3",
+    "-m",
+    "Containment"
+  ],
+  "datasets": {
+    "REF-HS1": {
+      "kind": "reference",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa",
+      "rel": "_paper_work/hs1.fa",
+      "bytes": "3179638084",
+      "records": "25",
+      "bases": "3117292070"
+    },
+    "D6-ONT24K": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/ont24k/reads_ont24k.fa",
+      "rel": "ont24k/reads_ont24k.fa",
+      "bytes": "2193635779",
+      "records": "92220",
+      "bases": "2191178243"
+    }
+  },
+  "binaries": {
+    "cpp": "/home/mpiuser/Pesho/shmap/release/shmap",
+    "cpp_sha256": "0b1822e809b640ac",
+    "instrumented": "/tmp/abl/target/release/shmap",
+    "shipped": "/home/mpiuser/shmap-rs/target/release/shmap"
+  },
+  "ratios": {
+    "total": 2.6432,
+    "port": 2.1498,
+    "ladder": 1.2295,
+    "instrumentation_overhead": 0.9985,
+    "profiling_overhead": 1.007
+  },
+  "rows": [
+    {
+      "which": "cpp",
+      "what": "the C++ at the pinned commit",
+      "wall_s": 52.97,
+      "peak_rss_mb": 19297.7,
+      "mapped": 39608
+    },
+    {
+      "which": "baseline",
+      "what": "the port with every ablatable optimization switched off",
+      "wall_s": 24.64,
+      "peak_rss_mb": 11369.1,
+      "mapped": 39608
+    },
+    {
+      "which": "instrumented",
+      "what": "the same build with none switched off",
+      "wall_s": 20.01,
+      "peak_rss_mb": 2614.7,
+      "mapped": 39608
+    },
+    {
+      "which": "shipped",
+      "what": "the released mapper, which carries no ablation code at all",
+      "wall_s": 20.04,
+      "peak_rss_mb": 2574.9,
+      "mapped": 39608
+    },
+    {
+      "which": "shipped_x",
+      "what": "the released mapper again, with -x, as the ladder runs it",
+      "wall_s": 20.18,
+      "peak_rss_mb": 2714.8,
+      "mapped": 39608
+    }
+  ],
+  "measured": "2026-08-16T14:10:43.746860+00:00"
+}

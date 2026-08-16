@@ -518,6 +518,17 @@ def _abl_ratio(threads: int | None, key: str) -> str:
     return f2(s[0][key] / s[-1][key])
 
 
+def _abl_rss_ratio(a: str, b: str) -> str:
+    """Peak-RSS ratio between two rows of the reconciliation, measured together."""
+    rec = reconciliation()
+    if not rec:
+        return MISSING
+    rows = {r["which"]: r for r in rec.get("rows", [])}
+    if a not in rows or b not in rows or not rows[b]["peak_rss_mb"]:
+        return MISSING
+    return f2(rows[a]["peak_rss_mb"] / rows[b]["peak_rss_mb"])
+
+
 def _abl_ratio_macro(name: str) -> str:
     """One ratio from the C++/baseline/shipped reconciliation, or `---`.
 
@@ -751,6 +762,16 @@ MACROS: list[Macro] = [
     Macro("AblLadderX", "x", "The ladder's own end-to-end ratio, one worker, in the same sitting.",
           "ablation reconciliation :: reconcile.json ratios.ladder",
           lambda c: _abl_ratio_macro("ladder")),
+    Macro("AblRssTotalX", "x", "Peak RSS of the C++ over the shipped mapper, measured beside "
+                               "the ladder on the whole genome.",
+          "ablation reconciliation :: reconcile.json rows, cpp over shipped",
+          lambda c: _abl_rss_ratio("cpp", "shipped")),
+    Macro("AblRssPortX", "x", "How much of that the port itself accounts for.",
+          "ablation reconciliation :: reconcile.json rows, cpp over baseline",
+          lambda c: _abl_rss_ratio("cpp", "baseline")),
+    Macro("AblRssLadderX", "x", "How much of it the ladder accounts for.",
+          "ablation reconciliation :: reconcile.json rows, baseline over shipped",
+          lambda c: _abl_rss_ratio("baseline", "shipped")),
     Macro("AblBuildTuningX", "x", "What this repo's lto/codegen-units settings are worth.",
           "ablation reconciliation :: reconcile.json ratios.build_tuning",
           lambda c: _abl_ratio_macro("build_tuning"),

@@ -92,6 +92,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shlex
 import statistics
 import subprocess
@@ -374,12 +375,22 @@ def run_ladder(a: argparse.Namespace) -> int:
 
     git = lambda *xs: subprocess.run(["git", "-C", str(REPO), *xs], capture_output=True,
                                      text=True).stdout.strip()
+
+    def rev(ref: str) -> str:
+        """A 40-hex sha or nothing. `git rev-parse` echoes an unresolvable ref
+        back instead of failing, which once recorded a branch name as a commit."""
+        for r in (ref, f"origin/{ref}"):
+            out = git("rev-parse", r)
+            if re.fullmatch(r"[0-9a-f]{40}", out):
+                return out
+        return ""
+
     manifest = dict(
         schema=1,
         kind="ablation-ladder",
         instrumentation=dict(
             branch=ARCHIVE_BRANCH,
-            commit=git("rev-parse", ARCHIVE_BRANCH) or git("rev-parse", f"origin/{ARCHIVE_BRANCH}"),
+            commit=rev(ARCHIVE_BRANCH),
             zip=ARCHIVE_ZIP,
             note="the run-time switches are not in the shipped mapper; this names the "
                  "never-merged branch the measured binary was built from",
@@ -820,22 +831,50 @@ def axis(rows: list[dict], threads: list[int], key: str, scale: float,
     return out
 
 
+def sittings_agree(rows: list[dict], rec: dict, tol: float = 0.05) -> tuple[bool, float]:
+    """Whether the ladder and the reconciliation can share an axis.
+
+    They are separate runs. The C++ bar is worth drawing beside the rungs only
+    if the two agree about the one configuration they both measured -- the
+    shipped mapper -- once the profiling difference between them is taken out.
+    On a quiet benchmark host that is within a percent; on a laptop it was 15%,
+    and drawing them together there showed the port step as 1.45x where
+    measuring it properly gave 1.67x. So this is checked rather than assumed,
+    and the bar is dropped instead of quietly lying.
+    """
+    shipped = next((r for r in rec.get("rows", []) if r["which"] == "shipped"), None)
+    if not shipped:
+        return False, 0.0
+    prof = rec.get("ratios", {}).get("profiling_overhead", 1.0)
+    narrow = min(r["threads"] for r in rows)
+    last = max(r["rung"] for r in rows)
+    ladder_end = next((r["wall_s"] for r in rows
+                       if r["threads"] == narrow and r["rung"] == last), None)
+    if not ladder_end:
+        return False, 0.0
+    drift = ladder_end / (shipped["wall_s"] * prof) - 1.0
+    return abs(drift) <= tol, drift
+
+
 def build(rows: list[dict], man: dict) -> tuple[str, list[str], list[list]]:
     threads = sorted({r["threads"] for r in rows})
     ordered = sorted(rows, key=lambda r: (r["threads"], r["rung"]))
 
-    # Every bar here comes from one sitting of the ladder. The C++ deliberately
-    # does not: it was measured by --reconcile, 15% away from this run beyond
-    # the profiling difference, so drawing it beside these bars showed the port
-    # step as 1.45x where measuring the two together gives 1.67x. The C++
-    # comparison belongs in the figure that measures both sides at once.
+    # The C++ is the thing the ladder is measured away from, so it belongs at
+    # the left of it -- but only when the two runs are comparable.
+    rec = reconciliation(man.get("arch"))
     lead_wall = lead_rss = None
+    if rec:
+        agree, _ = sittings_agree(rows, rec)
+        cpp = next((r for r in rec.get("rows", []) if r["which"] == "cpp"), None)
+        if agree and cpp:
+            lead_wall = (CPP_LABEL, cpp["wall_s"])
+            lead_rss = (CPP_LABEL, cpp["peak_rss_mb"])
 
-    body = axis(ordered, threads, "wall_s", 1.0, r"wall (s), chr21", spread=True,
-                lead=lead_wall)
+    body = axis(ordered, threads, "wall_s", 1.0, r"wall (s)", spread=True, lead=lead_wall)
     body += [r"\hfill"]
     body += axis(ordered, threads, "peak_rss_kb", 1 / 1024.0,
-                 r"peak RSS (MB, log), chr21", log=True, lead=lead_rss)
+                 r"peak RSS (MB, log)", log=True, lead=lead_rss)
 
     cols = (["threads", "rung", "label", "port_changes_row", "switch_enabled",
              "still_ablated", "wall_s", "wall_min_s", "wall_max_s", "peak_rss_mb",
@@ -872,25 +911,32 @@ def build(rows: list[dict], man: dict) -> tuple[str, list[str], list[list]]:
 def caption(rows: list[dict], man: dict) -> str:
     threads = sorted({r["threads"] for r in rows})
     rec = reconciliation(man.get("arch"))
+    ds = ", ".join(sorted(man.get("datasets", {})))
+    agree = sittings_agree(rows, rec)[0] if rec else False
+    ratio = ""
+    if rec:
+        r = rec["ratios"]
+        ratio = (rf"End to end the C++ is {r['total']:.2f}$\times$ the shipped mapper here, "
+                 rf"of which {r['port']:.2f}$\times$ is the port itself and {r['ladder']:.2f}"
+                 r"$\times$ the ladder; the product returns the first. ")
     return (
-        r"Every optimization, put back one at a time, on a 45~Mbp chromosome --- so these "
-        r"are \emph{relative} worths, not the whole-genome result, which is "
-        r"Figure~\ref{fig:vscpp}. "
-        r"\emph{" + tex_escape(BASELINE) + r"} is this port with every ablatable change "
+        r"Every optimization, put back one at a time, on the whole genome ("
+        + tex_escape(ds) + r"). "
+        + (r"The leftmost bar is the C++ itself. " if agree else "")
+        + r"\emph{" + tex_escape(BASELINE) + r"} is this port with every ablatable change "
         r"switched off (\texttt{SHMAP\_ABLATE}); each rung to the right switches exactly "
         r"one more back on, so adjacent rungs differ by one change and nothing else. "
-        r"Getting from the C++ to \emph{" + tex_escape(BASELINE) + r"} is worth a further "
-        + (f"{rec['ratios']['port']:.2f}" if rec else "---")
-        + r"$\times$, measured against both in one sitting rather than drawn here, because "
-        r"the C++ takes no \texttt{-x} and these rungs do. The two series are the two "
-        r"thread counts, and the gap between them is row~4; row~8 is not ablatable. "
-        r"Left: wall clock, median over "
+        + ratio +
+        r"The two series are the two thread counts, and the gap between them is row~4; "
+        r"row~8 is not ablatable, and the C++ is single-threaded so it has no "
+        r"\texttt{-@N} counterpart. Left: wall clock, median over "
         + str(man.get("repeats", "?")) + r" round-robin runs of the whole ladder, whiskers "
-        r"at min--max, so an unresolved step is visible as one. Right: peak resident set, "
-        r"log scale --- one worker's genome-sized accumulator hides under the index-build "
-        r"peak, \texttt{-@" + str(threads[-1]) + r"} workers' copies do not. Every rung's "
-        r"mapping is byte-identical; the run fails otherwise. Numbers and per-stage timers "
-        r"in \texttt{" + tex_escape(NAME) + r".tsv}; the decomposition against the C++ in "
+        r"at min--max. Right: peak resident set, log scale --- the accumulator the first "
+        r"change removes is sized by the reference, so it dominates at genome scale, and "
+        r"it is \emph{per worker}, which is why the \texttt{-@"
+        + str(threads[-1]) + r"} baseline is further above the rest. Every rung's mapping "
+        r"is byte-identical; the run fails otherwise. Numbers and per-stage timers in "
+        r"\texttt{" + tex_escape(NAME) + r".tsv}; the decomposition against the C++ in "
         r"\texttt{reconcile.tsv}."
     )
 
