@@ -11,16 +11,16 @@
 \centering
 \begin{tikzpicture}
 \begin{axis}[
-  width=0.50\textwidth, height=3.6cm,
-  ybar, bar width=4pt,
+  width=0.50\textwidth, height=4.8cm,
+  ybar, bar width=6pt,
   ymin=0,
   xtick={-1,0,1,2,3,4,5,6,7},
   xticklabels={{the C++},{pre-optimization},{+ read-sized buckets},{+ streamed seeds},{+ refine memo},{+ packed sort key},{+ parallel index},{+ parallel FASTA},{+ sketch loop}},
-  x tick label style={rotate=35, anchor=east, font=\tiny},
-  y tick label style={font=\tiny}, ylabel style={font=\scriptsize},
+  x tick label style={rotate=35, anchor=east, font=\scriptsize},
+  y tick label style={font=\scriptsize}, ylabel style={font=\small},
   ylabel={wall (s)},
   enlarge x limits=0.07, ymajorgrids, grid style={gray!25},
-  legend style={font=\tiny, draw=none, fill=none, at={(0.97,0.97)},
+  legend style={font=\scriptsize, draw=none, fill=none, at={(0.97,0.97)},
                 anchor=north east, legend columns=1},
 ]
 \addplot+[draw=black!55, fill=black!55!45] coordinates {(-1,52.97)};
@@ -34,18 +34,18 @@
 \hfill
 \begin{tikzpicture}
 \begin{axis}[
-  width=0.50\textwidth, height=3.6cm,
-  ybar, bar width=4pt,
+  width=0.50\textwidth, height=4.8cm,
+  ybar, bar width=6pt,
   ymode=log, log origin=infty, ymin=1162, ymax=1.718e+05,
   ytick={2000,5000,10000,20000,50000,100000},
   yticklabels={2000,5000,10000,20000,50000,100000},
   xtick={-1,0,1,2,3,4,5,6,7},
   xticklabels={{the C++},{pre-optimization},{+ read-sized buckets},{+ streamed seeds},{+ refine memo},{+ packed sort key},{+ parallel index},{+ parallel FASTA},{+ sketch loop}},
-  x tick label style={rotate=35, anchor=east, font=\tiny},
-  y tick label style={font=\tiny}, ylabel style={font=\scriptsize},
+  x tick label style={rotate=35, anchor=east, font=\scriptsize},
+  y tick label style={font=\scriptsize}, ylabel style={font=\small},
   ylabel={peak RSS (MB, log)},
   enlarge x limits=0.07, ymajorgrids, grid style={gray!25},
-  legend style={font=\tiny, draw=none, fill=none, at={(0.97,0.97)},
+  legend style={font=\scriptsize, draw=none, fill=none, at={(0.97,0.97)},
                 anchor=north east, legend columns=1},
 ]
 \addplot+[draw=black!55, fill=black!55!45] coordinates {(-1,1.93e+04)};
@@ -56,6 +56,6 @@
 \addlegendentry{\texttt{-@8}}
 \end{axis}
 \end{tikzpicture}
-\caption{Every optimization, put back one at a time, on the whole genome (D6-ONT24K, REF-HS1). The leftmost bar is the C++ itself. \emph{pre-optimization} is this port with every ablatable change switched off (\texttt{SHMAP\_ABLATE}); each rung to the right switches exactly one more back on, so adjacent rungs differ by one change and nothing else. End to end the C++ is 2.64$\times$ the shipped mapper here, of which 2.15$\times$ is the port itself and 1.23$\times$ the ladder; the product returns the first. The two series are the two thread counts, and the gap between them is row~4; row~8 is not ablatable, and the C++ is single-threaded so it has no \texttt{-@N} counterpart. Left: wall clock, median over 5 round-robin runs of the whole ladder, whiskers at min--max. Right: peak resident set, log scale --- the accumulator the first change removes is sized by the reference, so it dominates at genome scale, and it is \emph{per worker}, which is why the \texttt{-@8} baseline is further above the rest. Every rung's mapping is byte-identical; the run fails otherwise. Numbers and per-stage timers in \texttt{figure\_ablation.tsv}; the decomposition against the C++ in \texttt{reconcile.tsv}.}
+\caption{Every optimization, put back one at a time, on the whole genome (D6-ONT24K, REF-HS1). The leftmost bar is the C++ itself; \emph{pre-optimization} is this port with every ablatable change switched off (\texttt{SHMAP\_ABLATE}), and each rung to the right switches exactly one more back on, so adjacent rungs differ by one change and nothing else. End to end the C++ is 2.64$\times$ the shipped mapper here, of which 2.15$\times$ is the port itself and 1.23$\times$ the ladder; the product returns the first. The two series are the two thread counts: their gap is row~4, row~8 is not ablatable, and the C++ has no \texttt{-@N} counterpart. Left: wall clock, median of 5 round-robin runs of the whole ladder, whiskers at min--max. Right: peak resident set, log scale; the accumulator the first change removes is sized by the reference and allocated \emph{per worker}, which is why the \texttt{-@8} baseline stands above even the C++. Every rung's mapping is byte-identical; the run fails otherwise. Numbers, per-stage timers and the decomposition in \texttt{figure\_ablation.tsv} and \texttt{reconcile.tsv}.}
 \label{fig:ablation}
 \end{figure*}

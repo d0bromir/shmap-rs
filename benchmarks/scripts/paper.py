@@ -496,7 +496,7 @@ def build_vs_cpp(c: Ctx) -> tuple[str, list[str], list[list]]:
         return [
             r"\begin{tikzpicture}",
             r"\begin{axis}[",
-            r"  width=0.48\textwidth, height=4.2cm, ybar, bar width=9pt, ymin=0,",
+            r"  width=0.48\textwidth, height=3.3cm, ybar, bar width=9pt, ymin=0,",
             r"  xtick={" + ",".join(str(i) for i in range(len(vals))) + "},",
             r"  xticklabels={" + labels + "},",
             r"  x tick label style={font=\small}, y tick label style={font=\small},",

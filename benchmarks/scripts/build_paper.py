@@ -68,14 +68,12 @@ DOCUMENTS: dict[str, dict] = {
     "optimizations": {
         "tex": REPO / "paper" / "optimizations.tex",
         "pdf": REPO / "paper" / "optimizations.pdf",
-        # Grown twice, each time for a measurement the note could not make
-        # before: first the ablation ladder, then the decomposition against
-        # the C++ and the memory scaling that goes with it. A companion that
-        # lists nine optimizations without measuring any of them is the weaker
-        # document, and so is one whose figure appears to contradict its own
-        # headline. Raised deliberately and recorded here so it stays a budget
-        # rather than becoming a habit.
-        "pages": 4,
+        # Grown twice as the note learned to measure itself -- the ablation
+        # ladder, then the decomposition against the C++ -- and brought back
+        # down once the figures could carry what the prose had been narrating.
+        # Anything a caption states is not restated in the body. Kept a budget
+        # rather than a habit.
+        "pages": 3,
         "what": "the companion: every optimization, by the layer it acts on",
     },
 }

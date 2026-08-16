@@ -790,8 +790,8 @@ def axis(rows: list[dict], threads: list[int], key: str, scale: float,
     out = [
         r"\begin{tikzpicture}",
         r"\begin{axis}[",
-        r"  width=0.50\textwidth, height=3.6cm,",
-        r"  ybar, bar width=4pt,",
+        r"  width=0.50\textwidth, height=4.8cm,",
+        r"  ybar, bar width=6pt,",
         *((rf"  ymode=log, log origin=infty, ymin={min(vals) * 0.55:.4g}, "
            rf"ymax={max(vals) * 2.2:.4g},",
            r"  ytick={" + ",".join(decade_ticks(min(vals), max(vals))) + r"},",
@@ -799,11 +799,11 @@ def axis(rows: list[dict], threads: list[int], key: str, scale: float,
           if log else (r"  ymin=0,",)),
         r"  xtick={" + ",".join(str(t) for t in ticks) + "},",
         r"  xticklabels={" + ",".join("{" + l + "}" for l in labels) + "},",
-        r"  x tick label style={rotate=35, anchor=east, font=\tiny},",
-        r"  y tick label style={font=\tiny}, ylabel style={font=\scriptsize},",
+        r"  x tick label style={rotate=35, anchor=east, font=\scriptsize},",
+        r"  y tick label style={font=\scriptsize}, ylabel style={font=\small},",
         r"  ylabel={" + ylabel + "},",
         r"  enlarge x limits=0.07, ymajorgrids, grid style={gray!25},",
-        r"  legend style={font=\tiny, draw=none, fill=none, at={(0.97,0.97)},",
+        r"  legend style={font=\scriptsize, draw=none, fill=none, at={(0.97,0.97)},",
         r"                anchor=north east, legend columns=1},",
         r"]",
     ]
@@ -922,22 +922,21 @@ def caption(rows: list[dict], man: dict) -> str:
     return (
         r"Every optimization, put back one at a time, on the whole genome ("
         + tex_escape(ds) + r"). "
-        + (r"The leftmost bar is the C++ itself. " if agree else "")
+        + (r"The leftmost bar is the C++ itself; " if agree else "")
         + r"\emph{" + tex_escape(BASELINE) + r"} is this port with every ablatable change "
-        r"switched off (\texttt{SHMAP\_ABLATE}); each rung to the right switches exactly "
-        r"one more back on, so adjacent rungs differ by one change and nothing else. "
+        r"switched off (\texttt{SHMAP\_ABLATE}), and each rung to the right switches "
+        r"exactly one more back on, so adjacent rungs differ by one change and nothing "
+        r"else. "
         + ratio +
-        r"The two series are the two thread counts, and the gap between them is row~4; "
-        r"row~8 is not ablatable, and the C++ is single-threaded so it has no "
-        r"\texttt{-@N} counterpart. Left: wall clock, median over "
-        + str(man.get("repeats", "?")) + r" round-robin runs of the whole ladder, whiskers "
-        r"at min--max. Right: peak resident set, log scale --- the accumulator the first "
-        r"change removes is sized by the reference, so it dominates at genome scale, and "
-        r"it is \emph{per worker}, which is why the \texttt{-@"
-        + str(threads[-1]) + r"} baseline is further above the rest. Every rung's mapping "
-        r"is byte-identical; the run fails otherwise. Numbers and per-stage timers in "
-        r"\texttt{" + tex_escape(NAME) + r".tsv}; the decomposition against the C++ in "
-        r"\texttt{reconcile.tsv}."
+        r"The two series are the two thread counts: their gap is row~4, row~8 is not "
+        r"ablatable, and the C++ has no \texttt{-@N} counterpart. Left: wall clock, "
+        r"median of " + str(man.get("repeats", "?")) + r" round-robin runs of the whole "
+        r"ladder, whiskers at min--max. Right: peak resident set, log scale; the "
+        r"accumulator the first change removes is sized by the reference and allocated "
+        r"\emph{per worker}, which is why the \texttt{-@" + str(threads[-1]) + r"} baseline "
+        r"stands above even the C++. Every rung's mapping is byte-identical; the run fails "
+        r"otherwise. Numbers, per-stage timers and the decomposition in \texttt{"
+        + tex_escape(NAME) + r".tsv} and \texttt{reconcile.tsv}."
     )
 
 
