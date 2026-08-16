@@ -11,10 +11,11 @@
 \centering
 \begin{tikzpicture}
 \begin{axis}[
-  width=0.50\textwidth, height=4.0cm,
+  width=0.50\textwidth, height=3.6cm,
   ybar, bar width=4pt,
   ymin=0,
-  xtick=data, xticklabels={{pre-optimization},{+ read-sized buckets},{+ streamed seeds},{+ refine memo},{+ packed sort key},{+ parallel index},{+ parallel FASTA},{+ sketch loop}},
+  xtick={-1,0,1,2,3,4,5,6,7},
+  xticklabels={{the C++},{pre-optimization},{+ read-sized buckets},{+ streamed seeds},{+ refine memo},{+ packed sort key},{+ parallel index},{+ parallel FASTA},{+ sketch loop}},
   x tick label style={rotate=35, anchor=east, font=\tiny},
   y tick label style={font=\tiny}, ylabel style={font=\scriptsize},
   ylabel={wall (s)},
@@ -22,6 +23,8 @@
   legend style={font=\tiny, draw=none, fill=none, at={(0.97,0.97)},
                 anchor=north east, legend columns=1},
 ]
+\addplot+[draw=black!55, fill=black!55!45] coordinates {(-1,22.38)};
+\addlegendentry{the C++}
 \addplot+[draw=blue!70!black, fill=blue!70!black!25, error bars/.cd, y dir=both, y explicit, error bar style={gray!60, line width=0.4pt}] coordinates {(0,15.42) +- (0,2.82) -= (0,0.39) (1,15.03) +- (0,2.41) -= (0,0.4) (2,14.62) +- (0,2.02) -= (0,0.6) (3,12.64) +- (0,2) -= (0,0.42) (4,12.42) +- (0,2.62) -= (0,0.4) (5,12.43) +- (0,2.41) -= (0,0.61) (6,12.62) +- (0,6.43) -= (0,0.39) (7,12.03) +- (0,4.8) -= (0,1.01)};
 \addlegendentry{\texttt{-@1}}
 \addplot+[draw=orange!85!black, fill=orange!85!black!70, error bars/.cd, y dir=both, y explicit, error bar style={gray!60, line width=0.4pt}] coordinates {(0,5.25) +- (0,2.89) -= (0,0.41) (1,4.63) +- (0,3.44) -= (0,0.56) (2,4.23) +- (0,3.23) -= (0,0.21) (3,3.62) +- (0,2.43) -= (0,0.2) (4,3.62) +- (0,2.61) -= (0,0.4) (5,3.43) +- (0,2.21) -= (0,0.21) (6,3.43) +- (0,2.21) -= (0,0.21) (7,3.25) +- (0,2.6) -= (0,0.03)};
@@ -31,12 +34,13 @@
 \hfill
 \begin{tikzpicture}
 \begin{axis}[
-  width=0.50\textwidth, height=4.0cm,
+  width=0.50\textwidth, height=3.6cm,
   ybar, bar width=4pt,
   ymode=log, log origin=infty, ymin=123.2, ymax=2808,
   ytick={200,500,1000},
   yticklabels={200,500,1000},
-  xtick=data, xticklabels={{pre-optimization},{+ read-sized buckets},{+ streamed seeds},{+ refine memo},{+ packed sort key},{+ parallel index},{+ parallel FASTA},{+ sketch loop}},
+  xtick={-1,0,1,2,3,4,5,6,7},
+  xticklabels={{the C++},{pre-optimization},{+ read-sized buckets},{+ streamed seeds},{+ refine memo},{+ packed sort key},{+ parallel index},{+ parallel FASTA},{+ sketch loop}},
   x tick label style={rotate=35, anchor=east, font=\tiny},
   y tick label style={font=\tiny}, ylabel style={font=\scriptsize},
   ylabel={peak RSS (MB, log)},
@@ -44,12 +48,14 @@
   legend style={font=\tiny, draw=none, fill=none, at={(0.97,0.97)},
                 anchor=north east, legend columns=1},
 ]
+\addplot+[draw=black!55, fill=black!55!45] coordinates {(-1,374.7)};
+\addlegendentry{the C++}
 \addplot+[draw=blue!70!black, fill=blue!70!black!25] coordinates {(0,362.1) (1,224.1) (2,226) (3,224.1) (4,224) (5,224.1) (6,224) (7,224.1)};
 \addlegendentry{\texttt{-@1}}
 \addplot+[draw=orange!85!black, fill=orange!85!black!70] coordinates {(0,1276) (1,240.3) (2,242) (3,242.2) (4,242.2) (5,278.3) (6,228.1) (7,224.2)};
 \addlegendentry{\texttt{-@8}}
 \end{axis}
 \end{tikzpicture}
-\caption{Every optimization, put back one at a time. Rung \emph{pre-optimization} runs one instrumented build with every ablatable change switched off (\texttt{SHMAP\_ABLATE}); each rung to its right switches exactly one more back on, so adjacent rungs differ by one change and nothing else. The two series are the two thread counts, and the gap between them is row~4; row~8 is not ablatable. Left: wall clock, median over 9 round-robin runs of the whole ladder, whiskers at min--max, so an unresolved step is visible as one. Right: peak resident set, log scale --- one worker's genome-sized accumulator hides under the index-build peak, \texttt{-@8} workers' copies do not. Every rung's mapping is byte-identical; the run fails otherwise. Numbers, per-stage timers and the spread behind every bar in \texttt{figure\_ablation.tsv}; the decomposition against the C++ in \texttt{reconcile.tsv}.}
+\caption{Every optimization, put back one at a time. The leftmost bar is the C++ itself; \emph{pre-optimization} is this port with every ablatable change switched off (\texttt{SHMAP\_ABLATE}), so the step between those two is the port and nothing else --- the largest step in the figure, and the one the layered story does not cover. Each rung to the right switches exactly one more change back on, so adjacent rungs differ by one change and nothing else. The two series are the two thread counts, and the gap between them is row~4; row~8 is not ablatable, and the C++ is single-threaded so it has no \texttt{-@N} counterpart. Left: wall clock, median over 9 round-robin runs of the whole ladder, whiskers at min--max, so an unresolved step is visible as one. Right: peak resident set, log scale --- one worker's genome-sized accumulator hides under the index-build peak, \texttt{-@8} workers' copies do not. Every rung's mapping is byte-identical; the run fails otherwise. The C++ bar carries no \texttt{-x} (the C++ has no equivalent) while the rungs do, costing 1.06$\times$, so the first step is understated rather than flattered. Numbers and per-stage timers in \texttt{figure\_ablation.tsv}; the decomposition against the C++ in \texttt{reconcile.tsv}.}
 \label{fig:ablation}
 \end{figure*}

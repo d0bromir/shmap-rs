@@ -42,9 +42,10 @@ macro	value	unit	source	meaning
 \shmAblTopStep	refine memo		ablation ladder :: ladder.tsv, largest step in wall_s	Rung that takes the most wall time out, at the widest thread count.
 \shmAblTopStepPct	14.4	%	ablation ladder :: ladder.tsv, largest step in wall_s	How much that rung takes out of the rung before it.
 \shmAblTopStepRow	3		ablation ladder :: ladder.tsv row	Its row in PORT_CHANGES.md.
-\shmAblTotalX	2.22	x	ablation reconciliation :: reconcile.json ratios.total	C++ over the shipped mapper on the ladder's own input.
-\shmAblPortX	1.75	x	ablation reconciliation :: reconcile.json ratios.port	C++ over the ladder's baseline — what the ladder cannot switch off.
-\shmAblLadderX	1.27	x	ablation reconciliation :: reconcile.json ratios.ladder	The ladder's own end-to-end ratio, one worker, in the same sitting.
+\shmAblTotalX	2.27	x	ablation reconciliation :: reconcile.json ratios.total	C++ over the shipped mapper on the ladder's own input.
+\shmAblPortX	1.67	x	ablation reconciliation :: reconcile.json ratios.port	C++ over the ladder's baseline — what the ladder cannot switch off.
+\shmAblLadderX	1.36	x	ablation reconciliation :: reconcile.json ratios.ladder	The ladder's own end-to-end ratio, one worker, in the same sitting.
+\shmAblBuildTuningX	0.98	x	ablation reconciliation :: reconcile.json ratios.build_tuning	What this repo's lto/codegen-units settings are worth.
 \shmParamK	25		benchmarks/data/suite.toml :: params.paper.k	k-mer length.
 \shmParamR	0.01		benchmarks/data/suite.toml :: params.paper.hashratio	FracMinHash sampling rate.
 \shmParamTheta	0.4		benchmarks/data/suite.toml :: params.paper.threshold	Similarity threshold.

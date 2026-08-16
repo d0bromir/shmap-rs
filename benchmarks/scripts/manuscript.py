@@ -737,6 +737,13 @@ MACROS: list[Macro] = [
     Macro("AblLadderX", "x", "The ladder's own end-to-end ratio, one worker, in the same sitting.",
           "ablation reconciliation :: reconcile.json ratios.ladder",
           lambda c: _abl_ratio_macro("ladder")),
+    Macro("AblBuildTuningX", "x", "What this repo's lto/codegen-units settings are worth.",
+          "ablation reconciliation :: reconcile.json ratios.build_tuning",
+          lambda c: _abl_ratio_macro("build_tuning"),
+          caveats=("Measured against the same source at Cargo's stock release profile, so it "
+                   "prices the build settings and nothing else. It is the answer to the "
+                   "cheap explanation of the port step -- that the Rust is merely built "
+                   "harder -- and it does not support that explanation.",)),
 
     # -- the parameters every headline number is measured at -----------------
     Macro("ParamK", "", "k-mer length.",

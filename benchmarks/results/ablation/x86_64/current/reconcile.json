@@ -50,10 +50,56 @@
     "shipped": "/home/dobro/shmap-rs/target/release/shmap"
   },
   "ratios": {
-    "total": 2.2238,
-    "port": 1.7546,
-    "ladder": 1.2674,
-    "instrumentation_overhead": 1.0177
+    "total": 2.2744,
+    "port": 1.6689,
+    "ladder": 1.3628,
+    "instrumentation_overhead": 1.0772,
+    "profiling_overhead": 1.0589,
+    "build_tuning": 0.9766
   },
-  "measured": "2026-08-16T09:02:42.377969+00:00"
+  "rows": [
+    {
+      "which": "cpp",
+      "what": "the C++ at the pinned commit",
+      "wall_s": 22.38,
+      "peak_rss_mb": 374.7,
+      "mapped": 25000
+    },
+    {
+      "which": "baseline",
+      "what": "the port with every ablatable optimization switched off",
+      "wall_s": 13.41,
+      "peak_rss_mb": 334.1,
+      "mapped": 25000
+    },
+    {
+      "which": "instrumented",
+      "what": "the same build with none switched off",
+      "wall_s": 10.6,
+      "peak_rss_mb": 202.0,
+      "mapped": 25000
+    },
+    {
+      "which": "shipped",
+      "what": "the released mapper, which carries no ablation code at all",
+      "wall_s": 9.84,
+      "peak_rss_mb": 202.0,
+      "mapped": 25000
+    },
+    {
+      "which": "shipped_x",
+      "what": "the released mapper again, with -x, as the ladder runs it",
+      "wall_s": 10.42,
+      "peak_rss_mb": 223.9,
+      "mapped": 25000
+    },
+    {
+      "which": "untuned",
+      "what": "the released source at Cargo's default release profile",
+      "wall_s": 9.61,
+      "peak_rss_mb": 204.2,
+      "mapped": 25000
+    }
+  ],
+  "measured": "2026-08-16T10:25:57.042509+00:00"
 }
