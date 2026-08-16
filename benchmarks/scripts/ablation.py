@@ -822,21 +822,18 @@ def build(rows: list[dict], man: dict) -> tuple[str, list[str], list[list]]:
     threads = sorted({r["threads"] for r in rows})
     ordered = sorted(rows, key=lambda r: (r["threads"], r["rung"]))
 
-    # The C++ bar, when a reconciliation has been measured. The ladder starts
-    # at the port, so without this the figure omits the largest step in the
-    # whole comparison -- which is the one a reader most wants to see.
-    rec = reconciliation(man.get("arch"))
+    # Every bar here comes from one sitting of the ladder. The C++ deliberately
+    # does not: it was measured by --reconcile, 15% away from this run beyond
+    # the profiling difference, so drawing it beside these bars showed the port
+    # step as 1.45x where measuring the two together gives 1.67x. The C++
+    # comparison belongs in the figure that measures both sides at once.
     lead_wall = lead_rss = None
-    if rec:
-        cpp = next((r for r in rec.get("rows", []) if r["which"] == "cpp"), None)
-        if cpp:
-            lead_wall = (CPP_LABEL, cpp["wall_s"])
-            lead_rss = (CPP_LABEL, cpp["peak_rss_mb"])
 
-    body = axis(ordered, threads, "wall_s", 1.0, r"wall (s)", spread=True, lead=lead_wall)
+    body = axis(ordered, threads, "wall_s", 1.0, r"wall (s), chr21", spread=True,
+                lead=lead_wall)
     body += [r"\hfill"]
     body += axis(ordered, threads, "peak_rss_kb", 1 / 1024.0,
-                 r"peak RSS (MB, log)", log=True, lead=lead_rss)
+                 r"peak RSS (MB, log), chr21", log=True, lead=lead_rss)
 
     cols = (["threads", "rung", "label", "port_changes_row", "switch_enabled",
              "still_ablated", "wall_s", "wall_min_s", "wall_max_s", "peak_rss_mb",
@@ -874,24 +871,25 @@ def caption(rows: list[dict], man: dict) -> str:
     threads = sorted({r["threads"] for r in rows})
     rec = reconciliation(man.get("arch"))
     return (
-        r"Every optimization, put back one at a time. The leftmost bar is the C++ itself; "
+        r"Every optimization, put back one at a time, on a 45~Mbp chromosome --- so these "
+        r"are \emph{relative} worths, not the whole-genome result, which is "
+        r"Figure~\ref{fig:vscpp}. "
         r"\emph{" + tex_escape(BASELINE) + r"} is this port with every ablatable change "
-        r"switched off (\texttt{SHMAP\_ABLATE}), so the step between those two is the port "
-        r"and nothing else --- the largest step in the figure, and the one the layered story "
-        r"does not cover. Each rung to the right switches exactly one more change back on, so "
-        r"adjacent rungs differ by one change and nothing else. The two series are the two "
-        r"thread counts, and the gap between them is row~4; row~8 is not ablatable, and the "
-        r"C++ is single-threaded so it has no \texttt{-@N} counterpart. Left: wall clock, "
-        r"median over " + str(man.get("repeats", "?")) + r" round-robin runs of the whole "
-        r"ladder, whiskers at min--max, so an unresolved step is visible as one. Right: peak "
-        r"resident set, log scale --- one worker's genome-sized accumulator hides under "
-        r"the index-build peak, \texttt{-@" + str(threads[-1]) + r"} workers' copies do "
-        r"not. Every rung's mapping is byte-identical; the run fails otherwise. The C++ bar "
-        r"carries no \texttt{-x} (the C++ has no equivalent) while the rungs do, costing "
-        + (f"{rec['ratios']['profiling_overhead']:.2f}" if rec else "a few percent")
-        + r"$\times$, so the first step is understated rather than flattered. Numbers and "
-        r"per-stage timers in \texttt{" + tex_escape(NAME) + r".tsv}; the decomposition "
-        r"against the C++ in \texttt{reconcile.tsv}."
+        r"switched off (\texttt{SHMAP\_ABLATE}); each rung to the right switches exactly "
+        r"one more back on, so adjacent rungs differ by one change and nothing else. "
+        r"Getting from the C++ to \emph{" + tex_escape(BASELINE) + r"} is worth a further "
+        + (f"{rec['ratios']['port']:.2f}" if rec else "---")
+        + r"$\times$, measured against both in one sitting rather than drawn here, because "
+        r"the C++ takes no \texttt{-x} and these rungs do. The two series are the two "
+        r"thread counts, and the gap between them is row~4; row~8 is not ablatable. "
+        r"Left: wall clock, median over "
+        + str(man.get("repeats", "?")) + r" round-robin runs of the whole ladder, whiskers "
+        r"at min--max, so an unresolved step is visible as one. Right: peak resident set, "
+        r"log scale --- one worker's genome-sized accumulator hides under the index-build "
+        r"peak, \texttt{-@" + str(threads[-1]) + r"} workers' copies do not. Every rung's "
+        r"mapping is byte-identical; the run fails otherwise. Numbers and per-stage timers "
+        r"in \texttt{" + tex_escape(NAME) + r".tsv}; the decomposition against the C++ in "
+        r"\texttt{reconcile.tsv}."
     )
 
 

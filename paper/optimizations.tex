@@ -247,13 +247,14 @@ the largest single step is \shmAblTopStep{} (row~\shmAblTopStepRow), worth
 \shmAblHost{}, a laptop with \shmAblCores{} cores, because the
 pre-optimization accumulator does not fit there once, let alone per worker.
 
-\textbf{The first bar is the largest, and it is not one of the nine.} The step
-from the C++ to \emph{pre-optimization} --- the port itself, before any
-ablatable change is switched back on --- is \shmAblPortX$\times$, against
-\shmAblLadderX$\times$ for the whole ladder to its right; the two compose by
-multiplication and return the \shmAblTotalX$\times$ measured directly between
-the outer bars, which is what makes the decomposition checkable. Two things
-sit in it. One is the allocation-and-layout row: a numbered change, but
+\textbf{The step into the ladder is the largest, and it is not one of the
+nine.} Getting from the C++ to \emph{pre-optimization} --- the port itself,
+before any ablatable change is switched back on --- is \shmAblPortX$\times$,
+against \shmAblLadderX$\times$ for the whole ladder that follows it; the two
+compose by multiplication and return the \shmAblTotalX$\times$ measured
+directly between the ends, which is what makes the decomposition checkable.
+It is measured rather than drawn, because the C++ takes no profiling flag and
+the ladder's rungs all carry one. Two things sit in it. One is the allocation-and-layout row: a numbered change, but
 type-level --- matches borrow their seeds, the single-occurrence case is
 stored inline --- so reversing it is a different program, not a different
 branch, which is why it cannot be a rung. The other is the rewrite itself: a
