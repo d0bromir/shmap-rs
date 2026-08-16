@@ -1195,6 +1195,186 @@ below 97% read-reference identity, which is why it is skipped on ONT rather than
 
 ---
 
+## 8b Short reads: shmap-rs against bwa-mem2
+
+Everything above measures shmap-rs where it is at home. This section is the other half, and it
+exists because a comparison that only ever runs on 24 kb reads tells a reader that a long-read
+mapper beats a short-read aligner on long reads.
+
+[bwa-mem2](https://github.com/bwa-mem2/bwa-mem2) ([IPDPS 2019](https://doi.org/10.1109/IPDPS.2019.00041))
+is the peer in *kind* rather than in algorithm: a from-scratch reimplementation of an established
+mapper whose entire claim is identical output, 1.3-3.1x faster, by architecture-aware optimisation.
+That is this port's claim, in this port's venue. mapquik is the algorithmic peer; this is the
+structural one.
+
+Measured on **B06-B08**: GIAB HG002 Element AVITI 2x150, UltraQ chemistry, sequenced 2023-08 to
+2024-09, at 2x / 4x / 7x of hs1 (8.3, 16.6 and 29.1 GB). The three are exact nested prefixes of one
+stream, so depth is the only thing that varies between them. Corpus and matrix are in `suite.toml`;
+the result sets are `1.4.1-x86_64-01e4b5952f39-2026-08-15` and `1.4.1-aarch64-c06411eb69e5-2026-08-15`.
+
+**Single-end, R1 only.** shmap-rs has no paired-end mode, and mate rescue is a large advantage on
+exactly the repetitive regions this comparison is about — one shmap-rs structurally cannot use. Both
+tools therefore see the identical file. **This understates bwa-mem2**, and it should be said wherever
+these numbers are quoted.
+
+### Speed and memory, both at 32 threads
+
+| | reads | shmap-rs | bwa-mem2 | ratio | shmap-rs RSS | bwa-mem2 RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| **a2** B06 | 41.8 M | 84.0 min | 8.9 min | 9.4x | 18.73 GB | 35.74 GB |
+| **a2** B07 | 83.5 M | 169.9 min | 17.1 min | 9.9x | 18.61 GB | 35.72 GB |
+| **a2** B08 | 146.2 M | 297.8 min | 28.7 min | 10.4x | 18.71 GB | 35.86 GB |
+| **galaxy** B06 | 41.8 M | 98.2 min | 9.4 min | 10.4x | 18.68 GB | 35.66 GB |
+| **galaxy** B07 | 83.5 M | 200.4 min | 17.7 min | 11.3x | 18.69 GB | 35.66 GB |
+| **galaxy** B08 | 146.2 M | 350.6 min | 30.4 min | 11.5x | 18.74 GB | 35.66 GB |
+
+**bwa-mem2 is about 10x faster and shmap-rs uses about half the memory.** The caveat runs against
+us, not for us: bwa-mem2 is doing full Smith-Waterman extension and emitting SAM alignments, while
+shmap-rs stops at coordinates. It does strictly more work and is still 10x quicker.
+
+Indexing is not the story — shmap-rs builds its `r = 0.1` index of hs1 in 10-24 s and spends
+everything else mapping. The ratio drifts up with depth (9.4 -> 10.4 on a2), so shmap-rs scales
+slightly worse here, and galaxy is a flat 1.17-1.18x slower than a2 across all three.
+
+### Why it is slow, which is the same reason it is inaccurate
+
+`match_seeds` is **92%** of mapping time. Buckets are sized to the read's sketch
+(§[8 in the algorithm docs](docs/sections/08_bucketing.tex)), so the number of candidate buckets in
+the genome scales as *1/read length*: a 150 bp read makes the genome-wide bucket space roughly 200x
+larger than a 24 kb read does. Per-read costs that amortise away over 24 000 bases dominate over 150.
+
+This is the design assumption meeting its limit, not a tuning miss — and the same assumption is
+what forces a separate `hashratio`. shmap-rs samples a fraction *r* of a read's k-mers, so evidence
+scales with length. At the paper's `r = 0.01` a 150 bp read keeps ~1.3 of its 126 k-mers and **27%
+keep none at all** — those emit no PAF line whatsoever, so a mapped-rate table never shows the
+failure. Measured with `benchmarks/scripts/probe_short_read_params.py` on exact reference
+substrings, which have a knowable right answer:
+
+| hashratio | sketch *m* | never attempted | placed correctly |
+|---:|---:|---:|---:|
+| 0.01 | 1.3 | 27% | 46.70% |
+| 0.04 | 5.0 | 0.5% | 71.14% |
+| **0.10** | 12.6 | 0 | **73.80%** |
+| 0.25 | 31.5 | 0 | 74.39% |
+| 1.00 | 126.0 | 0 | 74.74% |
+
+Flat past 0.1, which is what `[params.short-read]` uses. (The ~75% ceiling is chrY being about half
+satellite — a property of that reference, not of the mapper. The *shape* across *r* is what the
+choice rests on.)
+
+### Concordance
+
+| | reference mapped | recall | agreement | **good** |
+|---|---:|---:|---:|---:|
+| B06 | 41 722 937 | 0.9838 | 0.9284 | **0.9134** |
+| B07 | 83 430 048 | 0.9878 | 0.9287 | **0.9174** |
+| B08 | 145 987 234 | 0.9888 | 0.9287 | **0.9183** |
+
+**shmap-rs reproduces 91-92% of bwa-mem2's placements**, mapping 98.4-98.9% of the reads it maps and
+agreeing on 92.9% of the ones both place. Agreement is identical to four decimals across a 3.5x
+depth range, and **every figure in this table is identical on both architectures**.
+
+That is far better than the chrY probe above predicts, and the reason is the probe's reference:
+chrY is the most repetitive chromosome in the genome, while whole-genome 150 bp reads are mostly
+uniquely placeable. The probe was built to choose *r*, not to predict accuracy, and it should not be
+read as the latter.
+
+The same caution as §8 applies twice over: **this is concordance, not accuracy**. bwa-mem2 is not
+truth, and on single-end short reads it is working without the mate information it normally has.
+
+### Two defects this benchmark found on its first run
+
+Neither was reachable before B06 — the shortest read in the suite was 12.8 kb, and 25 bp reads only
+appear in real adapter-trimmed Illumina data.
+
+**1. shmap-rs emits invalid PAF for reads of length <= k+1.** `validate_paf` fails with 172 / 333 /
+570 records on B06 / B07 / B08 (0.0004%), every one a read of length 25 or 26 at k=25. At the
+scoring call site the query size passed down is `read_length - k` and the reported end is that minus
+one, so `qend = read_length - k - 1`, which is -1 at `k` and 0 at `k+1`. PAF requires
+`0 <= qstart < qend <= qlen`. The runs are therefore recorded with verdict ERROR and are **not**
+promoted as a baseline. Fixing it changes mapper output and belongs in its own pull request.
+
+**2. The C++ original does worse on the same input: it segfaults.**
+`benchmarks/scripts/probe_short_read_defect.py` runs both binaries over the boundary, one invocation
+per length (chrY, k=25, r=1.0, 200 reads each):
+
+| read len | sketch *m* | shmap-rs | cpp-shmap |
+|---:|---:|---|---|
+| 24 | 0 | 0 records | 0 records |
+| 25 | 1 | 200 INVALID `0..-1` | **SIGSEGV** |
+| 26 | 2 | 200 INVALID `0..0` | **SIGSEGV** |
+| 27 | 3 | 200 ok | **SIGSEGV** |
+| 28 | 4 | 200 ok | **SIGSEGV** |
+| 29 | 5 | 200 ok | 200 ok |
+| 30+ | 6+ | 200 ok | 200 ok |
+
+The C++ crashes for **every read whose sketch holds fewer than 5 k-mers** — 5 being `MIN_HALFLEN`,
+the bucket-geometry floor that the algorithm documentation describes as rejecting such reads as
+unmappable "rather than creating degenerate buckets". It does not reject them. So the port already
+removes a crash and retains a milder coordinate bug over a narrower range.
+
+### bwa-mem2 cannot map our long reads at all
+
+There is no long-read half of this comparison, and not for want of trying.
+`benchmarks/scripts/bwa_mem2_longread_crash.sh` reproduces it on both architectures; the reports are
+committed beside the manifests.
+
+On B01 (real HiFi, 22-34 kb) it is unavoidable at any scale: 60 reads map, 100 do not, and it dies
+before emitting a record. Thread count is irrelevant. `-K` lets 91-95 of 200 records out before the
+same fault. Relaxing `-r`, spelling the preset out by hand, `-x ont2d`, and **plain defaults with no
+`-x` at all** fail identically, on both hosts — so there is no control that isolates the fault to
+the long-read preset path.
+
+At full scale the rest follow. Running the corpus for real gave **0/3 on both machines**:
+
+| | a2 (376 GB) | galaxy (246 GB) |
+|---|---|---|
+| B02 (125 k reads) | SIGSEGV, 3:06, peak 259 GB | **SIGKILL** (OOM), 1:09, peak 234 GB |
+| B03 (243 k reads) | SIGSEGV, 6:42, peak 108 GB | SIGSEGV, 14:37, peak 109 GB |
+| B05 (92 k reads) | SIGSEGV, 2:36, peak 282 GB | **SIGKILL** (OOM), 2:36, peak 234 GB |
+
+The two hosts fail differently and that is informative: memory demand runs away, and the smaller
+machine's kernel kills the process before it reaches the fault. B03, which peaks at ~108 GB and fits
+comfortably in both, segfaults on both. Either way, **~100 000 long reads can consume 75% of a
+376 GB host.**
+
+None of this is a surprise the authors did not warn about. Heng Li closed the long-read support
+request ([issue #4](https://github.com/bwa-mem2/bwa-mem2/issues/4)) with *"minimap2 is and will be
+the preferred mapper for long reads. Bwa-mem2 is only optimized for short reads."* `-x pacbio` is
+inherited from bwa, still accepted, and not listed in `--help`. The crash signature
+(`Re-allocating SMEM data structures due to enc_qdb`) matches
+[issue #133](https://github.com/bwa-mem2/bwa-mem2/issues/133), open since 2021.
+
+**A methodological note worth more than the finding.** A 200-read sample of B02, B03 and B05 passes
+cleanly on both architectures. All three then die at full scale. A 20-read sample of the no-preset
+control passes too, which is how an earlier version of this section claimed the architectures
+differed on it. The fault is per-batch: surviving one batch says nothing about surviving six
+hundred. Both mistakes are recorded in `suite.toml` rather than quietly corrected, because the next
+person to reach for a quick sample of this tool should be told what it is worth.
+
+### The two bwa-mem2 builds are the same tool
+
+bioconda builds x86_64 with upstream's five SIMD variants and a dispatcher (a2 selects `avx512bw`)
+and aarch64 by grafting in sse2neon v1.8.0 and compiling for baseline ARMv8. That is a translation
+of the x86 SIMD code, not a native NEON port, so a cross-architecture ratio taken from it needs
+checking rather than assuming — this corpus has been bitten once already, by mapquik's `--nosimd`
+path changing 26.8% of records against its own default.
+
+`benchmarks/scripts/verify_bwa_mem2_arch_parity.py` compares an order-independent signature of every
+record (order varies: bwa-mem2 writes from 32 threads):
+
+| | records | target bases | signature, **both hosts** |
+|---|---:|---:|---|
+| B06 | 41 807 925 | 6 221 633 498 | `e79462cb0e27c32f7f82f8379c39d114` |
+| B07 | 83 600 076 | 12 444 039 160 | `7762c08720bfe590f554a0e6b6f08522` |
+| B08 | 146 287 615 | 21 776 900 851 | `c82d6c8d0761ccf74043404ad125c6ea` |
+
+**271 million records, identical on both.** The sse2neon build produces the same alignments as the
+AVX-512 one, so the 5-6% wall-time difference between the hosts is the machines and not the
+binaries.
+
+---
+
 ## 9 Error tolerance
 
 Measured with `simulate/sweep_error_rates.py`: 20 000 reads of 24 kb sampled from `hs1.fa` at each
