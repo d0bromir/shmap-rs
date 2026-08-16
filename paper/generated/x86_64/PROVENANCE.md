@@ -127,6 +127,58 @@ pgfplots line plot, log2 x axis, linear y from zero so that the ratio between th
 
 - The memory advantage is a function of thread count, not a single number. Quoting the -@1 ratio alone under-provisions a deep, highly parallel run.
 
+## fig_wall_vs_threads
+
+**Figure** — Wall clock against thread count, Containment, with the C++ reference as a horizontal line. The gap at \texttt{-@1} is the single-threaded speedup the summary quotes; everything to the right of it is threading the C++ does not have.
+
+Files: `fig_wall_vs_threads.tex`, `fig_wall_vs_threads.tsv`. LaTeX label: `fig:wallthreads`.
+
+**Taken from**
+
+- `results.tsv :: benchmark, threads, wall_s, for impl=shmap-rs, metric=Containment`
+- `results.tsv :: wall_s for impl=cpp-shmap, metric=Containment`
+
+**Transformed by**
+
+1. None; wall_s is plotted as measured.
+2. The C++ is drawn as a constant line across the same x range: it is single-threaded, so its wall clock does not vary with this axis. One benchmark's line is drawn rather than five near-coincident ones; every benchmark's C++ figure is in the .tsv.
+
+**Presented as**
+
+pgfplots line plot, log2 x axis and log y, so that a constant ratio between the two implementations is a constant vertical distance.
+
+**Read with**
+
+- Log y: the vertical gap is the ratio, not the difference in seconds. Reading the difference off this axis would overstate the deep-thread rows.
+- Only the -@1 gap is a like-for-like comparison of the two programs. Wider columns compare a threaded mapper with a single-threaded one, which is a statement about the capability rather than about the same work done faster.
+
+## fig_vs_cpp
+
+**Figure** — The two headline results, per benchmark, single-threaded on both sides: wall-clock speedup over the C++ (top) and how many times less peak memory the port uses (bottom). The dashed line is parity.
+
+Files: `fig_vs_cpp.tex`, `fig_vs_cpp.tsv`. LaTeX label: `fig:vscpp`.
+
+**Taken from**
+
+- `results.tsv :: wall_s, peak_rss_kb for impl=shmap-rs at -@1, metric=Containment`
+- `results.tsv :: wall_s, peak_rss_kb for impl=cpp-shmap, metric=Containment`
+
+**Transformed by**
+
+1. speedup_vs_cpp = cpp wall_s / shmap-rs wall_s, paired within a benchmark.
+2. rss_ratio_vs_cpp = cpp peak_rss_kb / shmap-rs peak_rss_kb, likewise.
+3. Both at -@1: the C++ has no other setting, so a ratio taken against a threaded run would be measuring the thread count instead of the port.
+
+**Presented as**
+
+two stacked pgfplots bar panels sharing the benchmark axis, each bar labelled with its own ratio, and a dashed line at parity.
+
+**Read with**
+
+- Paired within a benchmark, so each bar is one comparison rather than a ratio of two extremes taken from different rows.
+- Containment only. The other two metrics are within a few percent and are in the .tsv; drawing fifteen bars would hide the result it exists to show.
+- The memory ratio is a single-threaded one. It rises with worker count on the port and not on the C++, so this is the conservative end of that comparison.
+
 ## fig_time_vs_matches
 
 **Figure** — Per-read mapping time against the number of matches the read examined, Containment. Points are per-bin medians over reads grouped into 18 logarithmic bins; the shaded band is the interquartile range for the simulated set.

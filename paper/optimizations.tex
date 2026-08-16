@@ -59,19 +59,19 @@
 \textbf{Summary:} shmap-rs is a Rust port of \emph{map-shmap}~\cite{shmap}
 that is \shmSpeedupXMin--\shmSpeedupXMax$\times$ faster single-threaded and
 uses \shmRssRatioMin--\shmRssRatioMax$\times$ less peak memory while producing
-byte-identical output. This companion note accounts for where that came from.
+byte-identical output. This note accounts for where that came from.
 \shmNumOptimizations{} deliberate changes are responsible, together with the
 rewrite that carries them --- and the ablation below shows the rewrite is the
-larger of the two. All \shmNumExactOptimizations{} of the changes preserve
-output exactly, none alters a mapping decision, and each is
-compared against the upstream source it replaces at a pinned revision. They are
+larger of the two. All \shmNumExactOptimizations{} preserve output exactly, and
+each is compared against the upstream source it replaces at a pinned revision.
+They are
 presented in the order they had to be discovered: the cost structure the
 algorithm implies, the data structure that structure argues for, the
 algorithmic identities that let work be skipped, the parallel decomposition,
 and only last the code. That order is the result rather than the presentation:
-the largest wins are in the first two layers, and instruction-level work ---
-the layer that usually attracts attention --- is worth least here, and is where
-four further attempts measured negative.\\[0.2em]
+the largest wins are in the first two layers, and instruction-level work is
+worth least here, and is where four further attempts measured
+negative.\\[0.2em]
 \textbf{Availability:} original \url{\shmUpstream}; this port
 \url{https://github.com/d0bromir/shmap-rs}, \shmLicense, version~\shmVersion.
 \end{abstract}
@@ -92,24 +92,22 @@ important property for an implementer is which of them is paid in
 Almost all of it is memory traffic: seeds are looked up in an index far larger
 than the last-level cache, the buckets they touch are scattered across an array
 sized by the reference, and the refinement sweep walks a window last touched by
-a different read. Profiling agrees --- \texttt{\shmTopStage} is the costliest
-stage, \shmTopStageShare\% of CPU on average, and pointer-chasing rather than
-arithmetic.
-
-Two consequences order everything else. A change that reduces \emph{how much
-memory is touched} outranks one that reduces instructions issued, because the
-machine is waiting either way; and the sizes that matter are those set by the
-\emph{reference}, since a whole-genome run cannot escape them --- which points
-at the accumulator.
+a different read. Profiling agrees: \texttt{\shmTopStage} is the costliest
+stage at \shmTopStageShare\% of CPU on average, and pointer-chasing rather than
+arithmetic. Two consequences order everything else. A change that reduces
+\emph{how much memory is touched} outranks one that reduces instructions
+issued, because the machine is waiting either way; and the sizes that matter
+are those set by the \emph{reference}, since a whole-genome run cannot escape
+them --- which points at the accumulator.
 
 \section{The data structure}
 
 The C++ allocates one dense bucket array per reference segment, sized so that
-every window the algorithm could ever use has a slot
-(\texttt{buckets.h}, Table~\ref{tab:optimizations}). The width is a compile-time
-minimum rather than the width any particular read will use, so a human genome
-costs about fifteen gigabytes before a single read is mapped, and that cost is
-paid whether one read is mapped or millions.
+every window the algorithm could ever use has a slot (\texttt{buckets.h},
+Table~\ref{tab:optimizations}). Its width is a compile-time minimum rather than
+the width any particular read will use, so a human genome costs about fifteen
+gigabytes before a single read is mapped, whether one read is mapped or
+millions.
 
 The observation that removes it is that \emph{a read can only touch buckets
 within its own span}. The array does not have to be indexed by reference
@@ -117,14 +115,16 @@ bucket; it has to be indexed by the buckets this read can reach, which is set by
 the read's own half-length. shmap-rs sizes it that way and keeps a sparse map as
 the fallback, and the two paths are tested to agree exactly. The footprint stops
 being a property of the genome and becomes a property of the query:
-\shmRssRsMin--\shmRssRsMax~GB single-threaded against \shmRssCpp~GB.
+\shmRssRsMin--\shmRssRsMax~GB single-threaded against \shmRssCpp~GB, the lower
+panel of Figure~\ref{fig:vscpp}.
+
+\input{x86_64/fig_vs_cpp.tex}
 
 One change, in one data structure, and it is most of the memory result. It also
 removed a contention bottleneck that had made multithreading nearly useless: a
 per-worker copy of a genome-sized array does not scale, and no thread tuning
 would have rescued it. The data structure had to be right before the parallel
 decomposition could be.
-
 \section{The algorithmic identities}
 
 Three changes skip work by proving it need not be done. None is an
@@ -135,27 +135,27 @@ second-best mapping, and the C++ searches for it with a second full pass over
 the same surviving buckets (\texttt{shmap.h}, Table~\ref{tab:optimizations}). On
 the two fixed-length metrics, scoring a bucket turns out to be a pure function
 of its \emph{location}: it never reads the mutable state that pruning updates
-between the passes, and it restores its own scratch exactly. The second pass can
-therefore replay the first's scores. It is deliberately not applied to the two
+between the passes, and it restores its own scratch exactly, so the second pass
+can replay the first's scores. It is deliberately not applied to the two
 bucket-based metrics, where the score is built out of exactly that mutable
-state, so the identity does not hold. Because the acceptance threshold ratchets
-upward during the first pass, a bucket discarded late there can still clear the
-second pass's flatter cutoff --- so the win is partial by construction, which is
-why it is roughly two calls in five and not all of them.
+state. Because the acceptance threshold ratchets upward during the first pass, a
+bucket discarded late there can still clear the second pass's flatter cutoff ---
+so the win is partial by construction, which is why it is roughly two calls in
+five and not all of them.
 
 \textbf{A repetitive seed does not need a hash map.} The C++ builds a fresh
 scratch hash map per seed to accumulate its hits; the hits are already sorted,
-which makes the map redundant, and the same buckets can be accumulated in place
-at constant integer cost per hit.
+so the map is redundant and the same buckets can be accumulated in place at
+constant integer cost per hit.
 
 \textbf{An unstable sort can reproduce a stable one.} Ordering the final buckets
 by descending match count is the original paper's own
 Algorithm~4 ``Optimization~2''. % lint-ok: the source paper's own numbering, a citation
-Packing the tie-break into the sort key makes an unstable sort reproduce
-exactly what a stable sort would give, over keys a quarter the size of the
-records. Here the port is stronger than the source rather than
-merely faster: the C++'s \texttt{std::sort} guarantees no particular order among
-equal keys, even between its own runs, and this does.
+Packing the tie-break into the sort key makes an unstable sort reproduce exactly
+what a stable sort would give, over keys a quarter the size of the records. Here
+the port is stronger than the source rather than merely faster: the C++'s
+\texttt{std::sort} guarantees no particular order among equal keys, even between
+its own runs, and this does.
 
 \section{The parallel decomposition}
 
@@ -164,16 +164,11 @@ the C++ is single-threaded, so they replace nothing upstream: threaded read
 mapping, hash-sharded index storage with chunked reference sketching, and a
 two-pass count-then-fill FASTA reader. The constraint that shapes all three is
 that output must not depend on thread count, which rules out any decomposition
-whose result depends on completion order. A sketch window is a pure function of
-the bases under it; a shard's contents are determined by the hash and not by
-which worker filled it; the FASTA reader's second pass writes exactly what its
-first counted. Determinism is checked rather than assumed, on every thread count
+whose result depends on completion order: a sketch window is a pure function of
+the bases under it, a shard's contents are set by the hash rather than by which
+worker filled it, and the FASTA reader's second pass writes what its first
+counted. Determinism is checked rather than assumed, on every thread count
 and benchmark (\shmDetChecks{} of \shmDetTotal{} checks).
-
-The ceiling is again memory, not scheduling: on the four-socket machine scaling
-stops near \shmScaleXKnee$\times$, while a single-NUMA-node machine running the
-identical binary continues to \shmScaleACap$\times$. Per-node index replication
-was implemented five ways to remove it and net-regressed every time.
 
 \section{The code}
 
@@ -191,91 +186,69 @@ the C++ keeps a second full copy of the genome for the whole run.
 Their effects are in Table~\ref{tab:optimizations}: real, but small beside the
 first two layers. The stronger evidence for the ordering is negative ---
 hand-written SIMD sketching, two-bit packing, software prefetching of the
-pruning lookups and per-node index replication were each built or probed at
-full scale and each measured a loss or a wash. The sketching loop is load-port
-bound at six level-one loads per base, so more lanes add pressure where there
-is none to spare, and packing removes the wrong two of those loads. When a
-workload waits on memory, instruction-level effort is the layer with least left
-in it.
-
+pruning lookups, and per-node index replication implemented five ways, were each
+built or probed at full scale and each measured a loss or a wash. The sketching
+loop is load-port bound at six level-one loads per base, so more lanes add
+pressure where there is none to spare, and packing removes the wrong two of
+those loads. When a workload waits on memory, instruction-level effort is the
+layer with least left in it.
 \section{What each one is worth}
 
 Table~\ref{tab:optimizations}'s effects were each measured against the build
-that change landed on, months apart and on different inputs. They share no
+that change landed on, months apart and on different inputs; they share no
 baseline, machine or read set and do not sum, so the table cannot say how much
-of the result is which change. Figure~\ref{fig:ablation} answers that.
+of the result is which change. Figure~\ref{fig:ablation} answers that, on the
+whole genome on \shmAblHost{}, which has \shmAblCores{} cores and the memory
+to hold the pre-optimization accumulator once per worker --- the reason the
+figure could not be produced on a smaller machine. End to end the C++ is
+\shmAblTotalX$\times$ the shipped mapper there and uses
+\shmAblRssTotalX$\times$ the peak memory: Figure~\ref{fig:vscpp}'s headline,
+reproduced inside the ladder's own protocol.
 
 Every change is switchable at run time, in one instrumented build, back to the
-code path it replaced. The leftmost bar has all \shmAblRungs{} of them off;
-each bar to the right turns exactly one more back on, in the layer order
-argued above; the rightmost is the shipped build. Adjacent bars therefore
-differ by one change and nothing else --- one binary, one machine, one
-compiler, one input --- which is what makes a step attributable, and
-attributable to that change \emph{given the ones to its left}: what the
-parallel index is worth depends on whether each worker still carries a
-genome-sized accumulator. Every bar's mapping is compared byte for byte
-against the leftmost --- a stricter test of the exactness claim than the
-suite's, because it holds the input fixed and varies only the optimization.
-Those switches are not in the released mapper: a branch and a scratch buffer
-that exist only to be measured are paid for by everyone who runs the program,
-so they live on an archived, never-merged branch, and the harness refuses a
-build that lacks them rather than measuring one binary \shmAblRungs{} times
-and drawing a flat ladder.
-
+code path it replaced --- one binary, one machine, one compiler, one input.
+That is what makes a step
+attributable, and attributable to that change \emph{given the ones to its
+left}: what the parallel index is worth depends on whether each worker still
+carries a genome-sized accumulator. Every bar's mapping is compared byte for
+byte against the leftmost, a stricter test of the exactness claim than the
+suite's. Those switches are not in the released mapper --- a branch that exists
+only to be measured is paid for by everyone who runs the program --- so they
+live on an
+archived, never-merged branch, and the harness refuses a build that lacks them.
 \shmAblNotRungs{} of the \shmNumOptimizations{} cannot be a rung and are
-reported as absent rather than estimated: threaded read mapping is a
-capability rather than a branch, so it is the gap between the two series, and
-the allocation-and-layout row is type-level, as below.
+reported as absent rather than estimated: one is a capability rather than a
+branch, the other type-level, as below.
 
-End to end the ladder is \shmAblSpeedupOne$\times$ at one worker and
-\shmAblSpeedupMax$\times$ at \shmAblThreadsMax{}, for
-\shmAblRssRatioOne$\times$ and \shmAblRssRatioMax$\times$ less peak memory;
-the largest single step is \shmAblTopStep{} (row~\shmAblTopStepRow), worth
-\shmAblTopStepPct\% of the bar before it. All of it is chromosome scale on
-\shmAblHost{}, a laptop with \shmAblCores{} cores, because the
-pre-optimization accumulator does not fit there once, let alone per worker.
+\textbf{The step into the ladder is the largest, and it is not one of the
+nine.} Getting from the C++ to \emph{pre-optimization} --- the port itself,
+before any ablatable change is switched back on --- is \shmAblPortX$\times$,
+against \shmAblLadderX$\times$ for the whole ladder that follows it; the two
+compose by multiplication and return the \shmAblTotalX$\times$ measured
+directly between the ends, which is what makes the decomposition checkable.
+Two things sit in it: the allocation-and-layout row, which is type-level ---
+matches borrow their seeds, the single-occurrence case is stored inline --- so
+reversing it is a different program rather than a different branch, which is
+why it cannot be a rung; and the rewrite itself, a different language,
+allocator and standard library. This note does not separate them.
 
-\textbf{The first bar is the largest, and it is not one of the nine.} The step
-from the C++ to \emph{pre-optimization} --- the port itself, before any
-ablatable change is switched back on --- is \shmAblPortX$\times$, against
-\shmAblLadderX$\times$ for the whole ladder to its right; the two compose by
-multiplication and return the \shmAblTotalX$\times$ measured directly between
-the outer bars, which is what makes the decomposition checkable. Two things
-sit in it. One is the allocation-and-layout row: a numbered change, but
-type-level --- matches borrow their seeds, the single-occurrence case is
-stored inline --- so reversing it is a different program, not a different
-branch, which is why it cannot be a rung. The other is the rewrite itself: a
-different language, allocator and standard library. This note does not
-separate them, and doing so needs type surgery rather than a switch. It does
-rule out the cheap explanation: the same source at the stock release profile,
-without fat link-time optimization, measures \shmAblBuildTuningX$\times$ the
-shipped build --- indistinguishable from it --- so the bar is not the Rust
-being built harder.
-
-\textbf{The memory panel shows the mechanism, not the magnitude.} It has to:
-what the accumulator change removes is a slot per \shmMinHalflen{} bases
-\emph{of the reference}, about a fifth of a gigabyte on the chromosome this
-figure uses and over ten on the genome. So the panel reads
-\shmAblRssRatioOne$\times$ at one worker where the whole-genome comparison
-above reads \shmRssRatioMin--\shmRssRatioMax$\times$, \shmRssCpp~GB against
-\shmRssRsMin--\shmRssRsMax~GB. They are not in tension: the smaller is the
-same effect measured where it is small. The panel shows its \emph{shape},
-which is the argument --- the ratio grows with worker count, to
-\shmAblRssRatioMax$\times$, because the array removed was per worker. The
-genome-scale evidence needs no ablation and is already in the suite: the C++'s
-peak RSS moves by \shmRssCppSpreadMB~MB across every benchmark, whose read
-sets differ by more than an order of magnitude in size. A footprint that does
-not notice its input belongs to the reference.
+\textbf{Memory is where the layering is starkest.} The
+\shmAblRssTotalX$\times$ splits \shmAblRssPortX$\times$ for the port against
+\shmAblRssLadderX$\times$ for the ladder, and almost all of the second is one
+bar: the accumulator the C++ sizes by the reference, a slot per
+\shmMinHalflen{} bases of it. That is why the C++'s own footprint barely moves
+between benchmarks --- \shmRssCppSpreadMB~MB across read sets differing by
+more than an order of magnitude in size --- and why the ratio \emph{grows}
+with worker count, from \shmAblRssRatioOne$\times$ to
+\shmAblRssRatioMax$\times$ at \shmAblThreadsMax{}: the array is per worker, so
+what was removed is multiplied by the thread count while what remains is not.
 
 \section{What none of them changed}
 
 All \shmNumExactOptimizations{} preserve output exactly, enforced rather than
 claimed: the mapping is byte-identical across every thread count and against
-the C++, ground-truth accuracy is unchanged at \shmAccMin--\shmAccMax\%, and
-any drop in mapped or confident reads blocks a merge.
-Table~\ref{tab:optimizations} is generated from the repository's own account of
-what changed, each row citing upstream at \texttt{\shmCppCommit}.
-
+the C++, ground-truth accuracy is unchanged at \shmAccMin--\shmAccMax\%, and any
+drop in mapped or confident reads blocks a merge.
 \small
 \begin{thebibliography}{9}
 \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}
