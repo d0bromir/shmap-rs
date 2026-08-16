@@ -117,7 +117,11 @@ bucket; it has to be indexed by the buckets this read can reach, which is set by
 the read's own half-length. shmap-rs sizes it that way and keeps a sparse map as
 the fallback, and the two paths are tested to agree exactly. The footprint stops
 being a property of the genome and becomes a property of the query:
-\shmRssRsMin--\shmRssRsMax~GB single-threaded against \shmRssCpp~GB.
+\shmRssRsMin--\shmRssRsMax~GB single-threaded against \shmRssCpp~GB --- the
+lower panel of Figure~\ref{fig:vscpp}, and the reason the C++ figure is flat
+there is that it never depended on the work being done.
+
+\input{x86_64/fig_vs_cpp.tex}
 
 One change, in one data structure, and it is most of the memory result. It also
 removed a contention bottleneck that had made multithreading nearly useless: a
@@ -204,6 +208,14 @@ Table~\ref{tab:optimizations}'s effects were each measured against the build
 that change landed on, months apart and on different inputs. They share no
 baseline, machine or read set and do not sum, so the table cannot say how much
 of the result is which change. Figure~\ref{fig:ablation} answers that.
+
+The result being decomposed is Figure~\ref{fig:vscpp}: at one worker, where
+the comparison is like for like, the port is
+\shmSpeedupXMin--\shmSpeedupXMax$\times$ the C++ on the whole genome and uses
+\shmRssRatioMin--\shmRssRatioMax$\times$ less peak memory. The ladder below is
+measured on a chromosome, for the reason its own paragraph gives, so its
+absolute ratios are smaller; what it contributes is which change earned which
+part.
 
 Every change is switchable at run time, in one instrumented build, back to the
 code path it replaced. The leftmost bar has all \shmAblRungs{} of them off;

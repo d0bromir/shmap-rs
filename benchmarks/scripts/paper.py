@@ -412,6 +412,116 @@ def build_memory_vs_threads(c: Ctx) -> tuple[str, list[str], list[list]]:
     return tex, cols, data
 
 
+def build_wall_vs_threads(c: Ctx) -> tuple[str, list[str], list[list]]:
+    """Wall clock against thread count, with the C++ as a flat line.
+
+    The mirror of `build_memory_vs_threads`, and it exists for the same
+    reason: the speed claim was a range in the prose and a ratio in a table,
+    but the only *plot* of thread count showed speedup against our own -@1,
+    which cannot show how the port compares with the thing it replaces. A
+    reader looking for the headline found no figure of it.
+    """
+    cols = ["benchmark", "threads", "wall_s"]
+    data: list[list] = []
+    body: list[str] = []
+    for i, bid in enumerate(c.benchmarks()):
+        colour, mark = SERIES_STYLE[i % len(SERIES_STYLE)]
+        pts = []
+        for t in c.thread_counts():
+            r = next((x for x in c.rows(impl=SUBJECT)
+                      if x["benchmark"] == bid and x["metric"] == "Containment"
+                      and x["threads"] == t), None)
+            if not r:
+                continue
+            pts.append((t, float(r["wall_s"])))
+            data.append([bid, t, round(float(r["wall_s"]), 2)])
+        if pts:
+            body.append(f"\\addplot[color={colour},mark={mark},thick] coordinates {{"
+                        + " ".join(f"({t},{w:.2f})" for t, w in pts) + "};")
+            body.append(f"\\addlegendentry{{{tex_escape(bid)}}}")
+    # One line per C++ row would be five nearly-coincident lines; the C++ is
+    # single-threaded, so each benchmark's own figure is drawn flat across the
+    # axis exactly as the memory figure does.
+    for i, bid in enumerate(c.benchmarks()):
+        cpp = next((r for r in c.rows(impl=REFERENCE)
+                    if r["benchmark"] == bid and r["metric"] == "Containment"), None)
+        if not cpp:
+            continue
+        w = float(cpp["wall_s"])
+        data.append([f"{REFERENCE}:{bid}", None, round(w, 2)])
+        if i == 0:
+            body.append("\\addplot[black,dashed,thick,mark=none] coordinates {"
+                        + " ".join(f"({t},{w:.2f})" for t in c.thread_counts()) + "};")
+            body.append(r"\addlegendentry{C++ \texttt{shmap} (B01)}")
+    tex = _axis(body, xlabel="threads (\\texttt{-@})", ylabel="wall clock (s)",
+                extra=["xmode=log", "log basis x=2", "ymode=log",
+                       f"xtick={{{','.join(str(t) for t in c.thread_counts())}}}",
+                       "xticklabels={" + ",".join(str(t) for t in c.thread_counts()) + "}"],
+                legend="south west")
+    return tex, cols, data
+
+
+def build_vs_cpp(c: Ctx) -> tuple[str, list[str], list[list]]:
+    """The two headline ratios, per benchmark, as bars.
+
+    Every other figure here plots absolutes and leaves the reader to divide.
+    That is fine for a table and bad for the one claim the paper leads with,
+    so this draws the ratios themselves against a line at one. Single-threaded
+    on both sides: the C++ has no other setting, and a ratio taken against a
+    threaded run would be measuring the thread count.
+    """
+    cols = ["benchmark", "metric", "speedup_vs_cpp", "rss_ratio_vs_cpp",
+            "cpp_wall_s", "rs_wall_s", "cpp_rss_gb", "rs_rss_gb"]
+    data: list[list] = []
+    speed: list[tuple[str, float]] = []
+    mem: list[tuple[str, float]] = []
+    for bid in c.benchmarks():
+        rs = next((x for x in c.rows(impl=SUBJECT, threads=1)
+                   if x["benchmark"] == bid and x["metric"] == "Containment"), None)
+        cpp = next((x for x in c.rows(impl=REFERENCE)
+                    if x["benchmark"] == bid and x["metric"] == "Containment"), None)
+        if not rs or not cpp:
+            continue
+        sp = float(cpp["wall_s"]) / float(rs["wall_s"])
+        rr = int(cpp["peak_rss_kb"]) / int(rs["peak_rss_kb"])
+        speed.append((bid, sp))
+        mem.append((bid, rr))
+        data.append([bid, "Containment", round(sp, 3), round(rr, 3),
+                     round(float(cpp["wall_s"]), 2), round(float(rs["wall_s"]), 2),
+                     round(int(cpp["peak_rss_kb"]) / 1048576, 3),
+                     round(int(rs["peak_rss_kb"]) / 1048576, 3)])
+
+    def panel(vals: list[tuple[str, float]], ylabel: str, colour: str) -> list[str]:
+        labels = ",".join("{" + tex_escape(b) + "}" for b, _ in vals)
+        return [
+            r"\begin{tikzpicture}",
+            r"\begin{axis}[",
+            r"  width=0.48\textwidth, height=4.2cm, ybar, bar width=9pt, ymin=0,",
+            r"  xtick={" + ",".join(str(i) for i in range(len(vals))) + "},",
+            r"  xticklabels={" + labels + "},",
+            r"  x tick label style={font=\small}, y tick label style={font=\small},",
+            r"  ylabel={" + ylabel + r"}, ylabel style={font=\small},",
+            r"  enlarge x limits=0.12, ymajorgrids, grid style={gray!25},",
+            r"  nodes near coords, nodes near coords style={font=\tiny},",
+            r"  point meta=explicit symbolic,",
+            r"]",
+            rf"\addplot[draw={colour}, fill={colour}!35] coordinates {{"
+            + " ".join(f"({i},{v:.2f}) [{v:.1f}$\\times$]" for i, (_, v) in enumerate(vals))
+            + "};",
+            # A \draw, not an \addplot: inside a ybar axis every addplot is
+            # drawn as bars, which turned the parity line into two stray
+            # columns at the axis edges.
+            rf"\draw[black,dashed,thick] (axis cs:-0.5,1) -- (axis cs:{len(vals) - 0.5},1);",
+            r"\end{axis}",
+            r"\end{tikzpicture}",
+        ]
+
+    body = panel(speed, r"speedup vs the C++", "blue!70!black")
+    body += [r"\hfill"]
+    body += panel(mem, r"peak RSS: C++ over shmap-rs", "orange!85!black")
+    return "\n".join(body), cols, data
+
+
 def _quantile(sorted_vals: list[float], q: float) -> float:
     """Nearest-rank quantile. No interpolation and no numpy: bins hold hundreds
     to thousands of reads, where the difference is far below the run-to-run
@@ -683,6 +793,61 @@ ARTIFACTS: tuple[Artifact, ...] = (
             "Quoting the -@1 ratio alone under-provisions a deep, highly parallel run.",
         ),
         build=build_memory_vs_threads,
+    ),
+    Artifact(
+        name="fig_wall_vs_threads",
+        kind="figure",
+        caption="Wall clock against thread count, Containment, with the C++ reference as a "
+                "horizontal line. The gap at \\texttt{-@1} is the single-threaded speedup the "
+                "summary quotes; everything to the right of it is threading the C++ does not "
+                "have.",
+        label="fig:wallthreads",
+        sources=(
+            "results.tsv :: benchmark, threads, wall_s, for impl=shmap-rs, metric=Containment",
+            "results.tsv :: wall_s for impl=cpp-shmap, metric=Containment",
+        ),
+        transform=("None; wall_s is plotted as measured.",
+                   "The C++ is drawn as a constant line across the same x range: it is "
+                   "single-threaded, so its wall clock does not vary with this axis. One "
+                   "benchmark's line is drawn rather than five near-coincident ones; every "
+                   "benchmark's C++ figure is in the .tsv."),
+        presentation="pgfplots line plot, log2 x axis and log y, so that a constant ratio "
+                     "between the two implementations is a constant vertical distance.",
+        caveats=(
+            "Log y: the vertical gap is the ratio, not the difference in seconds. Reading "
+            "the difference off this axis would overstate the deep-thread rows.",
+            "Only the -@1 gap is a like-for-like comparison of the two programs. Wider "
+            "columns compare a threaded mapper with a single-threaded one, which is a "
+            "statement about the capability rather than about the same work done faster.",
+        ),
+        build=build_wall_vs_threads,
+    ),
+    Artifact(
+        name="fig_vs_cpp",
+        kind="figure",
+        caption="The two headline results, per benchmark, single-threaded on both sides: "
+                "wall-clock speedup over the C++ (top) and how many times less peak memory "
+                "the port uses (bottom). The dashed line is parity.",
+        label="fig:vscpp",
+        sources=(
+            "results.tsv :: wall_s, peak_rss_kb for impl=shmap-rs at -@1, metric=Containment",
+            "results.tsv :: wall_s, peak_rss_kb for impl=cpp-shmap, metric=Containment",
+        ),
+        transform=("speedup_vs_cpp = cpp wall_s / shmap-rs wall_s, paired within a benchmark.",
+                   "rss_ratio_vs_cpp = cpp peak_rss_kb / shmap-rs peak_rss_kb, likewise.",
+                   "Both at -@1: the C++ has no other setting, so a ratio taken against a "
+                   "threaded run would be measuring the thread count instead of the port."),
+        presentation="two stacked pgfplots bar panels sharing the benchmark axis, each bar "
+                     "labelled with its own ratio, and a dashed line at parity.",
+        caveats=(
+            "Paired within a benchmark, so each bar is one comparison rather than a ratio "
+            "of two extremes taken from different rows.",
+            "Containment only. The other two metrics are within a few percent and are in "
+            "the .tsv; drawing fifteen bars would hide the result it exists to show.",
+            "The memory ratio is a single-threaded one. It rises with worker count on the "
+            "port and not on the C++, so this is the conservative end of that comparison.",
+        ),
+        build=build_vs_cpp,
     ),
     Artifact(
         name="fig_time_vs_matches",
