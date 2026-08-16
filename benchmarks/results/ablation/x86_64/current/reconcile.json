@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "kind": "ablation-reconciliation",
+  "host": "LAPTOP-6S4BOT55",
+  "arch": "x86_64",
+  "cpu_model": "11th Gen Intel(R) Core(TM) i7-11370H @ 3.30GHz",
+  "repeats": 5,
+  "reduce": "median",
+  "threads": 1,
+  "profiling": false,
+  "params": "ablation",
+  "param_flags": [
+    "-k",
+    "25",
+    "-r",
+    "0.05",
+    "-t",
+    "0.4",
+    "-d",
+    "0.075",
+    "-o",
+    "0.3",
+    "-m",
+    "Containment"
+  ],
+  "datasets": {
+    "REF-CHR21": {
+      "kind": "reference",
+      "host": "local-wsl",
+      "path": "/home/dobro/_paper_work/chr21.fa",
+      "rel": "/home/dobro/_paper_work/chr21.fa",
+      "bytes": "45734843",
+      "records": "1",
+      "bases": "45090682"
+    },
+    "LOC-CHR21SIM12K": {
+      "kind": "reads-sim",
+      "host": "local-wsl",
+      "path": "/home/dobro/ablation-work/reads_chr21sim_12k.fa",
+      "rel": "/home/dobro/ablation-work/reads_chr21sim_12k.fa",
+      "bytes": "300901519",
+      "records": "25000",
+      "bases": "300000000"
+    }
+  },
+  "binaries": {
+    "cpp": "/home/dobro/shmap/release/shmap",
+    "cpp_sha256": "96c2a1b68996366b",
+    "instrumented": "/tmp/abl/target/release/shmap",
+    "shipped": "/home/dobro/shmap-rs/target/release/shmap"
+  },
+  "ratios": {
+    "total": 2.2238,
+    "port": 1.7546,
+    "ladder": 1.2674,
+    "instrumentation_overhead": 1.0177
+  },
+  "measured": "2026-08-16T09:02:42.377969+00:00"
+}

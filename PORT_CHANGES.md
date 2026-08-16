@@ -77,6 +77,17 @@ which is never merged and is kept only as the evidence behind the figure —
 build at every rung. Results and provenance:
 [`paper/generated/ABLATION.md`](paper/generated/ABLATION.md).
 
+**The ladder does not sum to the C++ speedup, and is not supposed to.** Its baseline is *this port
+with seven changes switched off*, not the C++ — that baseline still has row 8, which is not
+ablatable, and every port-level difference that is not a numbered optimization at all. The two
+figures compose by multiplication rather than addition, and `ablation.py --reconcile` measures all
+three together on one input so the identity is checkable rather than asserted: on the ladder's own
+chromosome-scale input the C++ is **2.22x** the shipped mapper, of which **1.75x** is what the
+ladder cannot switch off and **1.27x** is the whole ladder — and 1.75 × 1.27 returns 2.22. That
+total is below the 2.14–2.97x quoted above for the reason §1 gives: the C++ accumulator costs a
+slot per five bases *of the reference*, so a 45 Mbp chromosome flatters it and a 3.1 Gbp genome
+does not. Numbers in `benchmarks/results/ablation/<arch>/current/reconcile.tsv`.
+
 **A caveat that has to be stated plainly.** The C++ this is measured against is already a tuned
 `-O3 -march=native -flto` build, not a naive baseline — every number above is against an
 optimized implementation, not a straw man. And the comparison favors shmap-rs more as inputs grow:
