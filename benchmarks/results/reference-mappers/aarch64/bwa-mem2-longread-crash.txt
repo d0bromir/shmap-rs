@@ -1,0 +1,115 @@
+bwa-mem2 long-read crash report
+===============================
+date     2026-08-16T08:48:35Z
+host     galaxy (aarch64)
+kernel   6.17.0-22-generic
+binary   /home/mpiuser/micromamba/envs/refmappers/bin/bwa-mem2
+version  2.2.1 [bwa-mem2-2.3-h1e84f2d_0]
+dispatch 
+index    /home/mpiuser/bench-refs/REF-HS1.bwamem2.fa
+reads    /home/mpiuser/shmap-rs/benchmarks/data/files/real24k/reads_real24k.fa
+
+read lengths in the first 200 reads
+-----------------------------------
+n=200  min=22003  median=22789  max=33794
+
+1. how many reads it takes
+--------------------------
+Same preset, same everything, only the number of reads changes. The
+crash is not one pathological read: 40 reads map fine and 100 do not,
+and at 100 it dies before emitting a single record, so the failure is in
+a batch rather than in the read that would have been next.
+-x pacbio                                      reads=20     ok       records=21
+-x pacbio                                      reads=40     ok       records=42
+-x pacbio                                      reads=60     ok       records=62
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2181196 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x pacbio                                      reads=100    SIGSEGV  records=0
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2181242 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x pacbio                                      reads=200    SIGSEGV  records=0
+
+2. thread count is irrelevant
+-----------------------------
+Rules out a race: it is the same fault single-threaded.
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2181313 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x pacbio -t 1                                 reads=200    SIGSEGV  records=0
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2181370 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x pacbio -t 4                                 reads=200    SIGSEGV  records=0
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2181434 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x pacbio -t 8                                 reads=200    SIGSEGV  records=0
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2181516 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x pacbio -t 32                                reads=200    SIGSEGV  records=0
+
+3. no documented knob avoids it
+-------------------------------
+-K sets the batch size, which is the obvious lever if the fault is a
+per-batch buffer. It moves the crash later — more records come out
+before it dies — and never prevents it. Nor does relaxing the preset's
+aggressive re-seeding (-r), nor spelling the preset out by hand.
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2181630 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x pacbio -K 10000000                          reads=200    SIGSEGV  records=0
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2181682 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x pacbio -K 1000000                           reads=200    SIGSEGV  records=91
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2181931 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x pacbio -K 100000                            reads=200    SIGSEGV  records=93
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2182177 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x pacbio -K 50000                             reads=200    SIGSEGV  records=95
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2182510 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x pacbio -r 1.5                               reads=200    SIGSEGV  records=0
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2182572 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-k17 -W40 -A1 -B1 -O1 -E1 -L0                  reads=200    SIGSEGV  records=0
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2182639 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+-x ont2d                                       reads=200    SIGSEGV  records=0
+
+4. the control: what plain defaults do
+---------------------------------------
+No preset at all, on the same reads and the same index. This was meant to
+isolate the fault to the long-read preset path, on the reasoning that if
+the default path survives then neither the index nor the reads are at
+fault. IT DOES NOT SURVIVE. Plain defaults segfault on these reads too, on
+both architectures, so the fault is not specific to -x. What does survive
+is a small enough batch: 20 reads with no preset is fine, which is how an
+earlier version of this note came to claim x86_64 survived the control at
+all. It was reading a sample below the threshold.
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2182690 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+(no preset)                                    reads=200    SIGSEGV  records=0
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 70: 2182842 Segmentation fault      (core dumped) ( "$BWA" mem "$@" "$REF" "$fa" > "$sam" 2> "$WORK/err.txt" ) 2> /dev/null
+(no preset)                                    reads=1000   SIGSEGV  records=0
+
+5. stderr immediately before the fault
+--------------------------------------
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 138: 2183042 Segmentation fault      (core dumped) "$BWA" mem -t 1 -x pacbio "$REF" "$WORK/n200.fa" > /dev/null 2> "$WORK/err.txt"
+exit: 139
+2. Memory pre-allocation for BSW: 239.6170 MB
+3. Memory pre-allocation for BWT: 77.3142 MB
+------------------------------------------
+* Threads used (compute): 1
+* No. of pipeline threads: 2
+
+[0000] read_chunk: 10000000, work_chunk_size: 4624296, nseq: 200
+	[0000][ M::kt_pipeline] read 200 sequences (4624296 bp)...
+[0000] Calling mem_process_seqs.., task: 0
+[0000] 1. Calling kt_for - worker_bwt
+[0000] read_chunk: 10000000, work_chunk_size: 0, nseq: 0
+[0000] Re-allocating SMEM data structures due to enc_qdb
+
+The 'Re-allocating SMEM data structures due to enc_qdb' line is the same
+one reported in upstream issue #133.
+
+6. every benchmark's own reads
+------------------------------
+200 reads from each, so this is a lower bound on what breaks and NOT a
+clean bill of health for anything marked ok. The fault is per-batch, so
+surviving one batch says nothing about surviving six hundred: at full
+scale B02, B03 and B05 all segfault too (0/3 on a2, after 3:06, 6:42 and
+2:36, peaking at 259, 108 and 282 GB), which is why suite.toml skips all
+five long-read benchmarks and not just B01. B01 is the one that fails
+even here.
+/home/mpiuser/bwa_mem2_longread_crash.sh: line 156: 2183099 Segmentation fault      (core dumped) ( "$BWA" mem -t 1 "$@" "$REF" "$fa" > "$sam" 2> /dev/null ) 2> /dev/null
+B01 real HiFi 23.2 kb   -x pacbio              mean_len=23121   SIGSEGV  records=0
+B02 simulated 24 kb     -x pacbio              mean_len=24000   ok       records=200
+B03 real HiFi 12.8 kb   -x pacbio              mean_len=12793   ok       records=210
+B04 real HiFi 12.8 kb   -x pacbio              mean_len=12793   ok       records=210
+B05 real ONT 23.8 kb    -x ont2d               mean_len=23835   ok       records=254
+B06 AVITI 150 bp        (default)              mean_len=145     ok       records=200
+
+END OF REPORT
