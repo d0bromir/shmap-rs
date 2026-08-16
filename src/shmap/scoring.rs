@@ -63,7 +63,9 @@ impl RefineCache {
     /// once per process, not per read.
     pub fn enabled() -> bool {
         static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *ENABLED.get_or_init(|| std::env::var_os("SHMAP_NO_REFINE_MEMO").is_none())
+        *ENABLED.get_or_init(|| {
+            std::env::var_os("SHMAP_NO_REFINE_MEMO").is_none() && !crate::ablate::off(crate::ablate::Opt::RefineMemo)
+        })
     }
 
     /// Begins the first pass: forget the previous read and record results.

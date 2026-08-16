@@ -24,3 +24,7 @@ DX-CLR6K	reads-real	a2	minshmap_bench/realworld/data_rw/clr.fa	18789978	6000	186
 D2-SIM24K	reads-sim	a2	wgs24k/reads_24kbp_1x.fa	3004619179	125000	3000000000	24000	0.9624	simulated from REF-HS1 by profiling/wgs24k/gen24k.py seed=42, 0.5% subst
 DX-HIFI2K	reads-real	a2	_paper_work/reads.fa	25746266	2000	25676266	12838	0.0082	real HG002 HiFi sample (hifi_sample.fastq) -> FASTA; basis of allchr_real_24kbp
 DX-TINY	reads-sim	a2	minshmap_bench/data/reads.fa	2814022	8000	2399780	299	0.0008	minshmap_bench fixture
+# Registry-only: no [[benchmark]] consumes this, so `dataset_version` does not move for it.
+# It exists for the optimization ladder (benchmarks/scripts/ablation.py), which is not part
+# of the suite and does not gate a pull request.
+LOC-CHR21SIM12K	reads-sim	local-wsl	/home/dobro/ablation-work/reads_chr21sim_12k.fa	300901519	25000	300000000	12000	0.0962	simulated FROM REF-CHR21 (not hs1) by `profiling/datasets/gen_sim24k.py <chr21.fa> <out> 25000 12000`, seed=42, 0.5% subst; ablation ladder only — LOCAL WSL BOX ONLY

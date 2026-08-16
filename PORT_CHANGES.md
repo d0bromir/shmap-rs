@@ -56,6 +56,19 @@ Neither supersedes the other — they're different datasets. RESULTS.md is regen
 suite run and is the one to trust for anything current; the depth measurement is kept here
 because it's real evidence at a scale the standing suite doesn't currently cover.
 
+**A third measurement, which answers a question neither of those can.** Every "Effect, measured"
+above is against *the build that change landed on* — months apart, on different inputs, with
+different compilers. Those figures are real, but they share no baseline and they do not sum, so
+they cannot say how much of the end-to-end result is which change. That is what
+[`benchmarks/scripts/ablation.py`](benchmarks/scripts/ablation.py) exists for: every optimization
+here except rows 4 and 8 is switchable back to the code path it replaced at *run time*, in the
+shipped binary (`SHMAP_ABLATE`, [`src/ablate.rs`](src/ablate.rs)), so a cumulative ladder can be
+measured with one binary, one machine, one compiler and one input, varying one change at a time.
+Every rung's PAF is compared byte for byte against the baseline's — a stricter test of the
+"Exact?" column than the suite's, because it holds the input fixed and varies only the
+optimization — and the run fails rather than reports if one differs. Results and provenance:
+[`paper/generated/ABLATION.md`](paper/generated/ABLATION.md).
+
 **A caveat that has to be stated plainly.** The C++ this is measured against is already a tuned
 `-O3 -march=native -flto` build, not a naive baseline — every number above is against an
 optimized implementation, not a straw man. And the comparison favors shmap-rs more as inputs grow:

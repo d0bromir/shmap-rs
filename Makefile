@@ -132,6 +132,7 @@ paper: paper-pdf
 paper-tex:
 	python3 benchmarks/scripts/paper.py
 	python3 benchmarks/scripts/optimizations.py
+	python3 benchmarks/scripts/ablation.py
 	python3 benchmarks/scripts/manuscript.py
 
 # Typesets whatever paper.py produced into one PDF. Skips with an explanation
@@ -144,6 +145,7 @@ paper-pdf: paper-tex
 # Pass DOC=optimizations to typeset just one of them.
 paper-manuscript:
 	python3 benchmarks/scripts/optimizations.py
+	python3 benchmarks/scripts/ablation.py
 	python3 benchmarks/scripts/manuscript.py
 	python3 benchmarks/scripts/manuscript.py --lint
 	python3 benchmarks/scripts/build_paper.py $(if $(DOC),--doc $(DOC),)
@@ -152,6 +154,7 @@ paper-check:
 	python3 benchmarks/scripts/paper.py --check
 	python3 benchmarks/scripts/build_pdf.py --check
 	python3 benchmarks/scripts/optimizations.py --check
+	python3 benchmarks/scripts/ablation.py --check
 	python3 benchmarks/scripts/manuscript.py --check
 	python3 benchmarks/scripts/manuscript.py --lint
 	python3 benchmarks/scripts/build_paper.py --check

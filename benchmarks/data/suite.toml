@@ -103,6 +103,32 @@ min_diff = 0.075
 max_overlap = 0.3
 enabled = false
 
+# The cumulative optimization ladder (benchmarks/scripts/ablation.py). Not a
+# benchmark: no [[benchmark]] names it, and it is never part of the per-PR gate.
+#
+# WHY IT IS NOT [params.paper]. The ladder is measured on a chromosome-scale
+# reference, because the pre-optimization bucket accumulator it has to be able
+# to switch back on is sized by the reference over MIN_HALFLEN — ~15 GB per
+# worker on the whole genome, which no laptop can hold once, let alone once per
+# worker. What the mapping-side changes act on is the number of reference hits
+# a read has to consider, and that is (reference size x sampling rate); cutting
+# the reference by ~69x and leaving `hashratio` at 0.01 leaves a run in which
+# `bucket_merge` is under 1% of the wall and every step in the ladder is
+# smaller than the machine's own noise. Raising the sampling rate restores part
+# of that product, which is the one knob that does so without changing what is
+# being compared: every rung is measured at the same value, so it cancels out
+# of every ratio the ladder reports.
+#
+# `k`, `threshold`, `min_diff` and `max_overlap` are [params.paper]'s exactly.
+# Only the sampling rate differs, and it differs for a stated reason.
+[params.ablation]
+description = "Cumulative optimization ladder at chromosome scale. [params.paper] with hashratio raised from 0.01 to 0.05, so that per-read hit counts are within reach of a whole-genome run's and the ladder's steps clear the host's noise."
+k = 25
+hashratio = 0.05
+threshold = 0.4
+min_diff = 0.075
+max_overlap = 0.3
+
 # ---------------------------------------------------------------------------
 # Benchmarks
 # ---------------------------------------------------------------------------

@@ -19,6 +19,11 @@ fn main() -> anyhow::Result<()> {
         eprintln!("ERROR: {e}");
         std::process::exit(1);
     }
+    // A run that has an optimization switched off says so in its own log, so a
+    // measurement cannot be mistaken later for one of the shipped build.
+    if let Some(what) = shmap::ablate::banner() {
+        eprintln!("ABLATED (pre-optimization path in use): {what}");
+    }
 
     let t_file = params.t_file.clone();
     let p_file = params.p_file.clone();

@@ -299,6 +299,11 @@ pub struct Buckets<'idx, const AP: bool> {
     /// Reused `(descending matches, ascending index)` sort keys for
     /// [`Self::get_sorted_buckets`].
     order: Vec<u64>,
+    /// Ablation switches, read once per `Buckets` (one per worker thread)
+    /// rather than per read or per hit, so a normal run pays nothing for
+    /// them. See [`crate::ablate`].
+    ablate_bucket_array: bool,
+    ablate_packed_sort: bool,
 }
 
 impl<'idx, const AP: bool> Buckets<'idx, AP> {
@@ -323,6 +328,8 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
             max_b: 0,
             max_sid: 0,
             order: Vec::new(),
+            ablate_bucket_array: crate::ablate::off(crate::ablate::Opt::BucketArray),
+            ablate_packed_sort: crate::ablate::off(crate::ablate::Opt::PackedSort),
         }
     }
 
@@ -395,16 +402,34 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         // Before anything that can change `dense`'s length or drop it.
         self.retire_dense_slots();
         let tidx = self.tidx;
-        let halflen = self.halflen as i64;
+        // Ablated, the layout is `buckets.h:76-97`'s: one slot per
+        // `MIN_HALFLEN`-wide window of every segment's *sequence*, allocated
+        // once and never resized, whatever the read. Bucket indices are
+        // `pos / halflen` with `halflen >= MIN_HALFLEN` and `pos <= sz`, so
+        // that layout is a superset of the one the read needs — the same
+        // slots receive the same contributions, at the reference's size
+        // rather than the query's, which is the cost the row-1 change
+        // removes. The [`MAX_DENSE_SLOTS`] cap is bypassed with it: the cap
+        // exists to protect the read-sized layout, and applying it here would
+        // quietly route the ablated run back onto the sparse path.
+        let halflen = if self.ablate_bucket_array {
+            MIN_HALFLEN as i64
+        } else {
+            self.halflen as i64
+        };
         self.seg_base.clear();
         let mut total: i64 = 0;
         for seg in &tidx.segments {
             self.seg_base.push(total as u32);
             // Bucket indices run `0 ..= max_pos / halflen`; `+ 2` covers that
             // inclusive end and keeps the `b - 1` neighbour in range.
-            let extent = if AP { seg.sz as i64 } else { seg.kmers.len() as i64 };
+            let extent = if AP || self.ablate_bucket_array {
+                seg.sz as i64
+            } else {
+                seg.kmers.len() as i64
+            };
             total += (extent.max(1) - 1) / halflen + 2;
-            if total > MAX_DENSE_SLOTS as i64 {
+            if total > MAX_DENSE_SLOTS as i64 && !self.ablate_bucket_array {
                 self.seg_base.clear();
                 self.dense = Vec::new();
                 self.dense_on = false;
@@ -685,6 +710,31 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
     pub fn get_sorted_buckets(&mut self) -> Vec<(BucketLoc, BucketContent)> {
         self.merge_entries();
         let (i, seeds) = (self.prop_i, self.prop_seeds);
+
+        // Ablated: materialize the records first and stable-sort those, which
+        // is what this did before the packed key, and produces the same order
+        // by construction (that is the row-9 identity).
+        if self.ablate_packed_sort {
+            let mut out: Vec<(BucketLoc, BucketContent)> = self
+                .entries
+                .iter()
+                .map(|e| {
+                    (
+                        e.loc,
+                        BucketContent {
+                            i,
+                            seeds,
+                            matches: e.matches,
+                            codirection: e.codirection,
+                            r_min: e.r_min,
+                            r_max: e.r_max,
+                        },
+                    )
+                })
+                .collect();
+            out.sort_by_key(|e| std::cmp::Reverse(e.1.matches));
+            return out;
+        }
 
         // Order 8-byte keys, not the 32-byte output records: on a k=15
         // whole-genome read this list is ~240k entries, and sorting it as

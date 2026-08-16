@@ -52,6 +52,9 @@ pub struct FracMinHash {
     lut_rc_k1: [Hash; 256],
     pub k: i32,
     pub h_frac: f64,
+    /// Row-7 ablation, read once per sketcher rather than per base. See
+    /// [`crate::ablate`] and [`FracMinHash::sketch_slice_into_naive`].
+    ablate_loop: bool,
 }
 
 impl FracMinHash {
@@ -104,6 +107,7 @@ impl FracMinHash {
             lut_rc_k1,
             k,
             h_frac,
+            ablate_loop: crate::ablate::off(crate::ablate::Opt::SketchLoop),
         }
     }
 
@@ -165,6 +169,9 @@ impl FracMinHash {
     /// exactly, which is what [`crate::index::SketchIndex::build_index`]
     /// relies on to stay thread-count-independent.
     pub fn sketch_slice_into(&self, s: &[u8], offset: RPos, mut buf: SketchT) -> SketchT {
+        if self.ablate_loop {
+            return self.sketch_slice_into_naive(s, offset, buf);
+        }
         buf.clear();
         let k = self.k;
         if (s.len() as RPos) < k || k <= 0 {
@@ -203,6 +210,55 @@ impl FracMinHash {
             h_rc = h_rc.rotate_right(1) ^ self.lut_rc_r1[out_c] ^ self.lut_rc_k1[in_c];
             r += 1;
             emit(&mut buf, r, h_fw, h_rc, h_thres);
+        }
+
+        buf
+    }
+
+    /// [`Self::sketch_slice_into`] as it was before row 7 of
+    /// `PORT_CHANGES.md`, reachable only through `SHMAP_ABLATE=sketch-loop`.
+    ///
+    /// Three differences, which are the three things that row claims: the
+    /// three fixed rotates are applied to LUT values in the loop instead of
+    /// being precomputed into their own tables; the incoming and outgoing
+    /// bases are reached by indexing `s` with a signed position, which costs
+    /// a bounds check and a sign-extension each and hides the trip count from
+    /// the optimizer; and the output buffer is reserved by a flat factor
+    /// rather than from the binomial the selection actually follows. The
+    /// arithmetic is identical, so the sketch is too — that is what makes the
+    /// difference a cost and not a result.
+    fn sketch_slice_into_naive(&self, s: &[u8], offset: RPos, mut buf: SketchT) -> SketchT {
+        buf.clear();
+        let k = self.k;
+        if (s.len() as RPos) < k || k <= 0 {
+            return buf;
+        }
+        buf.reserve((s.len() as f64 * self.h_frac * 1.1) as usize);
+
+        let ks = k as usize;
+        let h_thres = self.h_thres();
+
+        let mut h_fw: Hash = 0;
+        let mut h_rc: Hash = 0;
+        for (i, &c) in s[..ks].iter().enumerate() {
+            let c = c as usize;
+            h_fw ^= self.lut_fw[c].rotate_left((ks - i - 1) as u32);
+            h_rc ^= self.lut_rc[c].rotate_left(i as u32);
+        }
+
+        let mut r: RPos = k - 1 + offset;
+        emit(&mut buf, r, h_fw, h_rc, h_thres);
+        let mut i: RPos = k;
+        while i < s.len() as RPos {
+            let in_c = s[i as usize] as usize;
+            let out_c = s[(i - k) as usize] as usize;
+            h_fw = h_fw.rotate_left(1) ^ self.lut_fw[out_c].rotate_left(k as u32) ^ self.lut_fw[in_c];
+            h_rc = h_rc.rotate_right(1)
+                ^ self.lut_rc[out_c].rotate_right(1)
+                ^ self.lut_rc[in_c].rotate_left((k - 1) as u32);
+            r += 1;
+            emit(&mut buf, r, h_fw, h_rc, h_thres);
+            i += 1;
         }
 
         buf

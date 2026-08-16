@@ -55,8 +55,9 @@ from build_pdf import ENGINES, find_engine  # noqa: E402
 GENERATED = REPO / "paper" / "generated"
 
 # The documents this repository publishes. A page budget per document, because
-# each one is written to a format: both are two-page notes, and a note that
-# quietly becomes three pages is a submission that bounces.
+# each one is written to a format: the applications note is two pages, the
+# companion three, and one that quietly grows a page is a submission that
+# bounces.
 DOCUMENTS: dict[str, dict] = {
     "manuscript": {
         "tex": REPO / "paper" / "manuscript.tex",
@@ -67,7 +68,13 @@ DOCUMENTS: dict[str, dict] = {
     "optimizations": {
         "tex": REPO / "paper" / "optimizations.tex",
         "pdf": REPO / "paper" / "optimizations.pdf",
-        "pages": 2,
+        # Three, not two, and the third is the ablation ladder. A companion
+        # that lists nine optimizations without measuring any of them under a
+        # controlled protocol is the weaker document, and the full-width
+        # figure plus the section that reads it does not fit in two pages
+        # alongside Table 1. Raised deliberately and once, with this note, so
+        # that it stays a budget rather than becoming a habit.
+        "pages": 3,
         "what": "the companion: every optimization, by the layer it acts on",
     },
 }

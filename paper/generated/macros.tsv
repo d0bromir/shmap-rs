@@ -29,6 +29,19 @@ macro	value	unit	source	meaning
 \shmNumExactOptimizations	9		PORT_CHANGES.md :: the current-state table, Exact? column	How many of them leave output byte-identical.
 \shmCppCommit	63f1103		PORT_CHANGES.md :: the URL of each quoted block	Upstream revision every C++ citation is taken at.
 \shmNumParallelOptimizations	3		PORT_CHANGES.md, classified by benchmarks/scripts/optimizations.py	How many exist only because the C++ is single-threaded.
+\shmAblRungs	7		benchmarks/scripts/ablation.py :: LADDER	Optimizations the ladder switches back on, one per rung.
+\shmAblNotRungs	2		benchmarks/scripts/ablation.py :: NOT_ABLATED	Optimizations that cannot be a rung, and are reported as such.
+\shmAblRepeats	9		ablation ladder :: manifest.json repeats	Times the whole ladder was run, round-robin.
+\shmAblHost	LAPTOP-6S4BOT55		ablation ladder :: manifest.json host	Machine the ladder was measured on.
+\shmAblCores	8	cores	ablation ladder :: manifest.json cores	Cores it has.
+\shmAblThreadsMax	8		ablation ladder :: ladder.tsv threads	Widest thread count the ladder was measured at.
+\shmAblSpeedupOne	1.28	x	ablation ladder :: ladder.tsv wall_s, rung 0 over the last rung	End-to-end wall ratio across the whole ladder, one worker.
+\shmAblSpeedupMax	1.62	x	ablation ladder :: ladder.tsv wall_s, rung 0 over the last rung	The same ratio at the widest thread count.
+\shmAblRssRatioOne	1.62	x	ablation ladder :: ladder.tsv peak_rss_kb, rung 0 over the last rung	End-to-end peak-RSS ratio across the ladder, one worker.
+\shmAblRssRatioMax	5.69	x	ablation ladder :: ladder.tsv peak_rss_kb, rung 0 over the last rung	The same ratio at the widest thread count.
+\shmAblTopStep	refine memo		ablation ladder :: ladder.tsv, largest step in wall_s	Rung that takes the most wall time out, at the widest thread count.
+\shmAblTopStepPct	14.4	%	ablation ladder :: ladder.tsv, largest step in wall_s	How much that rung takes out of the rung before it.
+\shmAblTopStepRow	3		ablation ladder :: ladder.tsv row	Its row in PORT_CHANGES.md.
 \shmParamK	25		benchmarks/data/suite.toml :: params.paper.k	k-mer length.
 \shmParamR	0.01		benchmarks/data/suite.toml :: params.paper.hashratio	FracMinHash sampling rate.
 \shmParamTheta	0.4		benchmarks/data/suite.toml :: params.paper.threshold	Similarity threshold.
