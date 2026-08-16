@@ -120,12 +120,14 @@ echo
 
 echo "4. the control: what plain defaults do"
 echo "---------------------------------------"
-echo "No preset at all, on the same reads and the same index. Short-read"
-echo "defaults on 24 kb reads is not a configuration anyone should use; the"
-echo "point is that it exercises a different code path, so if it survives,"
-echo "neither the index nor the reads are at fault and the long-read preset"
-echo "path is. THE TWO ARCHITECTURES DISAGREE HERE — x86_64 survives this and"
-echo "aarch64 does not — so read the verdict rather than assuming it."
+echo "No preset at all, on the same reads and the same index. This was meant to"
+echo "isolate the fault to the long-read preset path, on the reasoning that if"
+echo "the default path survives then neither the index nor the reads are at"
+echo "fault. IT DOES NOT SURVIVE. Plain defaults segfault on these reads too, on"
+echo "both architectures, so the fault is not specific to -x. What does survive"
+echo "is a small enough batch: 20 reads with no preset is fine, which is how an"
+echo "earlier version of this note came to claim x86_64 survived the control at"
+echo "all. It was reading a sample below the threshold."
 run "(no preset)" 200 -t 1
 run "(no preset)" 1000 -t 1
 echo

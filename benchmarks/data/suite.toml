@@ -625,8 +625,16 @@ role = "peer"
 # On B01 it is unavoidable at any scale: 60 reads map, 100 do not, and it dies
 # before emitting a record. Thread count makes no difference. `-K` only lets
 # 91-95 of 200 records out before the same fault; nor does relaxing `-r`, nor
-# spelling the preset out by hand, nor `-x ont2d`. On x86_64 the control — the
-# same reads and index with no preset — is fine; on aarch64 even that crashes.
+# spelling the preset out by hand, nor `-x ont2d`. Plain defaults, with no `-x`
+# at all, segfault on those reads too, on BOTH architectures — so the fault is
+# not specific to the long-read presets and there is no control here that
+# isolates it to them. The only thing that survives is a small enough batch.
+#
+# An earlier version of this comment claimed x86_64 survived the no-preset
+# control and aarch64 did not. That came from a 20-read test, which is below
+# the ~100-read threshold where the fault starts. Same sampling mistake as the
+# 200-read false negative above, made twice in one investigation, which is
+# the reason both are written down rather than quietly corrected.
 #
 # Reproduced and recorded by benchmarks/scripts/bwa_mem2_longread_crash.sh on
 # both architectures. The same signature — "Re-allocating SMEM data structures
