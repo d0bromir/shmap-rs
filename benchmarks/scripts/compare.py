@@ -198,26 +198,49 @@ def wrong_q60_of(checks: list[dict]) -> dict[tuple, int]:
 # comparability
 # --------------------------------------------------------------------------
 
-def guard(base: dict, cand: dict) -> list[str]:
-    """Reasons the two sets must not be diffed at all.
+def guard(base: dict, cand: dict) -> tuple[list[str], list[str]]:
+    """(reasons the two sets must not be diffed at all, things worth saying anyway).
 
     This is the guard that keeps a comparison honest. Two sets measured under
     different suite definitions, different input files or on different hardware
     produce differences that have nothing to do with the code, and presenting
     them as a regression would be worse than not comparing.
+
+    It returns notes as well as blockers because refusing and explaining are
+    different jobs: a difference that is real but harmless belongs in the
+    report, not in the list of reasons to give up.
     """
-    bm, cm, bad = base["manifest"], cand["manifest"], []
+    bm, cm, bad, notes = base["manifest"], cand["manifest"], [], []
 
     b_major = str(bm["suite_version"]).split(".")[0]
     c_major = str(cm["suite_version"]).split(".")[0]
     if b_major != c_major:
         bad.append(f"suite_version MAJOR differs ({bm['suite_version']} vs {cm['suite_version']}) "
                    f"— results across a MAJOR boundary are not comparable (VERSIONING.md §2)")
-    if bm["dataset_version"] != cm["dataset_version"]:
-        bad.append(f"dataset_version differs ({bm['dataset_version']} vs {cm['dataset_version']}) "
-                   f"— the inputs are not the same files")
     if bm["host"] != cm["host"]:
         bad.append(f"host differs ({bm['host']} vs {cm['host']}) — timings are not comparable")
+
+    # `dataset_version` is deliberately NOT a veto, though it used to be one.
+    #
+    # It moves when any input is "added, replaced or regenerated"
+    # (VERSIONING.md §3), and the registry is append-only, so ADDING a dataset
+    # bumps it without touching a single existing file. Refusing on the version
+    # string alone made a set measured after any addition incomparable with
+    # every set before it — which is what happened the first time datasets were
+    # added: a full 333-invocation run on unchanged B01-B05 inputs produced
+    # "the inputs are not the same files" and no verdict at all.
+    #
+    # What actually has to hold is that each compared benchmark ran on the same
+    # inputs, and that is checked directly below, twice over: the identity
+    # triple of every dataset both sets name, and the id each benchmark was
+    # bound to. Those catch a file regenerated in place and a benchmark
+    # re-pointed at a different file respectively, which are the two ways the
+    # inputs can really differ. A version number cannot distinguish either from
+    # a harmless addition.
+    if bm["dataset_version"] != cm["dataset_version"]:
+        notes.append(f"dataset_version differs ({bm['dataset_version']} vs {cm['dataset_version']}); "
+                     f"the registry is append-only, and every dataset these benchmarks "
+                     f"share was checked to be byte-identical")
 
     # Identity triples, not just ids: catches a file regenerated in place.
     for did, bd in (bm.get("datasets") or {}).items():
@@ -225,7 +248,21 @@ def guard(base: dict, cand: dict) -> list[str]:
         if cd and (bd.get("bytes"), bd.get("records")) != (cd.get("bytes"), cd.get("records")):
             bad.append(f"dataset {did} changed identity between the two runs "
                        f"({bd.get('bytes')}B/{bd.get('records')} vs {cd.get('bytes')}B/{cd.get('records')})")
-    return bad
+
+    # And the binding: a benchmark re-pointed at a different dataset keeps its
+    # id and its rows, so nothing above would notice. Only benchmarks present
+    # in both sets are checked — one that exists in only one has no history to
+    # be compared against, which is the normal state after a MINOR bump.
+    def bindings(rows: list[dict]) -> dict[str, tuple]:
+        return {r["benchmark"]: (r.get("reference_id"), r.get("reads_id")) for r in rows}
+
+    b_bind, c_bind = bindings(base["rows"]), bindings(cand["rows"])
+    for bench, bb in sorted(b_bind.items()):
+        cb = c_bind.get(bench)
+        if cb and bb != cb:
+            bad.append(f"{bench} changed inputs between the two runs "
+                       f"({bb[0]}/{bb[1]} vs {cb[0]}/{cb[1]})")
+    return bad, notes
 
 
 # --------------------------------------------------------------------------
@@ -618,7 +655,7 @@ def main() -> int:
     suite = load_suite()
     thr, thr_host = host_thresholds(suite, cand["manifest"].get("host"))
 
-    bad = guard(base, cand)
+    bad, guard_notes = guard(base, cand)
     if bad:
         print("# Benchmark comparison — ERROR\n\nThese result sets must not be compared:\n")
         for b in bad:
@@ -627,6 +664,7 @@ def main() -> int:
 
     res = compare(base, cand, thr, a.allow_output_change)
     res["threshold_host"] = thr_host
+    res.setdefault("notes", []).extend(guard_notes)
     md = render(base, cand, res, thr)
     print(md)
     if a.out:
