@@ -85,11 +85,7 @@ fn assert_every_record_well_formed(paf: &str) {
     for line in paf.lines().filter(|l| !l.trim().is_empty()) {
         let c: Vec<&str> = line.split('\t').collect();
         assert!(c.len() >= 12, "short record: {line}");
-        let (qlen, qs, qe): (i64, i64, i64) = (
-            c[1].parse().unwrap(),
-            c[2].parse().unwrap(),
-            c[3].parse().unwrap(),
-        );
+        let (qlen, qs, qe): (i64, i64, i64) = (c[1].parse().unwrap(), c[2].parse().unwrap(), c[3].parse().unwrap());
         assert!(
             0 <= qs && qs < qe && qe <= qlen,
             "malformed query interval {qs}..{qe} of {qlen} in: {line}"
