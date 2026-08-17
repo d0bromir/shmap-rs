@@ -1209,8 +1209,10 @@ structural one.
 
 Measured on **B06-B08**: GIAB HG002 Element AVITI 2x150, UltraQ chemistry, sequenced 2023-08 to
 2024-09, at 2x / 4x / 7x of hs1 (8.3, 16.6 and 29.1 GB). The three are exact nested prefixes of one
-stream, so depth is the only thing that varies between them. Corpus and matrix are in `suite.toml`;
-the result sets are `1.4.1-x86_64-01e4b5952f39-2026-08-15` and `1.4.1-aarch64-c06411eb69e5-2026-08-15`.
+stream, so depth is the only thing that varies between them. Corpus and matrix are in `suite.toml`.
+The shmap-rs figures are from `1.4.1-x86_64-dad2d06b15a5-2026-08-16` (long reads) and its `-run2`
+companion (short reads); the bwa-mem2 figures are from the reference-mapper corpus, which the fix
+below does not touch.
 
 **Single-end, R1 only.** shmap-rs has no paired-end mode, and mate rescue is a large advantage on
 exactly the repetitive regions this comparison is about — one shmap-rs structurally cannot use. Both
@@ -1221,19 +1223,24 @@ these numbers are quoted.
 
 | | reads | shmap-rs | bwa-mem2 | ratio | shmap-rs RSS | bwa-mem2 RSS |
 |---|---:|---:|---:|---:|---:|---:|
-| **a2** B06 | 41.8 M | 84.0 min | 8.9 min | 9.4x | 18.73 GB | 35.74 GB |
-| **a2** B07 | 83.5 M | 169.9 min | 17.1 min | 9.9x | 18.61 GB | 35.72 GB |
-| **a2** B08 | 146.2 M | 297.8 min | 28.7 min | 10.4x | 18.71 GB | 35.86 GB |
+| **a2** B06 | 41.8 M | 82.3 min | 8.9 min | 9.2x | 18.32 GB | 35.74 GB |
+| **a2** B07 | 83.5 M | 166.0 min | 17.1 min | 9.7x | 18.34 GB | 35.72 GB |
+| **a2** B08 | 146.2 M | 293.0 min | 28.7 min | 10.2x | 18.47 GB | 35.86 GB |
 | **galaxy** B06 | 41.8 M | 98.2 min | 9.4 min | 10.4x | 18.68 GB | 35.66 GB |
 | **galaxy** B07 | 83.5 M | 200.4 min | 17.7 min | 11.3x | 18.69 GB | 35.66 GB |
 | **galaxy** B08 | 146.2 M | 350.6 min | 30.4 min | 11.5x | 18.74 GB | 35.66 GB |
+
+The galaxy rows are from the pre-fix binary; a re-measurement is running. The fix
+(§[Defect 1](#two-defects-this-benchmark-found-on-its-first-run)) took ~2% off the a2 shmap-rs
+times, because reads below the sketch floor now stop before the seed-matching sweep instead of
+going through it, so the galaxy figures should move by about that much and the ratios not at all.
 
 **bwa-mem2 is about 10x faster and shmap-rs uses about half the memory.** The caveat runs against
 us, not for us: bwa-mem2 is doing full Smith-Waterman extension and emitting SAM alignments, while
 shmap-rs stops at coordinates. It does strictly more work and is still 10x quicker.
 
 Indexing is not the story — shmap-rs builds its `r = 0.1` index of hs1 in 10-24 s and spends
-everything else mapping. The ratio drifts up with depth (9.4 -> 10.4 on a2), so shmap-rs scales
+everything else mapping. The ratio drifts up with depth (9.2 -> 10.2 on a2), so shmap-rs scales
 slightly worse here, and galaxy is a flat 1.17-1.18x slower than a2 across all three.
 
 ### Why it is slow, which is the same reason it is inaccurate
@@ -1266,13 +1273,19 @@ choice rests on.)
 
 | | reference mapped | recall | agreement | **good** |
 |---|---:|---:|---:|---:|
-| B06 | 41 722 937 | 0.9838 | 0.9284 | **0.9134** |
-| B07 | 83 430 048 | 0.9878 | 0.9287 | **0.9174** |
-| B08 | 145 987 234 | 0.9888 | 0.9287 | **0.9183** |
+| B06 | 41 722 937 | 0.9776 | 0.9294 | **0.9085** |
+| B07 | 83 430 048 | 0.9818 | 0.9296 | **0.9127** |
+| B08 | 145 987 234 | 0.9828 | 0.9296 | **0.9136** |
 
-**shmap-rs reproduces 91-92% of bwa-mem2's placements**, mapping 98.4-98.9% of the reads it maps and
-agreeing on 92.9% of the ones both place. Agreement is identical to four decimals across a 3.5x
-depth range, and **every figure in this table is identical on both architectures**.
+**shmap-rs reproduces 91% of bwa-mem2's placements**, mapping 97.8-98.3% of the reads it maps and
+agreeing on 92.9% of the ones both place. Agreement is identical to three decimals across a 3.5x
+depth range.
+
+These are post-fix figures. The fix costs about 0.6 points of recall — it drops the ~0.6% of reads
+whose sketch falls below five k-mers, which were previously placed on one to four k-mers each —
+and buys back a little agreement, because the placements it stops making were the least supported
+ones. That trade is the point of it: 0.9838 recall including placements resting on 25 bases of
+evidence is worth less than 0.9776 without them.
 
 That is far better than the chrY probe above predicts, and the reason is the probe's reference:
 chrY is the most repetitive chromosome in the genome, while whole-genome 150 bp reads are mostly
@@ -1285,33 +1298,71 @@ truth, and on single-end short reads it is working without the mate information 
 ### Two defects this benchmark found on its first run
 
 Neither was reachable before B06 — the shortest read in the suite was 12.8 kb, and 25 bp reads only
-appear in real adapter-trimmed Illumina data.
+appear in real adapter-trimmed Illumina data. This is the argument for adding a benchmark outside
+the tool's comfort zone: both defects had been in the code since the port began, both sat in a
+region the suite never sampled, and one of them is a crash in the original.
 
-**1. shmap-rs emits invalid PAF for reads of length <= k+1.** `validate_paf` fails with 172 / 333 /
-570 records on B06 / B07 / B08 (0.0004%), every one a read of length 25 or 26 at k=25. At the
-scoring call site the query size passed down is `read_length - k` and the reported end is that minus
-one, so `qend = read_length - k - 1`, which is -1 at `k` and 0 at `k+1`. PAF requires
-`0 <= qstart < qend <= qlen`. The runs are therefore recorded with verdict ERROR and are **not**
-promoted as a baseline. Fixing it changes mapper output and belongs in its own pull request.
+**1. shmap-rs emitted invalid PAF for reads of length <= k+1 — fixed in this pull request.**
+`validate_paf` failed with 172 / 333 / 570 records on B06 / B07 / B08 (0.0004%), every one a read of
+length 25 or 26 at k=25. At the scoring call site the query size passed down is `read_length - k`
+and the reported end is that minus one, so `qend = read_length - k - 1`, which is -1 at `k` and 0 at
+`k+1`. PAF requires `0 <= qstart < qend <= qlen`.
+
+The cause turned out to be a dropped return value rather than the arithmetic. `Buckets::set_halflen`
+already returns `false` when the sketch is below `MIN_HALFLEN`, its doc comment already says the
+caller should treat that as too small to map, and
+§[11 of the algorithm docs](docs/sections/11_end_to_end.tex) already specifies
+`if buckets.halflen < MIN_HALFLEN: goto unmapped`. The caller ignored all three. Such reads now
+emit an unmapped record.
+
+**It rejects rather than clamps, and that is a real behaviour change, not a coordinate repair.**
+Below `MIN_HALFLEN` the dense accumulator is switched off and the placement rests on one to four
+k-mers — 25 to 100 bases of evidence for a position in a 3.1 Gbp genome. Clamping `qend` would have
+produced a well-formed record asserting a placement the algorithm does not support. So reads that
+previously came out with *valid* coordinates from a 3- or 4-k-mer sketch are now unmapped too:
+
+| | reads | previously mapped | now | change |
+|---|---:|---:|---:|---:|
+| B03 | 241 991 | 241 991 | 241 988 | **-3** |
+| B04 | 2 425 341 | 2 419 796 | 2 419 767 | **-29** |
+| B01, B02, B05 | — | — | — | 0 |
+| B06 | 41.8 M | 41 047 969 | 40 786 414 | **-261 555** |
+| B07 | 83.5 M | 82 416 151 | 81 908 874 | **-507 277** |
+| B08 | 146.2 M | 144 351 046 | 143 477 803 | **-873 243** |
+
+The long-read cost is 32 reads out of 2.98 M, 0.001%. It is not zero — B04 contains 49 reads under
+600 bp, and at `r = 0.01` those are the only ones that can sketch below five k-mers at all. The
+short-read cost is ~0.6%, three orders of magnitude larger, because at 149 bp and `r = 0.1` the
+expected sketch is 12.5 and the low tail of that distribution is genuinely populated.
+
+`compare.py` rates this BLOCK on the accuracy rule and REVIEW under `--allow-output-change`; the
+result set carries the REVIEW verdict for a human to accept, which is the intended route for a
+deliberate output change. Timings improved slightly (~2%), since these reads now stop before the
+seed-matching sweep.
 
 **2. The C++ original does worse on the same input: it segfaults.**
 `benchmarks/scripts/probe_short_read_defect.py` runs both binaries over the boundary, one invocation
-per length (chrY, k=25, r=1.0, 200 reads each):
+per length (chrY, k=25, r=1.0, 200 reads each). One invocation *per length* matters: a single run
+covering the whole range loses every result when the C++ dies partway through.
 
-| read len | sketch *m* | shmap-rs | cpp-shmap |
-|---:|---:|---|---|
-| 24 | 0 | 0 records | 0 records |
-| 25 | 1 | 200 INVALID `0..-1` | **SIGSEGV** |
-| 26 | 2 | 200 INVALID `0..0` | **SIGSEGV** |
-| 27 | 3 | 200 ok | **SIGSEGV** |
-| 28 | 4 | 200 ok | **SIGSEGV** |
-| 29 | 5 | 200 ok | 200 ok |
-| 30+ | 6+ | 200 ok | 200 ok |
+| read len | sketch *m* | shmap-rs before | shmap-rs after | cpp-shmap |
+|---:|---:|---|---|---|
+| 24 | 0 | 0 records | 0 records | 0 records |
+| 25 | 1 | 200 INVALID `0..-1` | 200 unmapped | **SIGSEGV** |
+| 26 | 2 | 200 INVALID `0..0` | 200 unmapped | **SIGSEGV** |
+| 27 | 3 | 200 ok | 200 unmapped | **SIGSEGV** |
+| 28 | 4 | 200 ok | 200 unmapped | **SIGSEGV** |
+| 29 | 5 | 200 ok | 200 ok | 200 ok |
+| 30+ | 6+ | 200 ok | 200 ok | 200 ok |
 
 The C++ crashes for **every read whose sketch holds fewer than 5 k-mers** — 5 being `MIN_HALFLEN`,
 the bucket-geometry floor that the algorithm documentation describes as rejecting such reads as
-unmappable "rather than creating degenerate buckets". It does not reject them. So the port already
-removes a crash and retains a milder coordinate bug over a narrower range.
+unmappable "rather than creating degenerate buckets". It does not reject them.
+
+The two columns on the right are the same boundary: `m < 5` is exactly where the C++ faults and
+exactly where the port now returns unmapped. That the crash and the malformed output share a
+boundary is what identified the cause — the port had inherited the missing check and survived it
+only because Rust bounds-checks what the C++ walks off the end of.
 
 ### bwa-mem2 cannot map our long reads at all
 
