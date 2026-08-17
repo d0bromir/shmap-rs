@@ -33,6 +33,7 @@ import sys
 import tempfile
 import time
 import tomllib
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -543,6 +544,36 @@ def ground_truth_floor(suite: dict, metric: str) -> float:
     return c.get("min_fraction_by_metric", {}).get(metric, c["min_fraction"])
 
 
+def paf_intersection(a: Path, b: Path) -> int:
+    """How many records the two files share, over the 12 mandatory PAF columns.
+
+    A multiset intersection, so a record present twice on both sides counts
+    twice -- the same thing `comm -12` reports on sorted input.
+
+    This used to be `comm -12 <(cut|sort) <(cut|sort)|wc -l`, and that is not
+    portable between the two hosts. galaxy ships uutils coreutils rather than
+    GNU, whose `sort` and `comm` disagree about ordering: on a 125 000-line
+    check with 83 000 known-shared records it reports 82 874, dropping 0.15%
+    of genuine matches, reproducibly and in both C and UTF-8 locales. a2's GNU
+    coreutils is exact on the same input. Every aarch64 `impl_agreement`
+    figure measured before this was therefore understated by an amount that
+    depends on the data, which is also why one moved between two runs whose
+    PAFs were byte-identical.
+    """
+    left: Counter[str] = Counter()
+    with open(a) as f:
+        for line in f:
+            left["\t".join(line.rstrip("\n").split("\t")[:12])] += 1
+    n = 0
+    with open(b) as f:
+        for line in f:
+            key = "\t".join(line.rstrip("\n").split("\t")[:12])
+            if left[key] > 0:
+                left[key] -= 1
+                n += 1
+    return n
+
+
 def run_checks(bench: dict, metric: str, rows: list[dict], outdir: Path, suite: dict) -> list[dict]:
     """Every blocking check that failed here must block the merge."""
     res = []
@@ -618,10 +649,7 @@ def run_checks(bench: dict, metric: str, rows: list[dict], outdir: Path, suite: 
                                    f"agreement={c['agreement']:.4f} ref={c['reference_mapped']}"))
 
     if "impl_agreement" in bench["checks"] and rs and cpp:
-        a = sh(["bash", "-c",
-                f"comm -12 <(cut -f1-12 {shlex.quote(rs[0]['paf'])}|sort) "
-                f"<(cut -f1-12 {shlex.quote(cpp[0]['paf'])}|sort)|wc -l"])
-        n = int(a.stdout.strip() or 0)
+        n = paf_intersection(Path(rs[0]["paf"]), Path(cpp[0]["paf"]))
         tot = rs[0]["mapped"] or 1
         res.append(dict(check="impl_agreement", benchmark=bench["id"], metric=metric,
                         passed=True, detail=f"{n}/{tot} = {n/tot:.4f}"))

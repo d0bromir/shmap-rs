@@ -258,6 +258,61 @@ def check_manifest() -> list[str]:
     return fail
 
 
+def check_paf_intersection(tmp: Path) -> list[str]:
+    """impl_agreement's record count must not depend on which coreutils is installed.
+
+    This replaced `comm -12 <(cut|sort) <(cut|sort)`, which is exact under GNU
+    coreutils and lossy under uutils: on the real check galaxy dropped 0.15% of
+    genuine matches, silently, in both C and UTF-8 locales.
+    """
+    from run import paf_intersection
+    fail = []
+
+    def paf(name: str, rows: list[str]) -> Path:
+        p = tmp / name
+        p.write_text("".join(rows))
+        return p
+
+    def rec(q: str, tags: str = "") -> str:
+        return f"{q}\t24000\t0\t23999\t+\tchr1\t1000\t2000\t3000\t200\t240\t60{tags}\n"
+
+    shared = [rec(f"S{i}_1!chr{i % 22 + 1}!{i * 7}!+") for i in range(500)]
+    a = paf("a.paf", shared + [rec("only_in_a!chr1!1!+")])
+    b = paf("b.paf", [rec("only_in_b!chr2!2!-")] + shared)
+    n = paf_intersection(a, b)
+    ok = n == 500
+    print(f"  [{'ok  ' if ok else 'FAIL'}] punctuation-rich names, 500 shared{'':13} {n}")
+    if not ok:
+        fail.append(f"paf_intersection: got {n}, want 500")
+
+    # Columns past the 12th are tags -- per-read timings among them, which
+    # differ every run. Two records agreeing on placement must still match.
+    a2 = paf("a2.paf", [rec("r1!chr1!1!+", "\ttp:A:P\tt:f:0.001")])
+    b2 = paf("b2.paf", [rec("r1!chr1!1!+", "\ttp:A:P\tt:f:0.999")])
+    n = paf_intersection(a2, b2)
+    ok = n == 1
+    print(f"  [{'ok  ' if ok else 'FAIL'}] tags beyond column 12 ignored{'':17} {n}")
+    if not ok:
+        fail.append(f"paf_intersection ignoring tags: got {n}, want 1")
+
+    # A multiset, matching comm -12: two copies on one side and three on the
+    # other share two, not three and not one.
+    a3 = paf("a3.paf", [rec("r!chr1!1!+")] * 2)
+    b3 = paf("b3.paf", [rec("r!chr1!1!+")] * 3)
+    n = paf_intersection(a3, b3)
+    ok = n == 2
+    print(f"  [{'ok  ' if ok else 'FAIL'}] duplicate records count as a multiset{'':8} {n}")
+    if not ok:
+        fail.append(f"paf_intersection multiset: got {n}, want 2")
+
+    n = paf_intersection(paf("e1.paf", []), paf("e2.paf", [rec("r!chr1!1!+")]))
+    ok = n == 0
+    print(f"  [{'ok  ' if ok else 'FAIL'}] empty input{'':34} {n}")
+    if not ok:
+        fail.append(f"paf_intersection empty: got {n}, want 0")
+    return fail
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
@@ -306,6 +361,9 @@ def main() -> int:
 
         print("\nmanifest:")
         FAIL.extend(check_manifest())
+
+        print("\nimpl_agreement record count:")
+        FAIL.extend(check_paf_intersection(tmp))
 
         print()
         if FAIL:
