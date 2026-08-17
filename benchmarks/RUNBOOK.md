@@ -47,6 +47,20 @@ and `--recheck` needs them, so `/tmp` would lose them on reboot.
 manifest.json` is tracked). Run `git checkout -- benchmarks/results/reference-mappers/` before
 pulling on the host.
 
+**The hosts do not ship the same coreutils.** a2 has GNU 9.4, galaxy has uutils 0.2.2, and they are
+not interchangeable for anything a check depends on: `comm -12` over two `sort`ed PAFs returned
+82 874 on galaxy where the true count, and GNU's answer, was 83 000. It fails silently, by a
+data-dependent amount, in both the C and UTF-8 locales. `impl_agreement` used to be computed that
+way and every aarch64 figure it recorded is understated. Do the work in Python rather than assuming
+a shell tool means the same thing on both machines; check `sort --version` before believing
+otherwise.
+
+**A failed `git checkout` will not stop a run on its own.** Untracked files under
+`benchmarks/results/` made git refuse to switch branches, and the launcher went on to measure
+whichever commit was already there — four hours attributed to the wrong tree. Assert
+`git rev-parse HEAD` equals the branch you meant, and that `git status --porcelain` is empty,
+before spending a machine.
+
 ## Re-judging without re-measuring
 
 Checks are deterministic functions of the retained PAFs, so a corrected threshold or a rebuilt
