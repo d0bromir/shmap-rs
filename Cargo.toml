@@ -1,6 +1,6 @@
 [package]
 name = "shmap"
-version = "1.4.1"
+version = "1.4.2"
 license = "MPL-2.0"
 repository = "https://github.com/d0bromir/shmap-rs"
 description = "A Rust port of shmap, a sketch-based long-read mapper"
