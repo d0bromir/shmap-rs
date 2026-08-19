@@ -49,7 +49,7 @@ def main() -> int:
     check("both actually exist", layout.SUITE_TOML.exists() and layout.DATASETS_TSV.exists(), True)
 
     print("\nresult paths carry the architecture:")
-    check("arch_dir places arch under the suite version",
+    check("arch_dir places arch under the suite series",
           layout.arch_dir("1.0", "aarch64").relative_to(layout.RESULTS).as_posix(),
           "suite-1.0/aarch64")
     check("current_dir hangs off it",
@@ -61,6 +61,20 @@ def main() -> int:
           "x86_64" in layout.available_arches("1.0"), True)
     check("known arches sort before unknown ones",
           layout.available_arches("1.0")[:1], ["x86_64"])
+
+    # A MINOR bump means "a benchmark was added, old rows stay comparable"
+    # (VERSIONING.md), and compare.py gates on MAJOR alone. If the directory
+    # moved with MINOR, a PR at 1.1 would look for a baseline that cannot
+    # exist and promote.py would refuse to write one.
+    print("\na MINOR bump stays in the same comparable series:")
+    check("1.1 resolves to the 1.0 tree", layout.suite_series("1.1"), "suite-1.0")
+    check("so does 1.7", layout.suite_series("1.7"), "suite-1.0")
+    check("1.0 is unchanged", layout.suite_series("1.0"), "suite-1.0")
+    check("a MAJOR bump does move", layout.suite_series("2.0"), "suite-2.0")
+    check("current_dir agrees across a MINOR bump",
+          layout.current_dir("1.1", "x86_64"), layout.current_dir("1.0", "x86_64"))
+    check("and the baseline it names exists",
+          layout.current_dir("1.1", "x86_64").is_dir(), True)
 
     print("\ndataset paths resolve against the shared root:")
     check("a relative path joins the root",

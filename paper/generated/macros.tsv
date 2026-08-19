@@ -18,7 +18,7 @@ macro	value	unit	source	meaning
 \shmMeasuredX	2026-08-10		current/manifest.json :: finished	Date the reference set was measured.
 \shmMeasuredA	2026-08-10		current/manifest.json :: finished	Date the second set was measured.
 \shmRustc	1.97.1		current/manifest.json :: rustc	Compiler both sets were built with.
-\shmSuiteVersion	1.0		benchmarks/data/suite.toml :: suite_version	Benchmark suite version the sets belong to.
+\shmSuiteVersion	1.1		benchmarks/data/suite.toml :: suite_version	Benchmark suite version the sets belong to.
 \shmVersion	1.4.1		Cargo.toml :: package.version	Release of shmap-rs the paper describes.
 \shmLicense	MPL-2.0		Cargo.toml :: package.license	Licence the implementation is published under.
 \shmAuthors	Dobromir Panchev \and Pesho Ivanov		.zenodo.json :: creators[].name	Byline, in the archive's own creator order.

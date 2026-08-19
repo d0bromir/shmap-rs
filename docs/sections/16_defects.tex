@@ -54,6 +54,9 @@ D19 & \code{Timers::secs}'s try/catch never catches anything & No (silent no-op)
   missing keys directly (\S\ref{sec:d19}) \\
 D20 & \code{ParsedQueryId::parse} catches then rethrows & No & Style only & Simplify (\S
   \ref{sec:d20}) \\
+D21 & \textbf{\code{MIN\_HALFLEN} floor is documented but never enforced} & \textbf{Yes --- SIGSEGV
+  on any read whose sketch holds $<5$ k-mers} & \textbf{Real correctness bug (crash)} & Reject the
+  read as unmapped (\S\ref{sec:d21}) \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -305,3 +308,29 @@ this is reasonable, defensible behavior for a diagnostic feature that assumes we
 simulated-read names (only used in the opt-in \code{-v 2} mode); a from-scratch implementation
 should simply let the parse error propagate (panic/exception) without the pointless
 catch-log-rethrow wrapper, since the wrapper adds a log message but changes nothing else.
+
+\section{D21: the \code{MIN\_HALFLEN} floor is documented but never enforced}
+\label{sec:d21}
+\textbf{Location:} \texttt{src/buckets.h} (\code{Buckets::set\_halflen}) and its call site in
+\texttt{src/shmap.cpp}. \textbf{Description:} the bucket geometry has a compile-time floor,
+\code{MIN\_HALFLEN = 5}, and the design rejects reads below it rather than building degenerate
+buckets --- \S\ref{sec:map-read} states the rule as \code{if buckets.halflen < MIN\_HALFLEN: goto
+unmapped}. Neither the C++ nor, until this was found, the port actually applied it. The C++
+\textbf{segfaults} on every read whose sketch holds fewer than five k-mers; the port survived only
+because Rust bounds-checks the indexing the C++ walks off the end of, and instead emitted a PAF
+record with \code{qend = read\_length - k - 1}, which is $-1$ at $k$ and $0$ at $k{+}1$ and so
+violates \code{0 <= qstart < qend <= qlen}.
+
+\textbf{Why it went unseen for so long:} sketch size is $r \cdot (L - k + 1)$, so at the paper's
+$r = 0.01$ a read must be under roughly 600\,bp to fall below the floor at all, and the long-read
+corpus this tool was built for contains almost none --- 49 such reads in a 2.43\,M-read HiFi set.
+It is reachable in bulk only on short reads at a higher sampling rate, which is the configuration
+benchmark B06 introduced. See \texttt{benchmarks/scripts/probe\_short\_read\_defect.py}, which walks
+both binaries across the boundary one invocation per length, and \S8b of \texttt{RESULTS.md} for the
+measured effect.
+
+\textbf{Recommendation:} honour the existing return value --- \code{set\_halflen} already reports
+the condition and its own comment says the caller should treat it as unmappable. Reject rather than
+clamp the coordinate: below the floor the dense accumulator is disabled and the placement rests on
+one to four k-mers, so a clamped record would be well formed but would assert a placement the
+algorithm does not support.

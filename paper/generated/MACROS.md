@@ -37,7 +37,7 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmMeasuredX` | 2026-08-10 | — | Date the reference set was measured. | `current/manifest.json :: finished` |
 | `\shmMeasuredA` | 2026-08-10 | — | Date the second set was measured. | `current/manifest.json :: finished` |
 | `\shmRustc` | 1.97.1 | — | Compiler both sets were built with. | `current/manifest.json :: rustc` |
-| `\shmSuiteVersion` | 1.0 | — | Benchmark suite version the sets belong to. | `benchmarks/data/suite.toml :: suite_version` |
+| `\shmSuiteVersion` | 1.1 | — | Benchmark suite version the sets belong to. | `benchmarks/data/suite.toml :: suite_version` |
 | `\shmVersion` | 1.4.1 | — | Release of shmap-rs the paper describes. | `Cargo.toml :: package.version` |
 | `\shmLicense` | MPL-2.0 | — | Licence the implementation is published under. | `Cargo.toml :: package.license` |
 | `\shmAuthors` | Dobromir Panchev \and Pesho Ivanov | — | Byline, in the archive's own creator order. | `.zenodo.json :: creators[].name` |

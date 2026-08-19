@@ -33,6 +33,7 @@ import sys
 import tempfile
 import time
 import tomllib
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -329,10 +330,13 @@ def drift_probe_benchmarks(suite: dict) -> set[str]:
     return set(probe.get("benchmarks", []))
 
 
-def plan(suite: dict, reg: dict, impls: list[str], repeats_subject: int = 1) -> list[dict]:
+def plan(suite: dict, reg: dict, impls: list[str], repeats_subject: int = 1,
+         tiers: set[str] | None = None) -> list[dict]:
     jobs = []
     probe_benches = drift_probe_benchmarks(suite)
     for b in suite["benchmark"]:
+        if tiers is not None and b.get("tier", "pr") not in tiers:
+            continue
         params = suite["params"][b["params"]]
         base = [
             "-k", str(params["k"]),
@@ -352,8 +356,14 @@ def plan(suite: dict, reg: dict, impls: list[str], repeats_subject: int = 1) -> 
                 if not asked and not probe:
                     continue
                 threads = b["threads"] if spec.get("supports_threads") else b["reference_impl_threads"]
+                # A benchmark may override the host's subject repeat count.
+                # hosts.toml sets it from run-to-run noise, because the gate
+                # has to resolve a few percent; a benchmark whose purpose is a
+                # ratio against another tool by an order of magnitude does not,
+                # and on a2 three repeats of the paper tier is 44 extra hours
+                # for precision nothing reads.
                 repeats = (suite["run"]["reference_impl"]["repeats"]
-                           if spec["role"] == "reference" else repeats_subject)
+                           if spec["role"] == "reference" else b.get("repeats", repeats_subject))
                 for t in threads:
                     for rep in range(repeats):
                         jobs.append(dict(
@@ -534,6 +544,36 @@ def ground_truth_floor(suite: dict, metric: str) -> float:
     return c.get("min_fraction_by_metric", {}).get(metric, c["min_fraction"])
 
 
+def paf_intersection(a: Path, b: Path) -> int:
+    """How many records the two files share, over the 12 mandatory PAF columns.
+
+    A multiset intersection, so a record present twice on both sides counts
+    twice -- the same thing `comm -12` reports on sorted input.
+
+    This used to be `comm -12 <(cut|sort) <(cut|sort)|wc -l`, and that is not
+    portable between the two hosts. galaxy ships uutils coreutils rather than
+    GNU, whose `sort` and `comm` disagree about ordering: on a 125 000-line
+    check with 83 000 known-shared records it reports 82 874, dropping 0.15%
+    of genuine matches, reproducibly and in both C and UTF-8 locales. a2's GNU
+    coreutils is exact on the same input. Every aarch64 `impl_agreement`
+    figure measured before this was therefore understated by an amount that
+    depends on the data, which is also why one moved between two runs whose
+    PAFs were byte-identical.
+    """
+    left: Counter[str] = Counter()
+    with open(a) as f:
+        for line in f:
+            left["\t".join(line.rstrip("\n").split("\t")[:12])] += 1
+    n = 0
+    with open(b) as f:
+        for line in f:
+            key = "\t".join(line.rstrip("\n").split("\t")[:12])
+            if left[key] > 0:
+                left[key] -= 1
+                n += 1
+    return n
+
+
 def run_checks(bench: dict, metric: str, rows: list[dict], outdir: Path, suite: dict) -> list[dict]:
     """Every blocking check that failed here must block the merge."""
     res = []
@@ -609,10 +649,7 @@ def run_checks(bench: dict, metric: str, rows: list[dict], outdir: Path, suite: 
                                    f"agreement={c['agreement']:.4f} ref={c['reference_mapped']}"))
 
     if "impl_agreement" in bench["checks"] and rs and cpp:
-        a = sh(["bash", "-c",
-                f"comm -12 <(cut -f1-12 {shlex.quote(rs[0]['paf'])}|sort) "
-                f"<(cut -f1-12 {shlex.quote(cpp[0]['paf'])}|sort)|wc -l"])
-        n = int(a.stdout.strip() or 0)
+        n = paf_intersection(Path(rs[0]["paf"]), Path(cpp[0]["paf"]))
         tot = rs[0]["mapped"] or 1
         res.append(dict(check="impl_agreement", benchmark=bench["id"], metric=metric,
                         passed=True, detail=f"{n}/{tot} = {n/tot:.4f}"))
@@ -1032,6 +1069,10 @@ def main() -> int:
                     help="measure each subject row this many times and take the median "
                          "(default: this host's `repeats` in hosts.toml, else suite.toml)")
     ap.add_argument("--only", help="comma-separated benchmark ids, e.g. B05")
+    ap.add_argument("--tier", default="pr",
+                    help="which benchmark tier to run: 'pr' (default), a named "
+                         "tier such as 'paper', or 'all'. --only reaches any "
+                         "tier without this flag.")
     ap.add_argument("--out", help="result set directory (default: results/suite-<v>/<commit>-<date>)")
     ap.add_argument("--no-compare", action="store_true",
                     help="skip the comparison against current/ (measure only)")
@@ -1071,10 +1112,22 @@ def main() -> int:
                                 capture_output=True, text=True).stdout.strip()
 
     repeats_subject = subject_repeats(suite, args.repeats)
-    jobs = plan(suite, reg, impls, repeats_subject)
+    # --only names benchmarks explicitly, so it selects across every tier:
+    # asking for B06 by name and being told it matched nothing, because it is
+    # not in the default tier, would be obstructive.
+    tiers = None if (args.only or args.tier == "all") else set(args.tier.split(","))
+    jobs = plan(suite, reg, impls, repeats_subject, tiers)
     if repeats_subject > 1:
+        # Named explicitly, because a benchmark that pins its own count makes
+        # the blanket claim false and this line is the only place a reader is
+        # told what was measured how many times.
+        pinned = sorted({b["id"] for b in suite["benchmark"]
+                         if "repeats" in b and b["id"] in {j["benchmark"] for j in jobs}})
         print(f"measuring each {SUBJECT_NOTE} row {repeats_subject}x and taking the median "
               f"({platform.node()} is configured for it in hosts.toml)")
+        for bid in pinned:
+            b = next(x for x in suite["benchmark"] if x["id"] == bid)
+            print(f"  except {bid}, which pins repeats = {b['repeats']} in suite.toml")
     probed = sorted({j["benchmark"] for j in jobs if j.get("drift_probe")})
     if probed:
         print(f"drift probe: also measuring the reference on {', '.join(probed)}, so "

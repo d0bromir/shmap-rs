@@ -37,7 +37,8 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
              host="testhost", commit="a" * 40, fail_check=None, agreement=0.9792,
              rc=0, drop_config=None, rss_scale=1.0, ground_truth=0.992064, wrong_q60=0,
              concordance=0.9633, ref_wall_scale=1.0, ref_binary="shmap 1.0.0-cpp",
-             map_scale=1.0, index_frac=0.5, rss_outlier=1.0):
+             map_scale=1.0, index_frac=0.5, rss_outlier=1.0,
+             ref_bytes=3179638084, reads_id="D1-HIFI23K", extra_datasets=None):
     d.mkdir(parents=True, exist_ok=True)
     rows, checks = [], []
     for b in BENCHES:
@@ -58,7 +59,7 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
                 wall = index_s + map_s
                 rows.append(dict(
                     benchmark=b, impl="shmap-rs", metric=m, threads=t, repeat=0,
-                    reference_id="REF-HS1", reads_id="D1-HIFI23K", params_id="paper",
+                    reference_id="REF-HS1", reads_id=reads_id, params_id="paper",
                     rc=rc, wall_s=round(wall, 2),
                     index_s=round(index_s, 3), map_s=round(map_s, 3),
                     peak_rss_kb=int(8_000_000 * rss_scale
@@ -67,7 +68,7 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
                     cmd="shmap -s ref -p reads"))
             rows.append(dict(
                 benchmark=b, impl="cpp-shmap", metric=m, threads=1, repeat="median3",
-                reference_id="REF-HS1", reads_id="D1-HIFI23K", params_id="paper",
+                reference_id="REF-HS1", reads_id=reads_id, params_id="paper",
                 rc=0, wall_s=round(250.0 * ref_wall_scale, 2),
                 index_s="", map_s="", peak_rss_kb=9_000_000,
                 mapped=130000, mapq60=120000, cmd="shmap -s ref -p reads"))
@@ -104,7 +105,8 @@ def make_set(d: Path, *, wall_scale=1.0, mapped_delta=0, suite="1.0", dataset_ve
         schema=1, suite_version=suite, dataset_version=dataset_version, commit=commit,
         host=host, authorized_by="test", started="2026-07-30T00:00:00+00:00",
         finished="2026-07-30T01:00:00+00:00", duration_s=3600, invocations=len(rows),
-        failures=0, datasets={"REF-HS1": dict(bytes=3179638084, records=25)},
+        failures=0, datasets={"REF-HS1": dict(bytes=ref_bytes, records=25),
+                              **(extra_datasets or {})},
         binaries={"shmap-rs": "shmap 1.2.0", "cpp-shmap": ref_binary}), indent=2) + "\n")
     return d
 
@@ -230,7 +232,19 @@ def main() -> int:
     # --- not comparable at all --------------------------------------------
     case("suite MAJOR differs", ERROR, dict(suite="2.0"), expect_in="not comparable")
     case("suite MINOR differs", ACCEPT, dict(suite="1.1"))
-    case("dataset version differs", ERROR, dict(dataset_version=2))
+    # The registry is append-only, so a bumped dataset_version on its own means a
+    # dataset was ADDED, and says nothing about the ones these benchmarks read.
+    # Vetoing on it made a full run of unchanged B01-B05 incomparable with every
+    # set measured before the addition. What must be rejected is a changed input,
+    # which is what the two cases after it pin.
+    case("dataset version differs, same inputs", ACCEPT,
+         dict(dataset_version=2, extra_datasets={"SR-NEW": dict(bytes=8323421374,
+                                                                records=41776744)}),
+         expect_in="append-only")
+    case("dataset regenerated in place", ERROR, dict(ref_bytes=3179638085),
+         expect_in="changed identity")
+    case("benchmark repointed at another dataset", ERROR, dict(reads_id="D1-HIFI30K"),
+         expect_in="changed inputs")
     case("different host", ERROR, dict(host="laptop"), expect_in="host differs")
 
     shutil.rmtree(tmp, ignore_errors=True)

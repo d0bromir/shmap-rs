@@ -45,14 +45,31 @@ def check_repeats() -> list[str]:
     # Subject rows only: the drift probe contributes reference jobs that do not
     # scale with this count, and counting them would make the identity false
     # for a reason that has nothing to do with repeats.
+    #
+    # Benchmarks that pin their own `repeats` are excluded for the same kind of
+    # reason: they deliberately ignore the host's count, so including them
+    # would make this fail for the override working rather than breaking.
+    pinned = {b["id"] for b in suite["benchmark"] if "repeats" in b}
+
     def n_subject(n):
-        return sum(1 for j in plan(suite, reg, ["shmap-rs"], n) if j["impl"] == "shmap-rs")
+        return sum(1 for j in plan(suite, reg, ["shmap-rs"], n)
+                   if j["impl"] == "shmap-rs" and j["benchmark"] not in pinned)
 
     one, three = n_subject(1), n_subject(3)
     if three != one * 3:
         fail.append(f"repeats=3 planned {three} jobs, expected {one * 3}")
     print(f"  [{'ok  ' if three == one * 3 else 'FAIL'}] repeats multiply the subject matrix"
           f"{'':14} {one} -> {three}")
+
+    if pinned:
+        def n_pinned(n):
+            return sum(1 for j in plan(suite, reg, ["shmap-rs"], n)
+                       if j["impl"] == "shmap-rs" and j["benchmark"] in pinned)
+        p1, p3 = n_pinned(1), n_pinned(3)
+        if p1 != p3:
+            fail.append(f"a benchmark pinning repeats still moved with the host's: {p1} -> {p3}")
+        print(f"  [{'ok  ' if p1 == p3 else 'FAIL'}] but not one that pins its own"
+              f"{'':21} {sorted(pinned)} {p1} -> {p3}")
 
     both = plan(suite, reg, ["shmap-rs", "cpp-shmap"], 3)
     ref = {j["repeats"] for j in both if j["impl"] == "cpp-shmap"}
@@ -241,6 +258,61 @@ def check_manifest() -> list[str]:
     return fail
 
 
+def check_paf_intersection(tmp: Path) -> list[str]:
+    """impl_agreement's record count must not depend on which coreutils is installed.
+
+    This replaced `comm -12 <(cut|sort) <(cut|sort)`, which is exact under GNU
+    coreutils and lossy under uutils: on the real check galaxy dropped 0.15% of
+    genuine matches, silently, in both C and UTF-8 locales.
+    """
+    from run import paf_intersection
+    fail = []
+
+    def paf(name: str, rows: list[str]) -> Path:
+        p = tmp / name
+        p.write_text("".join(rows))
+        return p
+
+    def rec(q: str, tags: str = "") -> str:
+        return f"{q}\t24000\t0\t23999\t+\tchr1\t1000\t2000\t3000\t200\t240\t60{tags}\n"
+
+    shared = [rec(f"S{i}_1!chr{i % 22 + 1}!{i * 7}!+") for i in range(500)]
+    a = paf("a.paf", shared + [rec("only_in_a!chr1!1!+")])
+    b = paf("b.paf", [rec("only_in_b!chr2!2!-")] + shared)
+    n = paf_intersection(a, b)
+    ok = n == 500
+    print(f"  [{'ok  ' if ok else 'FAIL'}] punctuation-rich names, 500 shared{'':13} {n}")
+    if not ok:
+        fail.append(f"paf_intersection: got {n}, want 500")
+
+    # Columns past the 12th are tags -- per-read timings among them, which
+    # differ every run. Two records agreeing on placement must still match.
+    a2 = paf("a2.paf", [rec("r1!chr1!1!+", "\ttp:A:P\tt:f:0.001")])
+    b2 = paf("b2.paf", [rec("r1!chr1!1!+", "\ttp:A:P\tt:f:0.999")])
+    n = paf_intersection(a2, b2)
+    ok = n == 1
+    print(f"  [{'ok  ' if ok else 'FAIL'}] tags beyond column 12 ignored{'':17} {n}")
+    if not ok:
+        fail.append(f"paf_intersection ignoring tags: got {n}, want 1")
+
+    # A multiset, matching comm -12: two copies on one side and three on the
+    # other share two, not three and not one.
+    a3 = paf("a3.paf", [rec("r!chr1!1!+")] * 2)
+    b3 = paf("b3.paf", [rec("r!chr1!1!+")] * 3)
+    n = paf_intersection(a3, b3)
+    ok = n == 2
+    print(f"  [{'ok  ' if ok else 'FAIL'}] duplicate records count as a multiset{'':8} {n}")
+    if not ok:
+        fail.append(f"paf_intersection multiset: got {n}, want 2")
+
+    n = paf_intersection(paf("e1.paf", []), paf("e2.paf", [rec("r!chr1!1!+")]))
+    ok = n == 0
+    print(f"  [{'ok  ' if ok else 'FAIL'}] empty input{'':34} {n}")
+    if not ok:
+        fail.append(f"paf_intersection empty: got {n}, want 0")
+    return fail
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
@@ -289,6 +361,9 @@ def main() -> int:
 
         print("\nmanifest:")
         FAIL.extend(check_manifest())
+
+        print("\nimpl_agreement record count:")
+        FAIL.extend(check_paf_intersection(tmp))
 
         print()
         if FAIL:

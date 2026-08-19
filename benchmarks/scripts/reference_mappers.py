@@ -103,6 +103,11 @@ def plan_entry(name: str, spec: dict, bench: dict, suite: dict, reg: dict, cache
         threads=spec.get("threads", 32), preset=preset,
         repetitive=expand(spec.get("repetitive", "").format(reference_id=ref_id)) if spec.get("repetitive") else "",
         out_prefix=str(out_dir / bench["id"]),
+        # For a mapper that does not emit PAF. bwa-mem2 is an aligner and
+        # writes SAM, so its command line pipes through sam2paf.py, which
+        # lives beside this file. portable_key() reduces it to a basename, so
+        # a checkout in a different place does not invalidate the cache.
+        scripts=str(HERE),
     )
     cmd = spec["cmd"].format(**fields)
     return dict(
@@ -171,21 +176,37 @@ def run_one(entry: dict, version: str) -> bool:
             return False
 
     tf = entry["out_dir"] / f"{entry['benchmark']}.time"
+    # `time` wraps only the first command, which is the mapper itself and not
+    # any conversion step chained after it with `&&`. pipefail is set because
+    # a command line that does pipe would otherwise report the LAST stage's
+    # exit status: a mapper that died halfway would be recorded as a success
+    # and its truncated output cached as complete. No mapper pipes today —
+    # bwa-mem2 deliberately does not, see suite.toml — but the failure it
+    # prevents is silent, which is the kind worth pre-empting.
     wrapped = f"/usr/bin/time -v -o {shlex.quote(str(tf))} {entry['cmd']}"
     t0 = time.time()
     if entry["output"] == "stdout":
         with open(entry["paf"], "w") as fo:
-            rc = subprocess.run(["bash", "-c", wrapped], stdout=fo,
+            rc = subprocess.run(["bash", "-o", "pipefail", "-c", wrapped], stdout=fo,
                                 stderr=subprocess.DEVNULL).returncode
     else:
-        rc = subprocess.run(["bash", "-c", wrapped],
+        rc = subprocess.run(["bash", "-o", "pipefail", "-c", wrapped],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
     wall = time.time() - t0
 
     if rc != 0 or not entry["paf"].exists() or entry["paf"].stat().st_size == 0:
         print(f"  !! {entry['mapper']} {entry['benchmark']} failed (rc={rc}), "
               f"cache entry not written")
-        entry["paf"].unlink(missing_ok=True)
+        # Everything the job may have written under its own name, not just the
+        # PAF. A multi-step command line that dies in the middle never reaches
+        # its own `rm`, and bwa-mem2's intermediate SAM for B08 is ~58 GB —
+        # orphaning that on every failed attempt fills the disk silently. The
+        # .time record is kept deliberately: it is how a failure gets
+        # diagnosed, and it is what showed that the long-read crashes peak at
+        # 259-282 GB before dying.
+        for leftover in entry["out_dir"].glob(f"{entry['benchmark']}.*"):
+            if leftover.suffix != ".time":
+                leftover.unlink(missing_ok=True)
         return False
 
     mapped = sum(1 for _ in open(entry["paf"]))

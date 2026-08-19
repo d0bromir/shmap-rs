@@ -52,6 +52,11 @@ quietly regenerated or truncated, and attributing the difference to code.
 Datasets are append-only. A regenerated file gets a **new id**, never a redefinition of an old one,
 so historical results keep pointing at what they actually measured.
 
+Because of that, `dataset_version` is **not** a comparability gate: a bump can mean nothing more
+than that an unrelated dataset was added. Two result sets are comparable when the benchmarks being
+compared name the same dataset ids and those ids have the same identity triples, which is what
+`compare.py` checks.
+
 ## 4 Result sets
 
 ```

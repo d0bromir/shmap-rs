@@ -1,0 +1,5 @@
+host galaxy (aarch64)
+file                              records     target bases  signature
+B06.paf                        41,807,925    6,221,633,498  e79462cb0e27c32f7f82f8379c39d114
+B07.paf                        83,600,076   12,444,039,160  7762c08720bfe590f554a0e6b6f08522
+B08.paf                       146,287,615   21,776,900,851  c82d6c8d0761ccf74043404ad125c6ea
