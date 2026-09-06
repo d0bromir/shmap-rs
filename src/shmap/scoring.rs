@@ -9,7 +9,7 @@ use super::SHMapper;
 use crate::buckets::Buckets;
 use crate::mapping::Mapping;
 use crate::sketch::RefSegment;
-use crate::types::{BucketContent, BucketLoc, H2Seed, Kmer, Metric, QPos, RPos, Seeds, codirection_kmer_kmer};
+use crate::types::{BucketContent, BucketLoc, H2Seed, Kmer, Metric, QPos, RPos, Seeds, SegmId, codirection_kmer_kmer};
 
 /// Per-read memo of [`SHMapper::find_best_mapping`] results across the two
 /// [`SHMapper::match_rest`] passes a read makes (best, then second-best).
@@ -177,6 +177,193 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         }
     }
 
+    /// Collects every reference hit of every one of the read's unique k-mers
+    /// that falls within `[from, to)` of `segm_id`, as `(tpos, seed_num,
+    /// codirection)` anchors — the same range-restricted lookup
+    /// `matches_in_bucket` (`src/shmap/pruning.rs`) does, but keeping
+    /// individual positions instead of folding them into a count. `tpos`
+    /// only, so only meaningful for `!AP`.
+    ///
+    /// Codirection is read from `segm.kmers[tpos].strand`, not `hit.strand`
+    /// (a `Hit`'s own copy of it) — the two can disagree, since a hit's
+    /// strand is fixed when the index is built (`src/index.rs`) while
+    /// `best_fixed_length` (the function this must match) reads it fresh
+    /// off `t[r]` on every sweep. Found by byte-diffing this function's
+    /// output against `best_fixed_length`'s on the full B06-scale corpus:
+    /// three records out of 300000 differed only in the `strand:i:` tag.
+    fn collect_anchors(
+        &self,
+        segm: &RefSegment,
+        segm_id: SegmId,
+        from: RPos,
+        to: RPos,
+        p_unique: &Seeds,
+    ) -> Vec<(RPos, QPos, i32)> {
+        let mut anchors = Vec::new();
+        let t = &segm.kmers;
+        for seed in p_unique {
+            if seed.hits_in_t == 0 {
+                continue;
+            } else if seed.hits_in_t == 1 {
+                let hit = self.tidx.single_hit(seed.kmer.h);
+                if hit.segm_id == segm_id && from <= hit.tpos && hit.tpos < to {
+                    let codir = if t[hit.tpos as usize].strand == seed.kmer.strand {
+                        1
+                    } else {
+                        -1
+                    };
+                    anchors.push((hit.tpos, seed.seed_num, codir));
+                }
+            } else {
+                let hits = self.tidx.multi_hits(seed.kmer.h);
+                let start = hits.partition_point(|hit| {
+                    if hit.segm_id != segm_id {
+                        hit.segm_id < segm_id
+                    } else {
+                        hit.tpos < from
+                    }
+                });
+                for hit in &hits[start..] {
+                    if hit.segm_id != segm_id || hit.tpos >= to {
+                        break;
+                    }
+                    let codir = if t[hit.tpos as usize].strand == seed.kmer.strand {
+                        1
+                    } else {
+                        -1
+                    };
+                    anchors.push((hit.tpos, seed.seed_num, codir));
+                }
+            }
+        }
+        anchors
+    }
+
+    /// Finds the best `Containment` window using only the sparse anchors
+    /// `collect_anchors` found, instead of `best_fixed_length`'s dense scan
+    /// of every reference position in `[from, to)` — most of which have no
+    /// anchor at all on a short-read bucket widened by `--min-halflen`
+    /// (RESULTS.md §11: matches/bucket measures 1.36 there against 19.6 on a
+    /// long read, i.e. most of the window is empty).
+    ///
+    /// Exact, not a heuristic: `intersection` only changes where an anchor
+    /// enters or leaves the window, so evaluating just those points
+    /// (`r_idx` walks anchors as the window's *rightmost* member, `l` is
+    /// then the smallest position that still includes it) reproduces the
+    /// same maximum as the dense scan, and visiting candidates in the same
+    /// ascending-`l` order with the same strict `>` comparison reproduces
+    /// the same tie-break too — whichever `l` the dense scan would reach
+    /// *first*, since a later `l` reaching the same intersection again
+    /// cannot exceed a strictly-greater existing best.
+    ///
+    /// One thing this can't skip: the dense scan only checks the score
+    /// *once* per `l`, after extending `r` as far as it will go for that
+    /// `l` — including reference positions whose seed is over `occs_in_p`
+    /// and so don't advance `intersection`, but still add to
+    /// `same_strand_seeds` unconditionally. So a `l` is only a checkpoint
+    /// here once every anchor that would share it (including those clamped
+    /// duplicates) has entered — checking on every anchor instead
+    /// (an earlier version of this function did) under-counts
+    /// `same_strand_seeds` whenever a clamped duplicate enters after the
+    /// last change to `intersection`, since its contribution would sit
+    /// after the last recorded update. Found by byte-diffing this
+    /// function's output against `best_fixed_length`'s on the full
+    /// B06-scale corpus: 3 records out of 300000 differed only in the
+    /// `strand:i:` tag, and manual comparison against the dense scan's own
+    /// per-`l` trace on one of them (`src/shmap/scoring.rs` history) pinned
+    /// the exact mechanism above.
+    ///
+    /// Only valid for `Containment`, where the score (`intersection / m`)
+    /// doesn't depend on the window's total k-mer count. `Jaccard`'s does,
+    /// and reproducing its boundary-clamped denominator this way needs more
+    /// care than this function does, so it keeps using the dense scan.
+    fn best_containment_window_via_anchors(
+        &self,
+        segm: &RefSegment,
+        from: RPos,
+        to: RPos,
+        anchors: &mut [(RPos, QPos, i32)],
+        diff_hist: &mut [QPos],
+        p_sz: QPos,
+        m: QPos,
+    ) -> Mapping {
+        anchors.sort_unstable_by_key(|a| a.0);
+        let t = &segm.kmers;
+        let end = (t.len() as RPos).min(to);
+
+        let mut intersection: QPos = 0;
+        let mut same_strand_seeds: i32 = 0;
+        let mut best = Mapping::default();
+        let mut l_idx = 0usize;
+        let window_start = |tpos: RPos| (tpos - m + 1).max(from);
+
+        for r_idx in 0..anchors.len() {
+            let (tpos, seed_num, codir) = anchors[r_idx];
+            // Unconditional, unlike `intersection`: `best_fixed_length` adds
+            // codirection for every `p_ht` match regardless of the
+            // `diff_hist` clamp, since it isn't part of what that clamp
+            // bounds (only `occs_in_p`-limited intersection is).
+            same_strand_seeds += codir;
+            let cnt = &mut diff_hist[seed_num as usize];
+            *cnt -= 1;
+            if *cnt >= 0 {
+                intersection += 1;
+            }
+
+            let l = window_start(tpos);
+            while l_idx <= r_idx && anchors[l_idx].0 < l {
+                let (_, out_seed_num, out_codir) = anchors[l_idx];
+                same_strand_seeds -= out_codir;
+                let cnt = &mut diff_hist[out_seed_num as usize];
+                *cnt += 1;
+                if *cnt >= 1 {
+                    intersection -= 1;
+                }
+                l_idx += 1;
+            }
+
+            // Only a checkpoint once every anchor sharing this `l` (window
+            // start) has entered — see the doc comment above.
+            let is_last_at_this_l = r_idx + 1 >= anchors.len() || window_start(anchors[r_idx + 1].0) > l;
+            if !is_last_at_this_l {
+                continue;
+            }
+
+            let r = (l + m).min(end);
+            let score = intersection as f64 / m as f64;
+            if l < r && score > best.score() {
+                best.update(
+                    0,
+                    p_sz - 1,
+                    t[l as usize].r,
+                    t[(r - 1) as usize].r,
+                    segm,
+                    intersection,
+                    score,
+                    same_strand_seeds,
+                    t[(r - 1) as usize].r - t[l as usize].r + 1,
+                );
+            }
+        }
+        // Drain remaining anchors so `diff_hist` (and the implicit
+        // intersection) return to the at-rest state the caller expects,
+        // matching `best_fixed_length`'s closing `debug_assert_eq!`.
+        while l_idx < anchors.len() {
+            let (_, out_seed_num, out_codir) = anchors[l_idx];
+            same_strand_seeds -= out_codir;
+            let cnt = &mut diff_hist[out_seed_num as usize];
+            *cnt += 1;
+            if *cnt >= 1 {
+                intersection -= 1;
+            }
+            l_idx += 1;
+        }
+        let _ = same_strand_seeds;
+        debug_assert_eq!(intersection, 0);
+
+        best
+    }
+
     /// Sweeps `[from, to)` of `segm`'s k-mer sketch (clamped to its
     /// bounds), maintaining `diff_hist` incrementally, tracking the best
     /// `Containment`/`Jaccard` score over windows bounded by `m` (in
@@ -293,12 +480,14 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     /// Dispatches to the right scoring approach for `metric`, then stamps
     /// the result with `b`/`sh` regardless of which one ran.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn find_best_mapping(
         &self,
         buckets: &Buckets<'idx, AP>,
         b: BucketLoc,
         content: &BucketContent,
         p_ht: &H2Seed,
+        p_unique: &Seeds,
         diff_hist: &mut [QPos],
         p_sz: QPos,
         m: QPos,
@@ -341,6 +530,12 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     content.r_max - content.r_min,
                 );
                 mapping
+            }
+            Metric::Containment if !AP && self.rarity.is_empty() && buckets.halflen > lmax => {
+                let segm = self.tidx.get_segment(b.segm_id);
+                let (from, to) = (buckets.begin(&b), buckets.end(&b));
+                let mut anchors = self.collect_anchors(segm, b.segm_id, from, to, p_unique);
+                self.best_containment_window_via_anchors(segm, from, to, &mut anchors, diff_hist, p_sz - k, lmax)
             }
             Metric::Containment | Metric::Jaccard => self.best_fixed_length(
                 self.tidx.get_segment(b.segm_id),
@@ -432,8 +627,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     }
                     None => {
                         self.counters.inc1("refined_buckets");
-                        let scored =
-                            self.find_best_mapping(buckets, b, content, p_ht, diff_hist, p_sz, m, lmax, sh, metric, k);
+                        let scored = self.find_best_mapping(
+                            buckets, b, content, p_ht, p_unique, diff_hist, p_sz, m, lmax, sh, metric, k,
+                        );
                         if memoizable {
                             cache.record(idx as u32, &scored);
                         }
