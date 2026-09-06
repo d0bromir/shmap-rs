@@ -49,8 +49,8 @@ fn radix_key(loc: &BucketLoc, b_bits: u32) -> u64 {
     ((loc.segm_id as u32 as u64) << b_bits) | (loc.b as u32 as u64)
 }
 
-/// Largest dense accumulator a single read may allocate, in slots (16 bytes
-/// each, so ~32 MB per worker thread).
+/// Default largest dense accumulator a single read may allocate, in slots
+/// (16 bytes each, so ~32 MB per worker thread).
 ///
 /// The dense path's footprint is `reference_sketch_len / halflen`, and
 /// `halflen` is the read's own k-mer count — so it grows as reads get
@@ -59,7 +59,22 @@ fn radix_key(loc: &BucketLoc, b_bits: u32) -> u64 {
 /// from reproducing the multi-GB dense-array blowup that the sparse path was
 /// originally written to fix. Above it, `Buckets` silently uses the sparse
 /// path instead, which is slower but bounded by what a read actually touches.
-const MAX_DENSE_SLOTS: usize = 2 << 20;
+///
+/// `Buckets::set_max_dense_slots` lets a short-read run raise this cap to keep
+/// every read on the dense path instead of falling back to sparse. **Measured
+/// and found not to help**: on 150 bp reads against a 491 Mbp two-chromosome
+/// reference (`r = 0.1`, `halflen` ~12-13), raising the cap from the default
+/// to 16 777 216 (large enough that every read stays dense) left mapping wall
+/// time unchanged within noise (~22-24 s either way on a 20k-read sample,
+/// `-@1`; 78.5 s vs 82.1 s on the full 300k-read set at `-@8`, i.e. no
+/// improvement). The actual driver, found afterwards: `match_seeds`'s cost
+/// tracks how often it has to flush a bucket, i.e. bucket *count*, not how
+/// many reference hits it walks via `SketchIndex::multi_hits` — dense vs
+/// sparse only changes where a flush is stored, not how often one happens.
+/// See [`Buckets::set_min_halflen`], which targets that and is measured to
+/// help. Kept as a knob for controlling memory/storage path, not as a speed
+/// fix in itself.
+pub const DEFAULT_MAX_DENSE_SLOTS: usize = 2 << 20;
 
 /// A dense accumulator slot: a [`BucketEntry`] minus its location, which is
 /// implied by the slot's index. `matches == 0` means untouched — every
@@ -236,7 +251,7 @@ impl<const AP: bool> BucketsHash<AP> {
 /// from the reference length over `MIN_HALFLEN` (~15 GB per worker); this one
 /// is sized from the reference length over the *read's own* half-length, three
 /// to four orders of magnitude smaller, and it refuses to allocate at all
-/// beyond [`MAX_DENSE_SLOTS`] — falling back to the sparse append + radix
+/// beyond the configured cap — falling back to the sparse append + radix
 /// sort path, which is retained for exactly that case.
 pub struct Buckets<'idx, const AP: bool> {
     tidx: &'idx SketchIndex,
@@ -284,6 +299,13 @@ pub struct Buckets<'idx, const AP: bool> {
     /// Number of slots the current read's layout uses. `dense` itself is only
     /// ever grown, so it may be longer than this.
     dense_slots: usize,
+    /// The dense/sparse cutoff in effect for this instance; see
+    /// [`DEFAULT_MAX_DENSE_SLOTS`] and [`Self::set_max_dense_slots`].
+    max_dense_slots: usize,
+    /// Floor applied to `halflen` after the `MIN_HALFLEN` rejection check;
+    /// see [`Self::set_min_halflen`]. Defaults to `MIN_HALFLEN`, which is a
+    /// no-op since `halflen` cannot reach `plan_dense` below that already.
+    min_halflen: QPos,
     /// Whether `dense` may hold un-extracted state from the read in progress.
     /// Set when a read's layout is planned and cleared by extraction, so the
     /// only way it survives into the next read is a read abandoned mid-way —
@@ -319,7 +341,9 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
             dense_on: false,
             touched: Vec::new(),
             dense_slots: 0,
+            max_dense_slots: DEFAULT_MAX_DENSE_SLOTS,
             dense_dirty: false,
+            min_halflen: MIN_HALFLEN,
             max_b: 0,
             max_sid: 0,
             order: Vec::new(),
@@ -342,15 +366,57 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         self.merged = true;
     }
 
+    /// Raises (or lowers) the dense/sparse cutoff from its
+    /// [`DEFAULT_MAX_DENSE_SLOTS`], trading worker memory for keeping more
+    /// reads on the dense storage path. Takes effect from the next
+    /// `set_halflen` call, since that is what decides the path. Not a speed
+    /// fix for short reads — see the measurement on [`DEFAULT_MAX_DENSE_SLOTS`].
+    pub fn set_max_dense_slots(&mut self, slots: usize) {
+        self.max_dense_slots = slots;
+    }
+
+    /// Raises the bucket half-length actually used from a read's own sketch
+    /// size, without changing the `MIN_HALFLEN` rejection threshold below.
+    ///
+    /// Bucket width is what decides how many genome-wide hits of a repeated
+    /// seed land in the *same* bucket before `match_seeds` has to flush it: at
+    /// the short-read `hashratio`, a 150 bp read's own sketch is ~12-13
+    /// k-mers, `matches/bucket` measures at 1.36 (barely more than one flush
+    /// per hit) against 19.6 for a 24 kb HiFi read's ~126-k-mer sketch — a 56x
+    /// difference in bucket count per read for only ~4x more raw hits, and
+    /// `match_seeds`'s own per-read cost tracks the bucket count, not the hit
+    /// count (RESULTS.md §11). Raising the floor here, independent of a
+    /// short read's tiny `m`, is what actually targets that: unlike
+    /// `set_max_dense_slots`, this changes which reference positions get
+    /// grouped into one candidate region before scoring, not merely where
+    /// the count is stored — a real change to bucket geometry, not a storage
+    /// knob, so it needs the same accuracy check any other scoring-adjacent
+    /// change here does.
+    ///
+    /// **Measured and found to help.** Same 150 bp / 491 Mbp setup: raising
+    /// this to 256 cuts `matches/bucket` from 1.36 to 3.51, mapping time from
+    /// 78.5 s to 29.8 s at `-@8` on the full 300k-read set (2.6x), and from
+    /// 21.8 s to 7.7 s at `-@1` on a 20k-read sample. `match_seeds` drops
+    /// accordingly, but `match_rest`/`refine` rises (wider buckets sweep a
+    /// wider window), so the net win plateaus around 64-256 and erodes above
+    /// ~1024. Mapped count is unchanged (298 550 of 300 000) and placement
+    /// accuracy against ground truth moves by 6 reads out of 298 550 — noise,
+    /// on the order of this port's existing stable-sort-vs-`std::sort`
+    /// tie-break drift, not a regression.
+    pub fn set_min_halflen(&mut self, halflen: QPos) {
+        self.min_halflen = halflen;
+    }
+
     /// Sets the bucket half-length; returns `false` if it's below
     /// `MIN_HALFLEN` (the caller should treat that as "too small to map
     /// usefully" rather than a hard error, matching the C++).
     pub fn set_halflen(&mut self, new_halflen: QPos) -> bool {
-        self.halflen = new_halflen;
-        if self.halflen < MIN_HALFLEN {
+        if new_halflen < MIN_HALFLEN {
+            self.halflen = new_halflen;
             self.dense_on = false;
             return false;
         }
+        self.halflen = new_halflen.max(self.min_halflen);
         self.plan_dense();
         true
     }
@@ -377,7 +443,7 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
     /// leaving `dense_dirty` set and `touched` populated, so the next dense
     /// read indexed an emptied array and panicked. `map_reads` catches per
     /// read, so it would have surfaced as one failed read rather than a crash.
-    /// It takes all three of an abandon, a read over `MAX_DENSE_SLOTS`, and a
+    /// It takes all three of an abandon, a read over the configured cap, and a
     /// return to the dense path, which is why no run has hit it. Hoisting it
     /// here puts it on the one path every exit from `plan_dense` passes
     /// through, so a future exit cannot reintroduce the hazard by forgetting.
@@ -404,7 +470,7 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
             // inclusive end and keeps the `b - 1` neighbour in range.
             let extent = if AP { seg.sz as i64 } else { seg.kmers.len() as i64 };
             total += (extent.max(1) - 1) / halflen + 2;
-            if total > MAX_DENSE_SLOTS as i64 {
+            if total > self.max_dense_slots as i64 {
                 self.seg_base.clear();
                 self.dense = Vec::new();
                 self.dense_on = false;
@@ -856,8 +922,8 @@ mod tests {
     #[test]
     fn dense_and_sparse_paths_agree() {
         // `AP` uses `sz` for the bucket extent, so a huge `sz` with a tiny
-        // half-length pushes the slot count past `MAX_DENSE_SLOTS` and forces
-        // the sparse path, without allocating a huge sketch.
+        // half-length pushes the slot count past `DEFAULT_MAX_DENSE_SLOTS` and
+        // forces the sparse path, without allocating a huge sketch.
         let mut sparse_idx = SketchIndex::new();
         sparse_idx
             .segments
@@ -912,10 +978,10 @@ mod tests {
 
     /// Three steps, all three needed. A read abandoned after adding but before
     /// extracting (`extract_dense` is what normally drains the slots), then a
-    /// read over `MAX_DENSE_SLOTS`, whose early return replaces `dense` with an
-    /// empty `Vec` — leaving `touched` holding ids into an array that no longer
-    /// exists. Retiring the slots only after the sizing loop, as this did, then
-    /// indexed that empty `Vec` on the next dense read and panicked.
+    /// read over `DEFAULT_MAX_DENSE_SLOTS`, whose early return replaces `dense`
+    /// with an empty `Vec` — leaving `touched` holding ids into an array that no
+    /// longer exists. Retiring the slots only after the sizing loop, as this
+    /// did, then indexed that empty `Vec` on the next dense read and panicked.
     #[test]
     fn an_abandoned_read_does_not_leak_into_the_next_dense_read() {
         // One index, two half-lengths: 2^24/10 slots is under the cap, 2^24/5
@@ -923,8 +989,8 @@ mod tests {
         let mut tidx = SketchIndex::new();
         tidx.segments
             .push(RefSegment::new(Vec::new(), "seg0".to_string(), 1 << 24, 0));
-        assert!(((1i64 << 24) - 1) / 10 + 2 < MAX_DENSE_SLOTS as i64);
-        assert!(((1i64 << 24) - 1) / 5 + 2 > MAX_DENSE_SLOTS as i64);
+        assert!(((1i64 << 24) - 1) / 10 + 2 < DEFAULT_MAX_DENSE_SLOTS as i64);
+        assert!(((1i64 << 24) - 1) / 5 + 2 > DEFAULT_MAX_DENSE_SLOTS as i64);
         let mut b: Buckets<true> = Buckets::new(&tidx);
 
         // Abandoned: added to, never extracted, so its slots stay live.

@@ -183,6 +183,37 @@ pub struct Params {
     /// reproducible and independent of thread count.
     #[arg(long = "per-read-stats-sample", default_value_t = 1)]
     pub per_read_stats_sample: u64,
+
+    /// Dense/sparse cutoff for `Buckets`, in slots (16 bytes each); see
+    /// `buckets::DEFAULT_MAX_DENSE_SLOTS`.
+    ///
+    /// Bucket half-length is the read's own sketch size, so short reads make
+    /// a whole-genome reference's slot count explode and fall back to the
+    /// sparse path. Raising this keeps short reads on the dense path instead,
+    /// at the cost of a larger per-worker allocation — but measured to make no
+    /// difference to short-read mapping speed (see `DEFAULT_MAX_DENSE_SLOTS`'s
+    /// doc comment): `match_seeds` is dominated by walking reference hit
+    /// lists, not by which path stores the result. A memory/storage knob, not
+    /// a performance one.
+    #[arg(long = "max-dense-slots", default_value_t = crate::buckets::DEFAULT_MAX_DENSE_SLOTS)]
+    pub max_dense_slots: usize,
+
+    /// Floor on `Buckets`' half-length, independent of a read's own sketch
+    /// size; see `Buckets::set_min_halflen`.
+    ///
+    /// Default (`buckets::MIN_HALFLEN`) is a no-op. Raising it groups more of
+    /// a repeated seed's genome-wide hits into the same bucket before
+    /// `match_seeds` has to flush it — the actual driver of its cost on short
+    /// reads, not the dense/sparse storage path `--max-dense-slots` controls.
+    /// Measured on 150 bp reads / a 491 Mbp reference: `256` cuts mapping
+    /// time from 78.5 s to 29.8 s at `-@8` (2.6x), mapped count unchanged,
+    /// placement accuracy within noise (see `Buckets::set_min_halflen`).
+    /// Unlike `--max-dense-slots`, this changes bucket geometry (which
+    /// reference positions are treated as one candidate region), so a value
+    /// this good for one dataset is not guaranteed for another without the
+    /// same check.
+    #[arg(long = "min-halflen", default_value_t = crate::buckets::MIN_HALFLEN)]
+    pub min_halflen: crate::types::QPos,
 }
 
 impl Params {

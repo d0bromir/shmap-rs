@@ -1651,6 +1651,35 @@ in [`profiling/`](profiling/) and the branches are named where one exists.
 - **Sketching is load-port-bound**, ~2.0 ns/base on the benchmark host, at 6 loads/base against two
   load ports. Both levers that target it have been probed and lost; see below.
 
+### Validated, with the measurement
+
+| idea | verdict | headline figure |
+|---|---|---|
+| `--min-halflen` to widen buckets for short reads (Q18) | measured, 2.6x | 78.5 s → 29.8 s, 300k 150bp reads `-@8`; mapped count unchanged |
+
+**Raising `--min-halflen` to widen buckets for short reads.** `--per-read-stats` on matched samples
+(chr21 + a HiFi long-read set vs. the same 150 bp short reads) isolated the real variable behind
+`match_seeds`'s short-read cost: `seed_matches / seeded_buckets` — raw hits absorbed per bucket
+before a flush — is **19.6** for a 24 kb read (`halflen` ~126, its own sketch size) against **1.36**
+for a 150 bp read (`halflen` ~12-13): a 56x difference in buckets created per read for only ~4x more
+raw hits, and per-read `match_seeds` time tracks that 56x (25x slower per read), not the 4x.
+`Buckets::set_halflen` ties bucket width to a read's own sketch size unconditionally, which is fine
+when that sketch is large and ruinous when it's ~12. Added `Buckets::set_min_halflen`/
+`--min-halflen` as a floor applied after the existing `MIN_HALFLEN` rejection check, so short reads
+get wider buckets without changing which reads get rejected as unmappable, or the `m`-windowed
+scoring in `best_fixed_length` (which sweeps by the read's own `m`, not `halflen` — bucket width only
+decides which reference positions are grouped into one candidate region before scoring, never the
+score itself). Measured on the same 491 Mbp / 150 bp setup: `--min-halflen 256` cuts mapping time
+from 78.5 s to **29.8 s** at `-@8` on the full 300k-read set (**2.6x**), and from 21.8 s to 7.7 s at
+`-@1` on a 20k-read sample; the gain plateaus around 64-256 and erodes above ~1024 as
+`match_rest`/`refine` (which now sweeps a wider window per surviving bucket) grows back. Mapped
+count is unchanged (298 550 of 300 000 both ways) and placement accuracy against embedded ground
+truth moves by 6 reads out of 298 550 (94.461% vs 94.459%) — noise, on the order of this port's
+existing stable-sort-vs-`std::sort` tie-break drift, not a regression. Default (`MIN_HALFLEN`, i.e.
+off) is unchanged, so this needs an explicit flag to take effect; it has not been made the
+short-read default because a value good on this reference/read-length pair is not guaranteed to be
+without the same check on the real B06-B08 corpus.
+
 ### Ruled out, with the measurement
 
 | idea | verdict | headline figure |
@@ -1663,6 +1692,7 @@ in [`profiling/`](profiling/) and the branches are named where one exists.
 | Bucket accumulator chosen by occupancy (`q13-dense-occupancy`) | built, cancels out | `match_seeds` 1.14x bought at `bucket_merge` 0.61x |
 | Dead/duplicated per-read work (`q14`, `q15`) | measured, ~4%, not taken | 1.041x on `query_mapping`, ~1.7% of wall |
 | `-C target-cpu=native` (Q16, `q16-target-cpu-native`) | measured, large regression | 0.917x on a2 (BLOCK), 0.988x on galaxy; worst at `-@1`, not `-@64` |
+| Raising `--max-dense-slots` to keep short reads dense (Q17) | measured, no speedup | 22-24 s either way, 20k reads `-@1`; 78.5 s vs 82.1 s, 300k reads `-@8` |
 
 **NUMA index replication.** §3 measures per-read CPU cost rising continuously with thread count —
 +4-45% by 16 threads, +39-138% by 32, +76-240% by 64 — on every benchmark. `numactl` experiments
@@ -1743,6 +1773,21 @@ records per read. The gain is cancelled rather than absent — a cheaper merge f
 surface it as ~5-8% end to end — which is why the branch is kept. A latent panic found on the way
 (dirty slots retired after a sizing loop that had already replaced the array) is fixed with a test,
 and is worth taking to `main` independently.
+
+**Raising `--max-dense-slots` to keep short reads dense.** §8b's own hypothesis was that
+`match_seeds`'s 92% share on 150 bp reads was partly the dense/sparse cutoff: `halflen` there is
+~12-13, which pushes a whole-genome reference's dense slot count (`ref_sketch_len / halflen`) past
+`DEFAULT_MAX_DENSE_SLOTS` by more than 10x, so every short read falls back to the sparse path.
+Made the cutoff a runtime `Buckets::set_max_dense_slots`/`--max-dense-slots` knob (default
+unchanged) and measured directly: 150 bp reads, `k=25`, `r=0.1`, against a 491 Mbp two-chromosome
+reference. Default cap (sparse) against a cap large enough that every read stays dense
+(16 777 216 slots, ~256 MB/worker) — 20k reads at `-@1`, three repeats each, ~22-24 s mapping either
+way (one 44 s outlier, noise); 300k reads at `-@8`, 78.5 s (default) vs 82.1 s (raised) — no
+improvement, if anything slightly worse from the larger allocation. **Cause**: `match_seeds`
+(`src/shmap/seeding.rs`) walks every reference hit of every seed k-mer via `SketchIndex::multi_hits`
+to accumulate bucket contents; dense vs sparse only changes where `flush_slot`/`add_to_pos` stores
+the accumulated result, a small fraction of that walk. Neither path changes how often a flush
+happens, which the next entry (§ Validated, above) finds is the actual variable driving the cost.
 
 **Comparing two builds confounds the change with the layout.** `lto = "fat"` with
 `codegen-units = 1` re-lays-out the whole program on every build, and that term is larger than most
