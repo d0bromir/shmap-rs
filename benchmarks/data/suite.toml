@@ -8,8 +8,8 @@
 #   suite_version MINOR bump  -> a benchmark was added; old rows stay comparable
 
 schema = 1
-suite_version = "1.1"
-dataset_version = 2
+suite_version = "1.2"
+dataset_version = 3
 
 # Two tiers, and the reasoning that rejected tiers is worth stating because it
 # was right until it was not.
@@ -327,6 +327,30 @@ checks = ["validate_paf"]
 tier = "paper"
 repeats = 1
 note = "29.1 GB, 146M reads. Plays the role B04 plays for HiFi: deep enough that mapping dominates indexing, so the ratio is not an indexing artefact."
+
+# --- Short-read, a recent WGS from a different platform and sample ---------
+#
+# The AVITI tier (B06-B08) is all one instrument (Element AVITI), one
+# chemistry (UltraQ), and one sample (HG002). This adds a second short-read
+# WGS benchmark that varies the platform and the sample rather than depth, so
+# a reader can see whether the shmap-rs / bwa-mem2 comparison holds off the
+# one sequencer and one genome the AVITI ladder is built on. Single-end R1,
+# same reason as B06-B08.
+
+[[benchmark]]
+id = "B09"
+title = "Real HG008-N-D NovaSeq 6000 2x150 (2024), 1x — WGS short reads, different platform and sample"
+reference = "REF-HS1"
+reads = "SR-HG008-1X"
+params = "short-read"
+metrics = ["Containment"]
+threads = [32]
+reference_impl_threads = [1]
+impls = ["shmap-rs"]
+checks = ["validate_paf"]
+tier = "paper"
+repeats = 1
+note = "GIAB HG008 normal duodenal tissue (pancreatic tumor/normal pair), NovaSeq 6000, PCR-free, 2x150, sequenced 2023-12 through 2024-03. Matched ~1x depth to B06 so the comparison varies platform and sample, not depth."
 
 # ---------------------------------------------------------------------------
 # Checks — every one of these blocks a merge if it fails. See ../VERSIONING.md.
@@ -681,3 +705,4 @@ B05 = "map-ont"
 B06 = "sr"
 B07 = "sr"
 B08 = "sr"
+B09 = "sr"
