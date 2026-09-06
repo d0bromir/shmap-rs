@@ -277,6 +277,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     /// doesn't depend on the window's total k-mer count. `Jaccard`'s does,
     /// and reproducing its boundary-clamped denominator this way needs more
     /// care than this function does, so it keeps using the dense scan.
+    #[allow(clippy::too_many_arguments)]
     fn best_containment_window_via_anchors(
         &self,
         segm: &RefSegment,
@@ -479,7 +480,6 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 
     /// Dispatches to the right scoring approach for `metric`, then stamps
     /// the result with `b`/`sh` regardless of which one ran.
-    #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_arguments)]
     pub fn find_best_mapping(
         &self,
