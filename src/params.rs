@@ -197,23 +197,6 @@ pub struct Params {
     /// a performance one.
     #[arg(long = "max-dense-slots", default_value_t = crate::buckets::DEFAULT_MAX_DENSE_SLOTS)]
     pub max_dense_slots: usize,
-
-    /// Floor on `Buckets`' half-length, independent of a read's own sketch
-    /// size; see `Buckets::set_min_halflen`.
-    ///
-    /// Default (`buckets::MIN_HALFLEN`) is a no-op. Raising it groups more of
-    /// a repeated seed's genome-wide hits into the same bucket before
-    /// `match_seeds` has to flush it — the actual driver of its cost on short
-    /// reads, not the dense/sparse storage path `--max-dense-slots` controls.
-    /// Measured on 150 bp reads / a 491 Mbp reference: `256` cuts mapping
-    /// time from 78.5 s to 29.8 s at `-@8` (2.6x), mapped count unchanged,
-    /// placement accuracy within noise (see `Buckets::set_min_halflen`).
-    /// Unlike `--max-dense-slots`, this changes bucket geometry (which
-    /// reference positions are treated as one candidate region), so a value
-    /// this good for one dataset is not guaranteed for another without the
-    /// same check.
-    #[arg(long = "min-halflen", default_value_t = crate::buckets::MIN_HALFLEN)]
-    pub min_halflen: crate::types::QPos,
 }
 
 impl Params {

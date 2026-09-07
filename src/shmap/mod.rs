@@ -484,7 +484,6 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     let mut worker: SHMapper<'_, NBP, OS, AP> = SHMapper::new(tidx);
                     let mut buckets: Buckets<'_, AP> = Buckets::new(tidx);
                     buckets.set_max_dense_slots(params.max_dense_slots);
-                    buckets.set_min_halflen(params.min_halflen);
                     if profiler.enabled() {
                         thread_timers.stop("worker_setup");
                     }

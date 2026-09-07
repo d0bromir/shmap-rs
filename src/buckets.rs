@@ -14,6 +14,29 @@ use crate::types::{BucketContent, BucketLoc, Hit, QPos, RPos, SegmId};
 /// Smallest allowed bucket half-length.
 pub const MIN_HALFLEN: QPos = 5;
 
+/// Below this own-sketch-size (`m`), a read is treated as short and its
+/// bucket half-length is floored at [`SHORT_READ_HALFLEN`] instead of using
+/// `m` directly; see [`Buckets::set_halflen`]. Comfortably above the ~12-13
+/// measured for a 150 bp read at the short-read `hashratio` and comfortably
+/// below the ~126 measured for a 24 kb HiFi read (RESULTS.md §11), so long
+/// reads are never affected by this floor.
+pub const SHORT_READ_HALFLEN_THRESHOLD: QPos = 64;
+
+/// Bucket half-length floor applied automatically to reads below
+/// [`SHORT_READ_HALFLEN_THRESHOLD`]; see [`Buckets::set_halflen`].
+///
+/// **Measured and found to help.** Grouping more of a repeated seed's
+/// genome-wide hits into the same bucket before `match_seeds` has to flush
+/// it is the actual driver of its cost on short reads, not the dense/sparse
+/// storage path `--max-dense-slots` controls (`DEFAULT_MAX_DENSE_SLOTS`'s doc
+/// comment). On 150 bp reads against a 491 Mbp reference this floor cuts
+/// `matches/bucket` from 1.36 to 3.51 and mapping time from 78.5 s to 29.8 s
+/// at `-@8` on a 300k-read set (2.6x), and from 21.8 s to 7.7 s at `-@1` on a
+/// 20k-read sample; the gain plateaus around 64-256 and erodes above ~1024.
+/// Mapped count is unchanged and placement accuracy against ground truth
+/// moves by 6 reads out of 298 550 — noise, not a regression.
+pub const SHORT_READ_HALFLEN: QPos = 256;
+
 /// Widest digit [`Buckets`]'s LSD radix sort will use.
 ///
 /// The digit width actually used is chosen per read (see
@@ -71,9 +94,9 @@ fn radix_key(loc: &BucketLoc, b_bits: u32) -> u64 {
 /// tracks how often it has to flush a bucket, i.e. bucket *count*, not how
 /// many reference hits it walks via `SketchIndex::multi_hits` — dense vs
 /// sparse only changes where a flush is stored, not how often one happens.
-/// See [`Buckets::set_min_halflen`], which targets that and is measured to
-/// help. Kept as a knob for controlling memory/storage path, not as a speed
-/// fix in itself.
+/// See [`Buckets::set_halflen`]'s automatic short-read floor, which targets
+/// that and is measured to help. Kept as a knob for controlling
+/// memory/storage path, not as a speed fix in itself.
 pub const DEFAULT_MAX_DENSE_SLOTS: usize = 2 << 20;
 
 /// A dense accumulator slot: a [`BucketEntry`] minus its location, which is
@@ -302,10 +325,6 @@ pub struct Buckets<'idx, const AP: bool> {
     /// The dense/sparse cutoff in effect for this instance; see
     /// [`DEFAULT_MAX_DENSE_SLOTS`] and [`Self::set_max_dense_slots`].
     max_dense_slots: usize,
-    /// Floor applied to `halflen` after the `MIN_HALFLEN` rejection check;
-    /// see [`Self::set_min_halflen`]. Defaults to `MIN_HALFLEN`, which is a
-    /// no-op since `halflen` cannot reach `plan_dense` below that already.
-    min_halflen: QPos,
     /// Whether `dense` may hold un-extracted state from the read in progress.
     /// Set when a read's layout is planned and cleared by extraction, so the
     /// only way it survives into the next read is a read abandoned mid-way —
@@ -343,7 +362,6 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
             dense_slots: 0,
             max_dense_slots: DEFAULT_MAX_DENSE_SLOTS,
             dense_dirty: false,
-            min_halflen: MIN_HALFLEN,
             max_b: 0,
             max_sid: 0,
             order: Vec::new(),
@@ -375,48 +393,33 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         self.max_dense_slots = slots;
     }
 
-    /// Raises the bucket half-length actually used from a read's own sketch
-    /// size, without changing the `MIN_HALFLEN` rejection threshold below.
-    ///
-    /// Bucket width is what decides how many genome-wide hits of a repeated
-    /// seed land in the *same* bucket before `match_seeds` has to flush it: at
-    /// the short-read `hashratio`, a 150 bp read's own sketch is ~12-13
-    /// k-mers, `matches/bucket` measures at 1.36 (barely more than one flush
-    /// per hit) against 19.6 for a 24 kb HiFi read's ~126-k-mer sketch — a 56x
-    /// difference in bucket count per read for only ~4x more raw hits, and
-    /// `match_seeds`'s own per-read cost tracks the bucket count, not the hit
-    /// count (RESULTS.md §11). Raising the floor here, independent of a
-    /// short read's tiny `m`, is what actually targets that: unlike
-    /// `set_max_dense_slots`, this changes which reference positions get
-    /// grouped into one candidate region before scoring, not merely where
-    /// the count is stored — a real change to bucket geometry, not a storage
-    /// knob, so it needs the same accuracy check any other scoring-adjacent
-    /// change here does.
-    ///
-    /// **Measured and found to help.** Same 150 bp / 491 Mbp setup: raising
-    /// this to 256 cuts `matches/bucket` from 1.36 to 3.51, mapping time from
-    /// 78.5 s to 29.8 s at `-@8` on the full 300k-read set (2.6x), and from
-    /// 21.8 s to 7.7 s at `-@1` on a 20k-read sample. `match_seeds` drops
-    /// accordingly, but `match_rest`/`refine` rises (wider buckets sweep a
-    /// wider window), so the net win plateaus around 64-256 and erodes above
-    /// ~1024. Mapped count is unchanged (298 550 of 300 000) and placement
-    /// accuracy against ground truth moves by 6 reads out of 298 550 — noise,
-    /// on the order of this port's existing stable-sort-vs-`std::sort`
-    /// tie-break drift, not a regression.
-    pub fn set_min_halflen(&mut self, halflen: QPos) {
-        self.min_halflen = halflen;
-    }
-
     /// Sets the bucket half-length; returns `false` if it's below
     /// `MIN_HALFLEN` (the caller should treat that as "too small to map
     /// usefully" rather than a hard error, matching the C++).
+    ///
+    /// Bucket width is what decides how many genome-wide hits of a repeated
+    /// seed land in the *same* bucket before `match_seeds` has to flush it,
+    /// and using a read's own sketch size (`m`) directly is ruinous for short
+    /// reads: at the short-read `hashratio`, a 150 bp read's own sketch is
+    /// ~12-13 k-mers, `matches/bucket` measures at 1.36 (barely more than one
+    /// flush per hit) against 19.6 for a 24 kb HiFi read's ~126-k-mer sketch —
+    /// a 56x difference in bucket count per read for only ~4x more raw hits,
+    /// and `match_seeds`'s own per-read cost tracks the bucket count, not the
+    /// hit count (RESULTS.md §11). Reads below [`SHORT_READ_HALFLEN_THRESHOLD`]
+    /// are floored at [`SHORT_READ_HALFLEN`] instead, automatically and with
+    /// no configuration: that threshold sits well below every long-read `m`
+    /// this port is measured on, so long reads take the same path as before.
     pub fn set_halflen(&mut self, new_halflen: QPos) -> bool {
         if new_halflen < MIN_HALFLEN {
             self.halflen = new_halflen;
             self.dense_on = false;
             return false;
         }
-        self.halflen = new_halflen.max(self.min_halflen);
+        self.halflen = if new_halflen < SHORT_READ_HALFLEN_THRESHOLD {
+            new_halflen.max(SHORT_READ_HALFLEN)
+        } else {
+            new_halflen
+        };
         self.plan_dense();
         true
     }
