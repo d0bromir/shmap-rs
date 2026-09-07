@@ -424,6 +424,22 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         true
     }
 
+    /// Test-only: [`Self::set_halflen`] without the short-read floor, so the
+    /// bucket-geometry unit tests can exercise `begin`/`end`, the predecessor
+    /// write and the dense/sparse cutoff at small widths directly. Production
+    /// code always goes through `set_halflen`.
+    #[cfg(test)]
+    pub(crate) fn set_halflen_unfloored(&mut self, new_halflen: QPos) -> bool {
+        if new_halflen < MIN_HALFLEN {
+            self.halflen = new_halflen;
+            self.dense_on = false;
+            return false;
+        }
+        self.halflen = new_halflen;
+        self.plan_dense();
+        true
+    }
+
     /// Decides whether this read can use the dense accumulator and, if so,
     /// lays out `seg_base` and makes sure `dense` is long enough.
     ///
@@ -818,7 +834,7 @@ mod tests {
     fn begin_end_bucket_boundaries() {
         let tidx = tidx_with_one_segment(100);
         let mut b: Buckets<false> = Buckets::new(&tidx);
-        b.set_halflen(10);
+        b.set_halflen_unfloored(10);
 
         let b0 = BucketLoc::new(0, 0);
         assert_eq!(b.begin(&b0), 0);
@@ -833,7 +849,7 @@ mod tests {
     fn add_to_pos_touches_bucket_and_predecessor() {
         let tidx = tidx_with_one_segment(100);
         let mut b: Buckets<false> = Buckets::new(&tidx);
-        b.set_halflen(10);
+        b.set_halflen_unfloored(10);
 
         // tpos=25 => bucket 2 (25/10=2), plus predecessor bucket 1.
         b.add_to_pos(&hit(25, 25, 0), BucketContent::new(1, 0, 1, 25, 25));
@@ -852,7 +868,7 @@ mod tests {
     fn add_to_pos_at_bucket_zero_does_not_touch_predecessor() {
         let tidx = tidx_with_one_segment(100);
         let mut b: Buckets<false> = Buckets::new(&tidx);
-        b.set_halflen(10);
+        b.set_halflen_unfloored(10);
 
         b.add_to_pos(&hit(5, 5, 0), BucketContent::new(1, 0, 1, 5, 5));
 
@@ -865,7 +881,7 @@ mod tests {
     fn get_sorted_buckets_dedups_and_orders_by_matches_descending() {
         let tidx = tidx_with_one_segment(200);
         let mut b: Buckets<false> = Buckets::new(&tidx);
-        b.set_halflen(10);
+        b.set_halflen_unfloored(10);
 
         // Two hits landing in the same bucket 5 (and predecessor 4).
         b.add_to_pos(&hit(50, 50, 0), BucketContent::new(1, 0, 1, 50, 50));
@@ -889,7 +905,7 @@ mod tests {
     fn clear_resets_touched_buckets() {
         let tidx = tidx_with_one_segment(100);
         let mut b: Buckets<false> = Buckets::new(&tidx);
-        b.set_halflen(10);
+        b.set_halflen_unfloored(10);
         b.add_to_pos(&hit(25, 25, 0), BucketContent::new(1, 0, 1, 25, 25));
         assert!(!b.get_sorted_buckets().is_empty());
 
@@ -902,9 +918,9 @@ mod tests {
     fn abs_pos_flag_selects_r_vs_tpos_for_bucket_index() {
         let tidx = tidx_with_one_segment(1000);
         let mut b_tpos: Buckets<false> = Buckets::new(&tidx);
-        b_tpos.set_halflen(10);
+        b_tpos.set_halflen_unfloored(10);
         let mut b_abs: Buckets<true> = Buckets::new(&tidx);
-        b_abs.set_halflen(10);
+        b_abs.set_halflen_unfloored(10);
 
         // r=99 (would land in bucket 9), tpos=3 (would land in bucket 0).
         let h = hit(99, 3, 0);
@@ -935,8 +951,8 @@ mod tests {
 
         let mut sparse: Buckets<true> = Buckets::new(&sparse_idx);
         let mut dense: Buckets<true> = Buckets::new(&dense_idx);
-        assert!(sparse.set_halflen(10));
-        assert!(dense.set_halflen(10));
+        assert!(sparse.set_halflen_unfloored(10));
+        assert!(dense.set_halflen_unfloored(10));
         assert!(!sparse.dense_on, "expected the sparse fallback for a huge segment");
         assert!(dense.dense_on, "expected the dense path for a small segment");
 
@@ -947,8 +963,8 @@ mod tests {
         for span in [3900u64, 150] {
             sparse.clear();
             dense.clear();
-            assert!(sparse.set_halflen(10));
-            assert!(dense.set_halflen(10));
+            assert!(sparse.set_halflen_unfloored(10));
+            assert!(dense.set_halflen_unfloored(10));
 
             // A deterministic spread of repeated positions, so buckets are hit
             // many times over and the merge arithmetic actually matters.
@@ -998,20 +1014,20 @@ mod tests {
 
         // Abandoned: added to, never extracted, so its slots stay live.
         b.clear();
-        assert!(b.set_halflen(10));
+        assert!(b.set_halflen_unfloored(10));
         assert!(b.dense_on);
         b.add_to_pos(&hit(500, 500, 0), BucketContent::new(1, 0, 1, 500, 500));
 
         // Over the cap: `dense` is dropped while those slots are still live.
         b.clear();
-        assert!(b.set_halflen(5));
+        assert!(b.set_halflen_unfloored(5));
         assert!(!b.dense_on);
         b.propagate_seeds_to_buckets();
         assert!(b.get_sorted_buckets().is_empty());
 
         // Back under it. This is the step that panicked.
         b.clear();
-        assert!(b.set_halflen(10));
+        assert!(b.set_halflen_unfloored(10));
         assert!(b.dense_on);
         b.add_to_pos(&hit(500, 500, 0), BucketContent::new(1, 0, 1, 500, 500));
         b.propagate_seeds_to_buckets();

@@ -1685,33 +1685,49 @@ in [`profiling/`](profiling/) and the branches are named where one exists.
 
 | idea | verdict | headline figure |
 |---|---|---|
-| `--min-halflen` to widen buckets for short reads (Q18) | measured, 2.6x | 78.5 s → 29.8 s, 300k 150bp reads `-@8`; mapped count unchanged |
+| Automatic short-read bucket-half-length floor (Q18) | measured, 2.6x | 78.5 s → 29.8 s, 300k 150bp reads `-@8`; mapped count unchanged |
 | Sparse anchor sweep for `Containment` refine (Q20) | measured, exact, additional 1.6x | 46.8 s → 28.8 s on top of Q18, same setup; byte-identical output |
+| Second-best window search inside a widened bucket | correctness | restores mapq 0 on repeats the floor merges into one bucket; long reads byte-identical |
 
-**Raising `--min-halflen` to widen buckets for short reads.** `--per-read-stats` on matched samples
+**The automatic short-read bucket-half-length floor.** `--per-read-stats` on matched samples
 (chr21 + a HiFi long-read set vs. the same 150 bp short reads) isolated the real variable behind
 `match_seeds`'s short-read cost: `seed_matches / seeded_buckets` — raw hits absorbed per bucket
 before a flush — is **19.6** for a 24 kb read (`halflen` ~126, its own sketch size) against **1.36**
 for a 150 bp read (`halflen` ~12-13): a 56x difference in buckets created per read for only ~4x more
 raw hits, and per-read `match_seeds` time tracks that 56x (25x slower per read), not the 4x.
-`Buckets::set_halflen` ties bucket width to a read's own sketch size unconditionally, which is fine
-when that sketch is large and ruinous when it's ~12. Added `Buckets::set_min_halflen`/
-`--min-halflen` as a floor applied after the existing `MIN_HALFLEN` rejection check, so short reads
-get wider buckets without changing which reads get rejected as unmappable, or the `m`-windowed
-scoring in `best_fixed_length` (which sweeps by the read's own `m`, not `halflen` — bucket width only
-decides which reference positions are grouped into one candidate region before scoring, never the
-score itself). Measured on the same 491 Mbp / 150 bp setup: `--min-halflen 256` cuts mapping time
-from 78.5 s to **29.8 s** at `-@8` on the full 300k-read set (**2.6x**), and from 21.8 s to 7.7 s at
-`-@1` on a 20k-read sample; the gain plateaus around 64-256 and erodes above ~1024 as
-`match_rest`/`refine` (which now sweeps a wider window per surviving bucket) grows back. Mapped
-count is unchanged (298 550 of 300 000 both ways) and placement accuracy against embedded ground
-truth moves by 6 reads out of 298 550 (94.461% vs 94.459%) — noise, on the order of this port's
-existing stable-sort-vs-`std::sort` tie-break drift, not a regression. Default (`MIN_HALFLEN`, i.e.
-off) is unchanged, so this needs an explicit flag to take effect; it has not been made the
-short-read default because a value good on this reference/read-length pair is not guaranteed to be
-without the same check on the real B06-B08 corpus.
+`Buckets::set_halflen` ties bucket width to a read's own sketch size, which is fine when that sketch
+is large and ruinous when it's ~12. `set_halflen` now floors any half-length below
+`SHORT_READ_HALFLEN_THRESHOLD` (64) at `SHORT_READ_HALFLEN` (256), so a short read gets wider
+buckets automatically — no flag, chosen by the read's own sketch size — without changing which
+reads are rejected as unmappable (the `MIN_HALFLEN` check runs first and unchanged) or the
+`m`-windowed scoring in `best_fixed_length` (which sweeps by the read's own `m`, not `halflen` —
+bucket width only decides which reference positions are grouped into one candidate region before
+scoring, never the score itself). The threshold sits well below every long-read `m` this port is
+measured on, and the sparse anchor sweep below is gated the same way, so long reads take the
+identical path they did before — verified byte-identical. Measured on a 491 Mbp / 150 bp setup:
+the 256 floor cuts mapping time from 78.5 s to **29.8 s** at `-@8` on a 300k-read set (**2.6x**), and
+from 21.8 s to 7.7 s at `-@1` on a 20k-read sample; the gain plateaus around 64-256 and erodes
+above ~1024 as `match_rest`/`refine` (which now sweeps a wider window per surviving bucket) grows
+back. Mapped count is unchanged (298 550 of 300 000) and placement accuracy against embedded
+ground truth moves by 6 reads out of 298 550 — noise, on the order of this port's existing
+stable-sort-vs-`std::sort` tie-break drift. The B06–B09 figures in §8b are the check on the real
+corpus.
 
-**Sparse anchor sweep for `Containment` refine.** `--min-halflen` moves the fragmentation cost out of
+**Second-best window search inside a widened bucket.** The floor's one hazard: a repeat whose
+copies are closer together than a 512 bp bucket now lands them all in *one* bucket, so the
+second-best `match_rest` pass — which finds the competing placement to decide mapq — sees only the
+single global-best window, rejects the whole bucket for overlapping it, and reports a genuinely
+ambiguous read at mapq 60. `find_best_mapping` and the two window searches (`best_fixed_length`,
+`best_containment_window_via_anchors`) now take an optional `forbidden` mapping and, in the
+second-best pass over a widened bucket whose recorded best collides with it, return the best window
+that does *not* overlap it — the repeat-copy rival — so mapq falls back to 0. Gated to
+`forbidden.is_some() && buckets.halflen > lmax` and, within that, to the colliding bucket only:
+the best pass, every long-read pass, and every non-colliding bucket keep the exact memoized result
+(verified byte-identical on a 300k short-read and a 35k long-read corpus). On a synthetic
+tandem-repeat short-read set it moves ~800/3000 reads from mapq 60 to 0, all in the repeat region,
+with no placement change.
+
+**Sparse anchor sweep for `Containment` refine.** The short-read floor moves the fragmentation cost out of
 `match_seeds` into `match_rest`/`refine` instead: `best_fixed_length` sweeps `[begin, end)` densely,
 `O(halflen)` per admitted bucket, and a 20x wider bucket makes that 20x more expensive. An earlier
 attempt this session to *narrow* that dense sweep using the bucket's already-accumulated
@@ -1737,29 +1753,29 @@ change `intersection` but do change `same_strand_seeds`), and checking mid-share
 by byte-diffing this function's output against `best_fixed_length`'s across the full B06-scale short-
 read corpus (300k reads) and a 35k-read long-read corpus, not by the existing golden-PAF test (a
 single small fixture too small to hit either edge case) — after both fixes, output is byte-identical
-(aside from the per-read timing tag) on all three corpora. Measured on top of `--min-halflen 256`,
+(aside from the per-read timing tag) on all three corpora. Measured on top of the 256 floor,
 same 491 Mbp / 150 bp setup, interleaved same-session A/B to control for host noise: mapping time
 drops from 46.8 s to **28.8 s** at `-@8` on the full 300k-read set (a further **1.6x**), and from
-11.2-11.8 s to 7.6-7.8 s at `-@1` on a 20k-read sample. Combined with `--min-halflen`, the two together
+11.2-11.8 s to 7.6-7.8 s at `-@1` on a 20k-read sample. Combined with the floor, the two together
 cut the original 78.5 s baseline to 28.8 s — **2.7x** total. `Jaccard`, `bucket_SH`, `bucket_LCS`, and
 `AP` mode are all untouched and still take the dense path.
 
 **Gated to `buckets.halflen > m`, not applied unconditionally.** Collecting anchors still costs one
 index lookup per read k-mer (`collect_anchors`, effectively what `matches_in_bucket` already pays
 during pruning, done a second time) plus a sort, and on a long read `halflen` is never widened past
-its own `m` (`--min-halflen`'s floor is a no-op there), so the dense window is only `2m` wide — too
+its own `m` (the floor is a no-op there), so the dense window is only `2m` wide — too
 narrow for skipping empty positions to outrun that fixed per-anchor overhead. Measured directly on
 chr21 / `sim_hifi` (35k HiFi reads, `-@1`, three repeats): applied unconditionally, `refine` rose from
 0.9 s to 1.5 s (~1.7x slower) and total mapping time from ~5.83 s to ~5.97 s average — a real, if
 small (~2%), regression on exactly the reads this port is usually measured on. `buckets.halflen` is
-set to the read's own `m` by default and to `--min-halflen`'s floor only when that's larger
+set to the read's own `m` by default and to the short-read floor only when that's larger
 (`Buckets::set_halflen`), so `halflen > m` (using the same `m`/`lmax` the caller already threads
 through) is an exact, free-to-check signal for "this bucket was widened beyond what the read itself
-needed" — true only when `--min-halflen` actually changed something. Gating on it restores the
+needed" — true only when the floor actually widened the bucket. Gating on it restores the
 long-read numbers above exactly (5.1-5.5 s, matching the dense-only baseline) while leaving the
 short-read win untouched, confirmed by the same byte-diff across all three corpora.
 
-**Narrowing the `match_rest`/`refine` sweep via exhausted-bucket content.** `--min-halflen`
+**Narrowing the `match_rest`/`refine` sweep via exhausted-bucket content.** The short-read floor
 fixes `match_seeds` by moving the fragmentation cost into `match_rest`/`refine` instead:
 `best_fixed_length` sweeps `[begin, end) = [b*halflen, (b+2)*halflen)`, so its cost is `O(halflen)`
 per admitted bucket by construction — raising `halflen` from ~12 to 256 makes that sweep ~20x wider,
@@ -1773,7 +1789,7 @@ been checked against *every* one of the read's unique k-mers, not just the ones 
 walked, making `content.r_min`/`r_max` an exact bound rather than a heuristic one (and, since
 `content.i` only grows and is capped at `p_unique.len()`, stable across `match_rest`'s two passes,
 so `RefineCache`'s memoization stays valid). Implemented and passed all 58 tests including the
-byte-identical golden PAF at default settings. **Measured on the 491 Mbp / 150 bp `--min-halflen 256`
+byte-identical golden PAF at default settings. **Measured on the 491 Mbp / 150 bp / 256-floor
 setup and found not to help**: three interleaved repeats each (to separate the effect from same-day
 machine noise, which alone moved every number by ~1.5x that afternoon), `refine` averaged 9.3 s with
 the change against 9.2 s without, on 20k reads at `-@1` — indistinguishable. The reason: at

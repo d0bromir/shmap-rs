@@ -419,6 +419,21 @@ impl Mapping {
         cap as f64 / cup as f64
     }
 
+    /// [`Self::overlap`] against a raw `[t_l, t_r]` reference span on
+    /// `segm_id`, rather than against a second [`Mapping`] — for the
+    /// second-best sweep, which needs to test candidate windows *before*
+    /// one has been materialized into a `Mapping`. Same formula, same
+    /// `-0.0` for a different segment.
+    pub fn span_overlap(&self, segm_id: SegmId, t_l: RPos, t_r: RPos) -> f64 {
+        if self.paf.segm_id != segm_id {
+            return -0.0;
+        }
+        let cap = 0.max(self.paf.t_r.min(t_r) - self.paf.t_l.max(t_l));
+        let cup = self.paf.t_r.max(t_r) - self.paf.t_l.min(t_l);
+        debug_assert!(cup >= 0 && cap >= 0 && cup >= cap);
+        cap as f64 / cup as f64
+    }
+
     pub fn print_paf(&self, out: &mut impl std::io::Write) -> std::io::Result<()> {
         write!(out, "{self}")
     }
