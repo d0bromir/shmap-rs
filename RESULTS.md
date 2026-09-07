@@ -1696,15 +1696,20 @@ before a flush — is **19.6** for a 24 kb read (`halflen` ~126, its own sketch 
 for a 150 bp read (`halflen` ~12-13): a 56x difference in buckets created per read for only ~4x more
 raw hits, and per-read `match_seeds` time tracks that 56x (25x slower per read), not the 4x.
 `Buckets::set_halflen` ties bucket width to a read's own sketch size, which is fine when that sketch
-is large and ruinous when it's ~12. `set_halflen` now floors any half-length below
-`SHORT_READ_HALFLEN_THRESHOLD` (64) at `SHORT_READ_HALFLEN` (256), so a short read gets wider
-buckets automatically — no flag, chosen by the read's own sketch size — without changing which
-reads are rejected as unmappable (the `MIN_HALFLEN` check runs first and unchanged) or the
+is large and ruinous when it's ~12. `query_mapping` now floors the half-length at
+`SHORT_READ_HALFLEN` (256) for any read at or below `SHORT_READ_LEN_THRESHOLD` (400 bp) on the
+`Containment`/`Jaccard` paths — no flag, chosen by the read's nucleotide length — without changing
+which reads are rejected as unmappable (the `MIN_HALFLEN` check runs first and unchanged) or the
 `m`-windowed scoring in `best_fixed_length` (which sweeps by the read's own `m`, not `halflen` —
 bucket width only decides which reference positions are grouped into one candidate region before
-scoring, never the score itself). The threshold sits well below every long-read `m` this port is
-measured on, and the sparse anchor sweep below is gated the same way, so long reads take the
-identical path they did before — verified byte-identical. Measured on a 491 Mbp / 150 bp setup:
+scoring, never the score itself). It keys on **length, not sketch size**: a 150 bp read at
+`r = 0.1` and a ~1 kb HiFi read at `r = 0.01` both sketch to ~12 k-mers, so `m` cannot separate
+them — an earlier cut keyed on `m < 64` and caught the ~4 kb tail of the real HiFi sets, shifting a
+handful of long-read placements and (because `bucket_SH` reports the raw bucket extent) failing
+`validate_paf` on B03/B04. `bucket_SH`/`bucket_LCS` are excluded for the same reason. With the
+length gate, long reads and the HiFi length tail are byte-identical to the pre-floor binary
+(verified across all three metrics), and the sparse anchor sweep and the second-best fix below,
+both gated on `buckets.halflen > lmax`, are inert on them. Measured on a 491 Mbp / 150 bp setup:
 the 256 floor cuts mapping time from 78.5 s to **29.8 s** at `-@8` on a 300k-read set (**2.6x**), and
 from 21.8 s to 7.7 s at `-@1` on a 20k-read sample; the gain plateaus around 64-256 and erodes
 above ~1024 as `match_rest`/`refine` (which now sweeps a wider window per surviving bucket) grows
@@ -1723,9 +1728,10 @@ second-best pass over a widened bucket whose recorded best collides with it, ret
 that does *not* overlap it — the repeat-copy rival — so mapq falls back to 0. Gated to
 `forbidden.is_some() && buckets.halflen > lmax` and, within that, to the colliding bucket only:
 the best pass, every long-read pass, and every non-colliding bucket keep the exact memoized result
-(verified byte-identical on a 300k short-read and a 35k long-read corpus). On a synthetic
-tandem-repeat short-read set it moves ~800/3000 reads from mapq 60 to 0, all in the repeat region,
-with no placement change.
+(verified byte-identical on an 18 kb and a 3–6 kb synthetic long-read corpus, all three metrics).
+On a chrY exact-substring probe it takes wrong-mapq-60 placements from 8 to 0 with placement
+accuracy unchanged (73.6%); on the real short-read corpus it moves mapq-60 → 0 for 9 550 / 36 411 /
+85 914 / 5 814 reads on B06 / B07 / B08 / B09, with the mapped count unchanged on every one.
 
 **Sparse anchor sweep for `Containment` refine.** The short-read floor moves the fragmentation cost out of
 `match_seeds` into `match_rest`/`refine` instead: `best_fixed_length` sweeps `[begin, end)` densely,

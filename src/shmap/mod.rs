@@ -87,7 +87,7 @@ use crate::mapping::{Mapping, MappingPaf};
 use crate::params::Params;
 use crate::profiling::Profiler;
 use crate::sketch::FracMinHash;
-use crate::types::{H2Cnt, H2Seed, QPos};
+use crate::types::{H2Cnt, H2Seed, Metric, QPos};
 use crate::utils::{Counters, ProgressBar, Timers};
 
 /// The complete, corrected list of counter names `map_read` (and the
@@ -736,10 +736,21 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             ((1.0 - theta2) * m as f64) as QPos + 1
         };
 
+        // Short-read-class: floor the bucket half-length so `match_seeds`
+        // stops fragmenting (RESULTS.md §11). Keyed on the read's nucleotide
+        // length, not its sketch size — a 150 bp read at r = 0.1 and a ~1 kb
+        // HiFi read at r = 0.01 sketch to the same ~12 k-mers — and only for
+        // the refining metrics: `bucket_SH`/`bucket_LCS` report the raw
+        // bucket extent, which a widened bucket would blow up past the read
+        // length. `AP` keeps the read's own length as the half-length as
+        // before.
+        let short_read = !AP
+            && (p_seq.len() as QPos) <= crate::buckets::SHORT_READ_LEN_THRESHOLD
+            && matches!(params.metric, Metric::Containment | Metric::Jaccard);
         let bucketable = if AP {
-            buckets.set_halflen(p_seq.len() as QPos)
+            buckets.set_halflen(p_seq.len() as QPos, false)
         } else {
-            buckets.set_halflen(m)
+            buckets.set_halflen(m, short_read)
         };
 
         self.counters.inc("kmers_sketched", m as i64);
