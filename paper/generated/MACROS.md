@@ -11,10 +11,10 @@ re-measurement rewrites the sentences rather than leaving them quietly wrong.
 
 | | |
 |---|---|
-| `x86_64` | x86_64/current on a2 @ cc90fa548767 (2026-08-10) |
-| `aarch64` | aarch64/current on galaxy @ cc90fa548767 (2026-08-10) |
+| `x86_64` | x86_64/current on a2 @ 9b9dcd5 (2026-09-07) |
+| `aarch64` | aarch64/current on galaxy @ 9b9dcd5 (2026-09-07) |
 | reference | `x86_64` — macros ending `X` name it, `A` names `aarch64` |
-| input digest | `sha256:8b6b4f5e10ff4d20` |
+| input digest | `sha256:e7e053eec3aa81eb` |
 
 Regenerate with `python3 benchmarks/scripts/manuscript.py`; verify with `--check`,
 which fails if any value would change **or** if the draft uses a macro that no longer
@@ -33,9 +33,9 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmCoresA` | 128 | cores | Cores on the second machine. | `hosts.toml :: cores` |
 | `\shmTopologyX` | 4 sockets $\times$ 16 cores, 4 NUMA nodes | — | Socket and NUMA layout of the reference machine. | `hosts.toml :: topology` |
 | `\shmTopologyA` | 1 socket $\times$ 128 cores, 1 NUMA node | — | Socket and NUMA layout of the second machine. | `hosts.toml :: topology` |
-| `\shmCommit` | cc90fa548767 | — | Commit both result sets measure. | `current/manifest.json :: commit` |
-| `\shmMeasuredX` | 2026-08-10 | — | Date the reference set was measured. | `current/manifest.json :: finished` |
-| `\shmMeasuredA` | 2026-08-10 | — | Date the second set was measured. | `current/manifest.json :: finished` |
+| `\shmCommit` | 9b9dcd5 | — | Commit both result sets measure. | `current/manifest.json :: commit` |
+| `\shmMeasuredX` | 2026-09-07 | — | Date the reference set was measured. | `current/manifest.json :: finished` |
+| `\shmMeasuredA` | 2026-09-07 | — | Date the second set was measured. | `current/manifest.json :: finished` |
 | `\shmRustc` | 1.97.1 | — | Compiler both sets were built with. | `current/manifest.json :: rustc` |
 | `\shmSuiteVersion` | 1.2 | — | Benchmark suite version the sets belong to. | `benchmarks/data/suite.toml :: suite_version` |
 | `\shmVersion` | 1.4.3 | — | Release of shmap-rs the paper describes. | `Cargo.toml :: package.version` |
@@ -73,9 +73,9 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmParamTheta` | 0.4 | — | Similarity threshold. | `benchmarks/data/suite.toml :: params.paper.threshold` |
 | `\shmParamDelta` | 0.075 | — | Minimum score difference for a confident call. | `benchmarks/data/suite.toml :: params.paper.min_diff` |
 | `\shmParamPhi` | 0.3 | — | Maximum overlap between reported mappings. | `benchmarks/data/suite.toml :: params.paper.max_overlap` |
-| `\shmNumBenchmarks` | 5 | — | Benchmarks in the suite. | `current/results.tsv :: benchmark` |
+| `\shmNumBenchmarks` | 9 | — | Benchmarks in the suite. | `current/results.tsv :: benchmark` |
 | `\shmNumMetrics` | 3 | — | Similarity metrics each benchmark is run under. | `current/results.tsv :: metric` |
-| `\shmNumCells` | 15 | — | (benchmark, metric) pairs behind every range quoted. | `current/results.tsv :: benchmark, metric` |
+| `\shmNumCells` | 19 | — | (benchmark, metric) pairs behind every range quoted. | `current/results.tsv :: benchmark, metric` |
 | `\shmSpeedupXMin` | 2.14 | x | Smallest single-threaded speedup over the C++, reference machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
 | `\shmSpeedupXMax` | 2.97 | x | Largest single-threaded speedup over the C++, reference machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
 | `\shmSpeedupXMedian` | 2.62 | x | Median single-threaded speedup over the C++, reference machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |

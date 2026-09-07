@@ -5,14 +5,13 @@
 
 | | |
 |---|---|
-| version | **1.4.0** |
-| commit | `cc90fa548767` |
+| version | **1.4.3** |
+| commit | `9b9dcd5` |
 | host | `a2` (64-core AVX-512, **4 sockets x 16 cores (NUMA)**, 376 GB RAM, Ubuntu 24.04, idle) |
-| measured | 2026-08-10 |
-| suite / datasets | 1.0 / v1 |
+| measured | 2026-09-07 |
+| suite / datasets | 1.2 / v3 |
 | parameters | `-k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3` |
-| invocations | 333 (0 failed) |
-| reference measurement | `cpp-shmap`: 6 row(s) were measured in this run (the drift probe); 9 carried forward from `00d8c08aa656`, measured **2026-08-10**. The binary is unchanged, so the figures stand, but a speedup below whose C++ row was carried forward divides this run's time by that day's. |
+| invocations | 4 (0 failed) |
 <!-- END GENERATED: provenance -->
 
 Tables marked *generated* are rewritten by `benchmarks/scripts/report.py` from a result set; every figure
@@ -59,7 +58,7 @@ it was drawn from.
 | Speed vs C++ `shmap`, single-threaded | **2.14–2.97x** |
 | Speed vs C++ at `-@ 4` | **6.44–7.59x** (the C++ cannot use more than one core) |
 | Peak memory, `-@1` | **2.58 GB – 2.67 GB vs 18.85 GB — 7.1x less** |
-| Peak memory, worst case | **8.78 GB** at `-@64` on B04 — 2.1x less than the C++. Memory grows with threads; see §3c |
+| Peak memory, worst case | **18.44 GB** at `-@32` on B08 — 1.0x less than the C++. Memory grows with threads; see §3c |
 | Best whole-run thread speedup | **16.64x** (`-@ 32`, Jaccard, B04) |
 | Determinism | output byte-identical across all thread counts (15/15 benchmark×metric combinations) |
 <!-- END GENERATED: summary -->
@@ -378,6 +377,14 @@ Containment. shmap-rs's split comes from its own `-x`/`--profile-log` report; th
 | B05 | shmap-rs | 64 | 3.34 s | 1.63 s | 5.73 s | 58% | 7.70x |
 | B05 | cpp-shmap | 1 | 32.81 s | 24.34 s | 57.18 s | 57% | — |
 | | | | | | | | |
+| B06 | shmap-rs | 32 | 21.04 s | 4923.79 s | 4952.00 s | 0% | — |
+| | | | | | | | |
+| B07 | shmap-rs | 32 | 19.76 s | 10114.27 s | 10141.00 s | 0% | — |
+| | | | | | | | |
+| B08 | shmap-rs | 32 | 22.75 s | 17672.53 s | 17702.00 s | 0% | — |
+| | | | | | | | |
+| B09 | shmap-rs | 32 | 15.58 s | 2417.97 s | 2441.21 s | 1% | — |
+| | | | | | | | |
 <!-- END GENERATED: phase-split -->
 
 The `mapping speedup` column is the honest parallel-scaling number: mapping time at `-@1` divided by
@@ -600,6 +607,10 @@ in a benchmark reports the same two columns.
 | B05 | Jaccard | 67 358 | 306 | 9 | **219.6x** | 33.1x | 84.8 | 0.17 |
 | B05 | bucket_SH | 67 358 | 306 | 53 | **219.6x** | 5.7x | 84.8 | 1.00 |
 | | | | | | | | | |
+| | | | | | | | | |
+| | | | | | | | | |
+| | | | | | | | | |
+| | | | | | | | | |
 <!-- END GENERATED: seed-heuristic -->
 
 **As charts.** The examined-against-possible split per benchmark:
@@ -646,6 +657,10 @@ see §11.
 | `D4-HIFI10X` | reads-real | 2 425 341 | 31 132 446 551 | 12 836 | `hifi_real/hifi_10x.fa` |
 | `D6-ONT24K` | reads-real | 92 220 | 2 191 178 243 | 23 760 | `ont24k/reads_ont24k.fa` |
 | `REF-HS1` | reference | 25 | 3 117 292 070 | 124 691 682 | `_paper_work/hs1.fa` |
+| `SR-AVITI2X` | reads-real | 41 776 744 | 6 234 584 174 | 149 | `aviti150/reads_aviti_2x.fa` |
+| `SR-AVITI4X` | reads-real | 83 533 936 | 12 469 168 401 | 149 | `aviti150/reads_aviti_4x.fa` |
+| `SR-AVITI7X` | reads-real | 146 170 565 | 21 821 044 510 | 149 | `aviti150/reads_aviti_7x.fa` |
+| `SR-HG008-1X` | reads-real | 20 644 319 | 3 117 292 169 | 151 | `shortread2024/reads_hg008_1x.fa` |
 <!-- END GENERATED: datasets -->
 
 The registry (`benchmarks/data/datasets.tsv`) is the authority, and it is append-only: a regenerated
@@ -681,6 +696,9 @@ blocking one stops a merge.
 <!-- BEGIN GENERATED: checks -->
 | check | benchmark | metric | result | detail |
 |---|---|---|---|---|
+| concordance_bwa-mem2 | B06 | Containment | pass | good=0.9085 recall=0.9776 agreement=0.9294 ref=41722937 |
+| concordance_bwa-mem2 | B07 | Containment | pass | good=0.9127 recall=0.9818 agreement=0.9296 ref=83430048 |
+| concordance_bwa-mem2 | B08 | Containment | pass | good=0.9136 recall=0.9828 agreement=0.9296 ref=145987234 |
 | concordance_mapquik | B01 | Containment | pass | good=0.9612 recall=0.9989 agreement=0.9622 ref=148225 |
 | concordance_mapquik | B01 | Jaccard | pass | good=0.9463 recall=0.9788 agreement=0.9668 ref=148225 |
 | concordance_mapquik | B01 | bucket_SH | pass | good=0.9614 recall=0.9991 agreement=0.9622 ref=148225 |
@@ -747,6 +765,10 @@ blocking one stops a merge.
 | validate_paf | B05 | Containment | pass | all structural and score invariants hold |
 | validate_paf | B05 | Jaccard | pass | all structural and score invariants hold |
 | validate_paf | B05 | bucket_SH | pass | all structural and score invariants hold |
+| validate_paf | B06 | Containment | pass | all structural and score invariants hold |
+| validate_paf | B07 | Containment | pass | all structural and score invariants hold |
+| validate_paf | B08 | Containment | pass | all structural and score invariants hold |
+| validate_paf | B09 | Containment | pass | all structural and score invariants hold |
 | wrong_q60 | B02 | Containment | pass | 0/117532 = 0.000000 |
 | wrong_q60 | B02 | Jaccard | pass | 6/119065 = 0.000050 |
 | wrong_q60 | B02 | bucket_SH | pass | 1/116800 = 0.000009 |
@@ -887,6 +909,14 @@ The corpus is built once per (mapper, dataset) by `benchmarks/scripts/reference_
 the host; `run.py` never invokes these mappers, it joins against the cached PAFs.
 
 <!-- BEGIN GENERATED: concordance -->
+### vs bwa-mem2
+
+| benchmark | metric | reference mapped | recall | agreement | **good** |
+|---|---|---:|---:|---:|---:|
+| B06 | Containment | 41 722 937 | 0.9776 | 0.9294 | **0.9085** |
+| B07 | Containment | 83 430 048 | 0.9818 | 0.9296 | **0.9127** |
+| B08 | Containment | 145 987 234 | 0.9828 | 0.9296 | **0.9136** |
+
 ### vs mapquik
 
 | benchmark | metric | reference mapped | recall | agreement | **good** |

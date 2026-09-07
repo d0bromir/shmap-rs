@@ -1,101 +1,78 @@
 {
- "schema": 1,
- "suite_version": "1.0",
- "dataset_version": 1,
- "commit": "cc90fa548767473a6f0b683668b4d178979cb067",
- "host": "a2",
- "arch": "x86_64",
- "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
- "configured_host": "a2",
- "authorized_by": "n/a",
- "started": "2026-08-10T17:04:34.946014+00:00",
- "finished": "2026-08-10T21:28:45.167341+00:00",
- "duration_s": 15850.2,
- "invocations": 333,
- "failures": 0,
- "repeats": {
-  "subject": 3,
-  "reference": 3,
-  "reduce": "median"
- },
- "drift_probe": [
-  "B02",
-  "B05"
- ],
- "datasets": {
-  "D1-HIFI23K": {
-   "kind": "reads-real",
-   "host": "a2",
-   "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/real24k/reads_real24k.fa",
-   "rel": "real24k/reads_real24k.fa",
-   "bytes": "3470851001",
-   "records": "149438",
-   "bases": "3465413132"
+  "schema": 1,
+  "suite_version": "1.2",
+  "dataset_version": 3,
+  "commit": "9b9dcd5",
+  "host": "a2",
+  "arch": "x86_64",
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "configured_host": "a2",
+  "authorized_by": "n/a",
+  "started": "2026-09-06T18:10:41.162217+00:00",
+  "finished": "2026-09-07T05:43:10.352020+00:00",
+  "duration_s": 41549.2,
+  "invocations": 4,
+  "failures": 0,
+  "repeats": {
+    "subject": 1,
+    "reference": 1,
+    "reduce": "median"
   },
-  "D2-SIM24K": {
-   "kind": "reads-sim",
-   "host": "a2",
-   "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/wgs24k/reads_24kbp_1x.fa",
-   "rel": "wgs24k/reads_24kbp_1x.fa",
-   "bytes": "3004619179",
-   "records": "125000",
-   "bases": "3000000000"
+  "drift_probe": [],
+  "datasets": {
+    "REF-HS1": {
+      "kind": "reference",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa",
+      "rel": "_paper_work/hs1.fa",
+      "bytes": "3179638084",
+      "records": "25",
+      "bases": "3117292070"
+    },
+    "SR-AVITI2X": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/aviti150/reads_aviti_2x.fa",
+      "rel": "aviti150/reads_aviti_2x.fa",
+      "bytes": "8323421374",
+      "records": "41776744",
+      "bases": "6234584174"
+    },
+    "SR-AVITI4X": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/aviti150/reads_aviti_4x.fa",
+      "rel": "aviti150/reads_aviti_4x.fa",
+      "bytes": "16645865201",
+      "records": "83533936",
+      "bases": "12469168401"
+    },
+    "SR-AVITI7X": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/aviti150/reads_aviti_7x.fa",
+      "rel": "aviti150/reads_aviti_7x.fa",
+      "bytes": "29129572760",
+      "records": "146170565",
+      "bases": "21821044510"
+    },
+    "SR-HG008-1X": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/shortread2024/reads_hg008_1x.fa",
+      "rel": "shortread2024/reads_hg008_1x.fa",
+      "bytes": "3973318198",
+      "records": "20644319",
+      "bases": "3117292169"
+    }
   },
-  "D3-HIFI1X": {
-   "kind": "reads-real",
-   "host": "a2",
-   "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/hifi_real/hifi_1x.fa",
-   "rel": "hifi_real/hifi_1x.fa",
-   "bytes": "3122427506",
-   "records": "242534",
-   "bases": "3113721004"
+  "binaries": {
+    "shmap-rs": "shmap 1.4.3"
   },
-  "D4-HIFI10X": {
-   "kind": "reads-real",
-   "host": "a2",
-   "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/hifi_real/hifi_10x.fa",
-   "rel": "hifi_real/hifi_10x.fa",
-   "bytes": "31219607763",
-   "records": "2425341",
-   "bases": "31132446551"
-  },
-  "D6-ONT24K": {
-   "kind": "reads-real",
-   "host": "a2",
-   "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/ont24k/reads_ont24k.fa",
-   "rel": "ont24k/reads_ont24k.fa",
-   "bytes": "2193635779",
-   "records": "92220",
-   "bases": "2191178243"
-  },
-  "REF-HS1": {
-   "kind": "reference",
-   "host": "a2",
-   "path": "/home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa",
-   "rel": "_paper_work/hs1.fa",
-   "bytes": "3179638084",
-   "records": "25",
-   "bases": "3117292070"
-  }
- },
- "binaries": {
-  "shmap-rs": "shmap 1.4.0",
-  "cpp-shmap": "/home/mpiuser/Pesho/shmap/release/shmap"
- },
- "per_read_stats": [
-  "per-read-B01-Containment.tsv",
-  "per-read-B02-Containment.tsv",
-  "per-read-B03-Containment.tsv",
-  "per-read-B05-Containment.tsv"
- ],
- "reference_rows_carried_forward": {
-  "impls": [
-   "cpp-shmap"
-  ],
-  "rows": 9,
-  "measured_in_run": 6,
-  "from_commit": "00d8c08aa656",
-  "measured": "2026-08-10",
-  "why": "role=reference in suite.toml: re-measured only when the binary changes, so the previous measurement stands. The drift probe covers part of it every run; these are the keys it does not. Re-measure all of it with run.py --impls shmap-rs,cpp-shmap."
- }
+  "per_read_stats": [
+    "per-read-B01-Containment.tsv",
+    "per-read-B02-Containment.tsv",
+    "per-read-B03-Containment.tsv",
+    "per-read-B05-Containment.tsv"
+  ]
 }
