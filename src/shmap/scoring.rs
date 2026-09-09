@@ -108,23 +108,6 @@ impl RefineCache {
     }
 }
 
-/// Whether a candidate refine window `[t_l, t_r]` on `segm` overlaps the
-/// `forbidden` mapping by at least `max_overlap`.
-///
-/// This is the second-best sweep's per-window exclusion test. The best pass
-/// passes `None` (nothing is forbidden yet), and so does every pass over
-/// buckets that were *not* widened past the read's own sketch size — i.e.
-/// every long-read pass, and the short-read best pass — so this is a strict
-/// no-op outside the widened-bucket second-best sweep, where a single wide
-/// bucket can be the only one holding both the best window and its
-/// repeat-copy rival (`Buckets::set_halflen`'s short-read floor). There the
-/// post-hoc `Mapping::overlap` check in `match_rest` would reject the whole
-/// bucket on its global-best window alone and never see the rival; testing
-/// each window as it is scored keeps it.
-fn window_forbidden(forbidden: Option<&Mapping>, max_overlap: f64, segm: &RefSegment, t_l: RPos, t_r: RPos) -> bool {
-    forbidden.is_some_and(|f| f.span_overlap(segm.id, t_l, t_r) >= max_overlap)
-}
-
 impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, OS, AP> {
     /// All query positions (in `p`) whose k-mer hash also appears in
     /// bucket `b`'s span of the reference sketch `t`.
@@ -354,7 +337,10 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             let score = intersection as f64 / m as f64;
             if l < r
                 && score > best.score()
-                && !window_forbidden(forbidden, max_overlap, segm, t[l as usize].r, t[(r - 1) as usize].r)
+                // `is_none_or` keeps the array reads inside the closure, so
+                // the common `forbidden == None` path (every long-read pass,
+                // every best pass) does not touch `t` here at all.
+                && forbidden.is_none_or(|f| f.span_overlap(segm.id, t[l as usize].r, t[(r - 1) as usize].r) < max_overlap)
             {
                 best.update(
                     0,
@@ -467,7 +453,10 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             debug_assert!((-0.0..=1.0).contains(&score));
             if l < r
                 && score > best.score()
-                && !window_forbidden(forbidden, max_overlap, segm, t[l as usize].r, t[(r - 1) as usize].r)
+                // `is_none_or` keeps the array reads inside the closure, so
+                // the common `forbidden == None` path (every long-read pass,
+                // every best pass) does not touch `t` here at all.
+                && forbidden.is_none_or(|f| f.span_overlap(segm.id, t[l as usize].r, t[(r - 1) as usize].r) < max_overlap)
             {
                 // Support of the window that actually wins, not of the sweep's
                 // final state — the two differ, and the loser's value would be
@@ -665,19 +654,19 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     thr
                 };
                 let memo = if memoizable { cache.lookup(idx as u32) } else { None };
-                // Widened second-best pass: keep the memo for every bucket
-                // whose recorded best does not collide with `forbidden`;
-                // recompute (below, with `forbidden` threaded in) only the
-                // one(s) where it does — that is where a wide bucket's own
-                // repeat-copy rival hides.
-                let memo = match memo {
-                    Some(i)
-                        if widened_secondbest
-                            && forbidden.is_some_and(|f| Mapping::overlap(cache.get(i), f) >= max_overlap) =>
-                    {
-                        None
+                // Widened second-best pass only: drop the memo for the
+                // bucket(s) whose recorded best collides with `forbidden`, so
+                // it is recomputed below with the overlap filter and the wide
+                // bucket's repeat-copy rival surfaces. `widened_secondbest` is
+                // false on every other pass, so this whole block folds away
+                // and `memo` is exactly what `cache.lookup` returned.
+                let memo = if widened_secondbest {
+                    match memo {
+                        Some(i) if forbidden.is_some_and(|f| Mapping::overlap(cache.get(i), f) >= max_overlap) => None,
+                        other => other,
                     }
-                    other => other,
+                } else {
+                    memo
                 };
                 let best_in_bucket = match memo {
                     Some(i) => {
