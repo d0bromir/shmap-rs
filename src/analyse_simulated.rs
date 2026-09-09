@@ -379,7 +379,7 @@ mod tests {
         }
 
         let mut buckets: Buckets<false> = Buckets::new(&tidx);
-        buckets.set_halflen(m, false);
+        buckets.set_halflen(m, crate::buckets::MIN_HALFLEN);
         mapper.match_seeds(&p_unique, &mut buckets, p_unique.len() as QPos);
         buckets.propagate_seeds_to_buckets();
 

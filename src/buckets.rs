@@ -15,9 +15,9 @@ use crate::types::{BucketContent, BucketLoc, Hit, QPos, RPos, SegmId};
 pub const MIN_HALFLEN: QPos = 5;
 
 /// At or below this nucleotide read length, a read is treated as short-read
-/// class and (for the refining metrics) its bucket half-length is floored at
-/// [`SHORT_READ_HALFLEN`]; see [`Buckets::set_halflen`]'s `short_read` arg,
-/// set from `p_seq.len()` in `SHMapper::query_mapping`.
+/// class and (for the refining metrics) its bucket half-length is floored —
+/// see [`Buckets::set_halflen`]'s `floor` arg, chosen from `p_seq.len()` and
+/// the metric in `SHMapper::query_mapping`.
 ///
 /// Keyed on raw length, not sketch size, on purpose: a short read at the
 /// short-read `hashratio` (r = 0.1) and a ~1 kb HiFi read at r = 0.01 both
@@ -29,23 +29,42 @@ pub const MIN_HALFLEN: QPos = 5;
 /// measures.
 pub const SHORT_READ_LEN_THRESHOLD: QPos = 400;
 
-/// Bucket half-length floor applied to short-read-class reads (see
-/// [`SHORT_READ_LEN_THRESHOLD`]) on the [`crate::types::Metric::Containment`]
-/// / [`crate::types::Metric::Jaccard`] paths; see [`Buckets::set_halflen`].
+/// Bucket half-length floor for a short-read `Containment` map (see
+/// [`SHORT_READ_LEN_THRESHOLD`], and [`Buckets::set_halflen`]).
 ///
 /// **Measured and found to help.** Grouping more of a repeated seed's
 /// genome-wide hits into the same bucket before `match_seeds` has to flush
 /// it is the actual driver of its cost on short reads, not the dense/sparse
 /// storage path `--max-dense-slots` controls (`DEFAULT_MAX_DENSE_SLOTS`'s doc
-/// comment). On 150 bp reads against a 491 Mbp reference this floor cuts
-/// `matches/bucket` from 1.36 to 3.51 and mapping time from 78.5 s to 29.8 s
-/// at `-@8` on a 300k-read set (2.6x), and from 21.8 s to 7.7 s at `-@1` on a
-/// 20k-read sample; the gain plateaus around 64-256 and erodes above ~1024.
-/// Not applied to `bucket_SH` / `bucket_LCS`: those report the raw bucket
-/// extent with no refinement, so a widened bucket becomes a mapping whose
-/// span is many times the read — a `validate_paf` violation, and not a
-/// metric anyone runs on short reads anyway (B06-B09 are Containment only).
-pub const SHORT_READ_HALFLEN: QPos = 256;
+/// comment). The value is much higher than the ~256 an earlier version used:
+/// that was tuned on a 491 Mbp two-chromosome reference, where a widened
+/// bucket already caught most of a repeat's co-hits. On the **whole 3.1 Gbp
+/// genome** a repeat's hits are far more spread out, so `matches/bucket` at
+/// 256 is only ~1.3 (barely above the un-floored 1.36) and it takes a much
+/// wider bucket to collapse the bucket count. Swept on 4 M real 150 bp reads
+/// against hs1: 256 → 2048 cuts mapping wall **35%** (`-@16`), mapped count
+/// **identical** at every step and placement against chrY ground truth
+/// unchanged (correct-placement and wrong-mapq-60 counts bit-identical at
+/// 256/1024/2048). `Containment` refine is the sparse anchor sweep
+/// (`best_containment_window_via_anchors`), which is anchor-bound not
+/// span-bound, so a wider bucket costs it almost nothing — the reason this
+/// can go so much higher than [`SHORT_READ_HALFLEN_DENSE`].
+pub const SHORT_READ_HALFLEN: QPos = 2048;
+
+/// Bucket half-length floor for a short-read map that uses the **dense**
+/// refine sweep — `Jaccard`, `-F`/`--abs_pos`, or `--rarity-weight`, none of
+/// which have the sparse anchor sweep `Containment` gets.
+///
+/// `best_fixed_length` scans every reference position in `[b*halflen,
+/// (b+2)*halflen)`, so its cost is `O(halflen)` per admitted bucket: on the
+/// same 4 M-read sweep, `Jaccard` wall *rose* 7% from 256 → 512 and 80% from
+/// 256 → 2048 where `Containment` fell. 256 still clears `match_seeds`'s
+/// fragmentation (the un-floored halflen is ~12) without paying that, and is
+/// where `Jaccard` bottoms out. Not applied to `bucket_SH` / `bucket_LCS` at
+/// all: those report the raw bucket extent with no refinement, so a widened
+/// bucket becomes a mapping whose span is many times the read — a
+/// `validate_paf` violation.
+pub const SHORT_READ_HALFLEN_DENSE: QPos = 256;
 
 /// Widest digit [`Buckets`]'s LSD radix sort will use.
 ///
@@ -350,6 +369,11 @@ pub struct Buckets<'idx, const AP: bool> {
     /// Reused `(descending matches, ascending index)` sort keys for
     /// [`Self::get_sorted_buckets`].
     order: Vec<u64>,
+    /// Reused output buffer for [`Self::get_sorted_buckets`], handed to the
+    /// caller by `mem::take` and given back with [`Self::recycle_sorted`] so
+    /// a short read's ~2000-bucket, ~64 KB result Vec is allocated once per
+    /// worker rather than once per read.
+    sorted_spare: Vec<(BucketLoc, BucketContent)>,
 }
 
 impl<'idx, const AP: bool> Buckets<'idx, AP> {
@@ -375,7 +399,15 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
             max_b: 0,
             max_sid: 0,
             order: Vec::new(),
+            sorted_spare: Vec::new(),
         }
+    }
+
+    /// Takes back the buffer [`Self::get_sorted_buckets`] handed out, so its
+    /// allocation is reused on the next read instead of dropped.
+    pub fn recycle_sorted(&mut self, mut buf: Vec<(BucketLoc, BucketContent)>) {
+        buf.clear();
+        self.sorted_spare = buf;
     }
 
     /// Clears the per-read scratch buffer for reuse, keeping its
@@ -413,23 +445,20 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
     /// read's sketch is ~12-13 k-mers, `matches/bucket` measures at 1.36
     /// against 19.6 for a 24 kb HiFi read — a 56x difference in bucket count
     /// per read for ~4x more raw hits, and `match_seeds`'s per-read cost
-    /// tracks the bucket count (RESULTS.md §11). When `short_read` is set the
-    /// half-length is floored at [`SHORT_READ_HALFLEN`]; the caller
-    /// (`SHMapper::query_mapping`) sets it from the read's nucleotide length
-    /// ([`SHORT_READ_LEN_THRESHOLD`]) and only for the refining metrics — the
-    /// `MIN_HALFLEN` rejection still runs first and unchanged, so a read with
-    /// too small a sketch is still dropped rather than floored.
-    pub fn set_halflen(&mut self, new_halflen: QPos, short_read: bool) -> bool {
+    /// tracks the bucket count (RESULTS.md §11). The half-length is floored at
+    /// `floor`, which the caller (`SHMapper::query_mapping`) picks from the
+    /// read's nucleotide length ([`SHORT_READ_LEN_THRESHOLD`]) and its metric:
+    /// [`MIN_HALFLEN`] for a long read (a no-op — the value already cleared
+    /// that), [`SHORT_READ_HALFLEN`] or [`SHORT_READ_HALFLEN_DENSE`] for a
+    /// short one. The `MIN_HALFLEN` rejection runs first and unchanged, so a
+    /// read with too small a sketch is still dropped rather than floored.
+    pub fn set_halflen(&mut self, new_halflen: QPos, floor: QPos) -> bool {
         if new_halflen < MIN_HALFLEN {
             self.halflen = new_halflen;
             self.dense_on = false;
             return false;
         }
-        self.halflen = if short_read {
-            new_halflen.max(SHORT_READ_HALFLEN)
-        } else {
-            new_halflen
-        };
+        self.halflen = new_halflen.max(floor);
         self.plan_dense();
         true
     }
@@ -783,23 +812,24 @@ impl<'idx, const AP: bool> Buckets<'idx, AP> {
         self.order.sort_unstable();
 
         let entries = &self.entries;
-        self.order
-            .iter()
-            .map(|&k| {
-                let e = &entries[(k & 0xffff_ffff) as usize];
-                (
-                    e.loc,
-                    BucketContent {
-                        i,
-                        seeds,
-                        matches: e.matches,
-                        codirection: e.codirection,
-                        r_min: e.r_min,
-                        r_max: e.r_max,
-                    },
-                )
-            })
-            .collect()
+        let mut out = std::mem::take(&mut self.sorted_spare);
+        out.clear();
+        out.reserve(self.order.len());
+        out.extend(self.order.iter().map(|&k| {
+            let e = &entries[(k & 0xffff_ffff) as usize];
+            (
+                e.loc,
+                BucketContent {
+                    i,
+                    seeds,
+                    matches: e.matches,
+                    codirection: e.codirection,
+                    r_min: e.r_min,
+                    r_max: e.r_max,
+                },
+            )
+        }));
+        out
     }
 }
 
@@ -828,7 +858,7 @@ mod tests {
     fn begin_end_bucket_boundaries() {
         let tidx = tidx_with_one_segment(100);
         let mut b: Buckets<false> = Buckets::new(&tidx);
-        b.set_halflen(10, false);
+        b.set_halflen(10, MIN_HALFLEN);
 
         let b0 = BucketLoc::new(0, 0);
         assert_eq!(b.begin(&b0), 0);
@@ -843,7 +873,7 @@ mod tests {
     fn add_to_pos_touches_bucket_and_predecessor() {
         let tidx = tidx_with_one_segment(100);
         let mut b: Buckets<false> = Buckets::new(&tidx);
-        b.set_halflen(10, false);
+        b.set_halflen(10, MIN_HALFLEN);
 
         // tpos=25 => bucket 2 (25/10=2), plus predecessor bucket 1.
         b.add_to_pos(&hit(25, 25, 0), BucketContent::new(1, 0, 1, 25, 25));
@@ -862,7 +892,7 @@ mod tests {
     fn add_to_pos_at_bucket_zero_does_not_touch_predecessor() {
         let tidx = tidx_with_one_segment(100);
         let mut b: Buckets<false> = Buckets::new(&tidx);
-        b.set_halflen(10, false);
+        b.set_halflen(10, MIN_HALFLEN);
 
         b.add_to_pos(&hit(5, 5, 0), BucketContent::new(1, 0, 1, 5, 5));
 
@@ -875,7 +905,7 @@ mod tests {
     fn get_sorted_buckets_dedups_and_orders_by_matches_descending() {
         let tidx = tidx_with_one_segment(200);
         let mut b: Buckets<false> = Buckets::new(&tidx);
-        b.set_halflen(10, false);
+        b.set_halflen(10, MIN_HALFLEN);
 
         // Two hits landing in the same bucket 5 (and predecessor 4).
         b.add_to_pos(&hit(50, 50, 0), BucketContent::new(1, 0, 1, 50, 50));
@@ -899,7 +929,7 @@ mod tests {
     fn clear_resets_touched_buckets() {
         let tidx = tidx_with_one_segment(100);
         let mut b: Buckets<false> = Buckets::new(&tidx);
-        b.set_halflen(10, false);
+        b.set_halflen(10, MIN_HALFLEN);
         b.add_to_pos(&hit(25, 25, 0), BucketContent::new(1, 0, 1, 25, 25));
         assert!(!b.get_sorted_buckets().is_empty());
 
@@ -912,9 +942,9 @@ mod tests {
     fn abs_pos_flag_selects_r_vs_tpos_for_bucket_index() {
         let tidx = tidx_with_one_segment(1000);
         let mut b_tpos: Buckets<false> = Buckets::new(&tidx);
-        b_tpos.set_halflen(10, false);
+        b_tpos.set_halflen(10, MIN_HALFLEN);
         let mut b_abs: Buckets<true> = Buckets::new(&tidx);
-        b_abs.set_halflen(10, false);
+        b_abs.set_halflen(10, MIN_HALFLEN);
 
         // r=99 (would land in bucket 9), tpos=3 (would land in bucket 0).
         let h = hit(99, 3, 0);
@@ -945,8 +975,8 @@ mod tests {
 
         let mut sparse: Buckets<true> = Buckets::new(&sparse_idx);
         let mut dense: Buckets<true> = Buckets::new(&dense_idx);
-        assert!(sparse.set_halflen(10, false));
-        assert!(dense.set_halflen(10, false));
+        assert!(sparse.set_halflen(10, MIN_HALFLEN));
+        assert!(dense.set_halflen(10, MIN_HALFLEN));
         assert!(!sparse.dense_on, "expected the sparse fallback for a huge segment");
         assert!(dense.dense_on, "expected the dense path for a small segment");
 
@@ -957,8 +987,8 @@ mod tests {
         for span in [3900u64, 150] {
             sparse.clear();
             dense.clear();
-            assert!(sparse.set_halflen(10, false));
-            assert!(dense.set_halflen(10, false));
+            assert!(sparse.set_halflen(10, MIN_HALFLEN));
+            assert!(dense.set_halflen(10, MIN_HALFLEN));
 
             // A deterministic spread of repeated positions, so buckets are hit
             // many times over and the merge arithmetic actually matters.
@@ -1008,20 +1038,20 @@ mod tests {
 
         // Abandoned: added to, never extracted, so its slots stay live.
         b.clear();
-        assert!(b.set_halflen(10, false));
+        assert!(b.set_halflen(10, MIN_HALFLEN));
         assert!(b.dense_on);
         b.add_to_pos(&hit(500, 500, 0), BucketContent::new(1, 0, 1, 500, 500));
 
         // Over the cap: `dense` is dropped while those slots are still live.
         b.clear();
-        assert!(b.set_halflen(5, false));
+        assert!(b.set_halflen(5, MIN_HALFLEN));
         assert!(!b.dense_on);
         b.propagate_seeds_to_buckets();
         assert!(b.get_sorted_buckets().is_empty());
 
         // Back under it. This is the step that panicked.
         b.clear();
-        assert!(b.set_halflen(10, false));
+        assert!(b.set_halflen(10, MIN_HALFLEN));
         assert!(b.dense_on);
         b.add_to_pos(&hit(500, 500, 0), BucketContent::new(1, 0, 1, 500, 500));
         b.propagate_seeds_to_buckets();

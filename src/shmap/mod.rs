@@ -739,18 +739,29 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         // Short-read-class: floor the bucket half-length so `match_seeds`
         // stops fragmenting (RESULTS.md §11). Keyed on the read's nucleotide
         // length, not its sketch size — a 150 bp read at r = 0.1 and a ~1 kb
-        // HiFi read at r = 0.01 sketch to the same ~12 k-mers — and only for
-        // the refining metrics: `bucket_SH`/`bucket_LCS` report the raw
-        // bucket extent, which a widened bucket would blow up past the read
-        // length. `AP` keeps the read's own length as the half-length as
-        // before.
-        let short_read = !AP
-            && (p_seq.len() as QPos) <= crate::buckets::SHORT_READ_LEN_THRESHOLD
-            && matches!(params.metric, Metric::Containment | Metric::Jaccard);
-        let bucketable = if AP {
-            buckets.set_halflen(p_seq.len() as QPos, false)
+        // HiFi read at r = 0.01 sketch to the same ~12 k-mers. The floor
+        // depends on the refine path this map will take: `Containment` with
+        // the sparse anchor sweep (no `AP`, no rarity weighting — see
+        // `find_best_mapping`) is anchor-bound and takes a much wider bucket
+        // ([`SHORT_READ_HALFLEN`]); `Jaccard` and the weighted/`AP` paths use
+        // the O(halflen) dense sweep and take a modest one
+        // ([`SHORT_READ_HALFLEN_DENSE`]); `bucket_SH`/`bucket_LCS` report the
+        // raw bucket extent and are never floored. `AP` keeps the read's own
+        // length as the half-length as before.
+        let is_short = !AP && (p_seq.len() as QPos) <= crate::buckets::SHORT_READ_LEN_THRESHOLD;
+        let floor = if !is_short {
+            crate::buckets::MIN_HALFLEN
         } else {
-            buckets.set_halflen(m, short_read)
+            match params.metric {
+                Metric::Containment if self.rarity.is_empty() => crate::buckets::SHORT_READ_HALFLEN,
+                Metric::Containment | Metric::Jaccard => crate::buckets::SHORT_READ_HALFLEN_DENSE,
+                _ => crate::buckets::MIN_HALFLEN,
+            }
+        };
+        let bucketable = if AP {
+            buckets.set_halflen(p_seq.len() as QPos, crate::buckets::MIN_HALFLEN)
+        } else {
+            buckets.set_halflen(m, floor)
         };
 
         self.counters.inc("kmers_sketched", m as i64);
@@ -871,6 +882,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         };
         self.timers.stop("match_rest_for_best2");
         self.timers.stop("match_rest");
+        buckets.recycle_sorted(sorted_buckets);
 
         let fptp = -1.0; // ground-truth FDR calculation is dead upstream too (calc_FDR is never called)
         self.counters.inc("lost_on_pruning", 1); // always 1 upstream: `lost_on_pruning` is never actually recomputed from a real outcome (see match_rest)

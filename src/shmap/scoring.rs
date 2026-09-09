@@ -779,7 +779,7 @@ mod tests {
             .push(RefSegment::new(t.clone(), "test".to_string(), 10, 0));
 
         let mut buckets: Buckets<false> = Buckets::new(&tidx);
-        buckets.set_halflen(2, false);
+        buckets.set_halflen(2, crate::buckets::MIN_HALFLEN);
         let bucket = BucketLoc::new(0, 1);
 
         let mut p_ht: H2Seed = H2Seed::default();
