@@ -1673,6 +1673,15 @@ in [`profiling/`](profiling/) and the branches are named where one exists.
   mild threshold and dropped reads entirely at an aggressive one (300/300 → 279/300 on a sample).
   The "never degrade mapping" gate rules it out unless volume can be bounded without touching
   results.
+- **On short reads, `refine` is now the bottleneck, not `match_seeds`.** After the whole-genome
+  floor (`SHORT_READ_HALFLEN` 2048, below), a B06 subset breaks down `refine` 40% / `match_seeds`
+  31% / `bucket_merge` 18% — the floor moved the cost. `refine`'s `collect_anchors` re-walks each
+  seed's index hit list over the now-4 kb-wide bucket. The open idea: narrow that walk to the
+  bucket's own `content.r_min..r_max ± m` (~450 bp for a real 150 bp mapping, ~9x tighter than the
+  bucket). This was a measured wash at `halflen` 256 (matches spread across the whole narrow
+  bucket) and is listed under "Ruled out" below with that caveat; it is worth re-measuring at 2048
+  where the bucket is 8x wider than the matched span. It needs the same `seed_heuristic_pass`
+  exhaustion argument the ruled-out note spells out.
 - **Indexing is close to its floor and has no dominant phase.** Sharding and the two-pass reader took
   `index_initializing` 8.4 s → 1.1-1.8 s and `index_reading` 4.4 s → 1.5-1.7 s; the total bottoms
   out near 2.9-3.4 s against ~9.4 s before. Reading and the shard fill are each ~1.5 s, both within
@@ -1688,7 +1697,7 @@ in [`profiling/`](profiling/) and the branches are named where one exists.
 | Automatic short-read bucket-half-length floor (Q18) | measured | `match_seeds` fragmentation cut ~8x; combined short-read speedup below |
 | Sparse anchor sweep for `Containment` refine (Q20) | measured, exact | makes the `Containment` refine anchor-bound, so the floor can go to 2048 |
 | Second-best window search inside a widened bucket | correctness | restores mapq 0 on repeats the floor merges into one bucket; long reads byte-identical |
-| Whole-genome floor tuning + output-buffer reuse | measured | B06 (41.8 M real 150 bp reads) **4952 s → ~570 s at `-@32`** end to end, mapped count identical |
+| Whole-genome floor tuning + output-buffer reuse | measured | 4 M real 150 bp reads, hs1, `-@16`: **895 s → 103 s** (a2), **1990 s → 101 s** (galaxy) vs the pre-short-read-work binary, output byte-identical; §8b has the full B06–B09 |
 
 **The automatic short-read bucket-half-length floor.** `--per-read-stats` on matched samples
 isolated the real variable behind `match_seeds`'s short-read cost: `seed_matches / seeded_buckets` —
