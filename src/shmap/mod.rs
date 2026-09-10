@@ -449,10 +449,24 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         // file ahead of slower mapping workers.
         let (job_tx, job_rx) = mpsc::sync_channel::<Job>(n_threads * 4);
         let job_rx = Mutex::new(job_rx);
-        // Unbounded: a worker must never block trying to hand back a
-        // finished read (the collector may be lagging behind on an earlier,
-        // slower read), only the job side needs backpressure.
-        let (done_tx, done_rx) = mpsc::channel::<Done>();
+        // Bounded on the handback side too. Each `Done` owns a cloned
+        // `Counters` and `Timers` — a `HashMap<String, _>` apiece, ~1 KB of
+        // keyed heap per read — and the single collector applies them with a
+        // per-read `HashMap` merge. When mapping runs much faster than that
+        // merge (short reads on a many-socket host, where the collector's
+        // cross-NUMA `+=` is the slow part) the workers outrun the collector
+        // and un-applied `Done`s pile up without limit: ~1 KB x 146 M reads is
+        // ~150 GB of RSS on the largest short-read benchmark. This channel was
+        // unbounded originally, which was safe *then* only because it guarded a
+        // deadlock the collector cannot cause: the collector never blocks
+        // waiting for a specific read index — it drains whatever has arrived
+        // and applies the contiguous prefix — so a full channel merely
+        // throttles the workers and always drains. `pending` is bounded
+        // transitively: the collector alternates recv/drain 1:1 with
+        // production, so it can outrun the applied prefix by at most one
+        // read-latency's worth of finished reads before a full channel stalls
+        // the workers.
+        let (done_tx, done_rx) = mpsc::sync_channel::<Done>(n_threads * 64);
 
         let mut read_err: Option<anyhow::Error> = None;
         std::thread::scope(|scope| -> anyhow::Result<()> {
