@@ -449,27 +449,59 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         // file ahead of slower mapping workers.
         let (job_tx, job_rx) = mpsc::sync_channel::<Job>(n_threads * 4);
         let job_rx = Mutex::new(job_rx);
-        // Bounded on the handback side too. Each `Done` owns a cloned
-        // `Counters` and `Timers` — a `HashMap<String, _>` apiece, ~1 KB of
-        // keyed heap per read — and the single collector applies them with a
-        // per-read `HashMap` merge. When mapping runs much faster than that
-        // merge (short reads on a many-socket host, where the collector's
-        // cross-NUMA `+=` is the slow part) the workers outrun the collector
-        // and un-applied `Done`s pile up without limit: ~1 KB x 146 M reads is
-        // ~150 GB of RSS on the largest short-read benchmark. This channel was
-        // unbounded originally, which was safe *then* only because it guarded a
-        // deadlock the collector cannot cause: the collector never blocks
-        // waiting for a specific read index — it drains whatever has arrived
-        // and applies the contiguous prefix — so a full channel merely
-        // throttles the workers and always drains. `pending` is bounded
-        // transitively: the collector alternates recv/drain 1:1 with
-        // production, so it can outrun the applied prefix by at most one
-        // read-latency's worth of finished reads before a full channel stalls
-        // the workers.
-        let (done_tx, done_rx) = mpsc::sync_channel::<Done>(n_threads * 64);
+        // Unbounded, deliberately: a worker must never block trying to hand
+        // back a finished read. It used to be *only* unbounded, which let
+        // finished-but-unapplied `Done`s pile up without limit whenever
+        // mapping outran the single collector's per-read `HashMap` merge of
+        // each `Done`'s cloned `Counters`/`Timers` (~1 KB of keyed heap per
+        // read) — ~150 GB of RSS on the largest short-read benchmark, where a
+        // many-socket host's cross-NUMA `+=` made the collector the slow
+        // stage. Bounding *this* channel instead (tried first) fixed the
+        // memory but cost 5-15% of long-read wall time at every thread count,
+        // worse as thread count grew: every worker thread contends on one
+        // bounded channel's internal lock on every send, so the cost scales
+        // with `n_threads` even though long reads never come close to
+        // needing the backpressure (mapping one is far slower than merging
+        // its counters). The completion-permit channel below bounds the same
+        // thing -- reads dispatched but not yet applied -- while keeping this
+        // channel itself cheap and lock-free: only the reader and the
+        // collector ever touch a bounded channel, so the cost is O(reads),
+        // not O(reads x n_threads).
+        let (done_tx, done_rx) = mpsc::channel::<Done>();
 
         let mut read_err: Option<anyhow::Error> = None;
         std::thread::scope(|scope| -> anyhow::Result<()> {
+            // Bounds reads in flight (dispatched by the reader, not yet
+            // applied by the collector) without putting a bounded channel on
+            // the worker threads' hot path: only the reader ever acquires
+            // (once per read, before dispatch) and only the collector ever
+            // releases (once per read, right after applying it), so the
+            // synchronization cost is two single-threaded channels, not one
+            // shared by every worker.
+            //
+            // Declared *inside* this scope, not alongside `job_tx`/`done_tx`
+            // above, so it is unambiguously dropped on every exit from this
+            // closure -- normal completion, or an early `?` on a write
+            // error -- before `std::thread::scope` has to join the reader
+            // thread. `permit_tx` dropping closes the channel, so a reader
+            // blocked on `permit_rx.recv()` unblocks with an error instead of
+            // hanging forever; declaring it outside, where it would only drop
+            // once this whole function returns, would deadlock exactly there
+            // (`thread::scope` cannot return until the reader finishes, and
+            // the reader cannot finish until `permit_tx` drops).
+            //
+            // Sized generously: worst-case buffered `Done` memory is
+            // `inflight_cap` x ~1 KB, so even 1024 permits per thread caps it
+            // at tens of MB -- negligible next to the multi-GB baseline this
+            // is protecting -- while giving long reads, which never approach
+            // this depth (mapping one is far slower than dispatching or
+            // collecting it), no reason to ever see the cap.
+            let inflight_cap = n_threads * 1024;
+            let (permit_tx, permit_rx) = mpsc::sync_channel::<()>(inflight_cap);
+            for _ in 0..inflight_cap {
+                permit_tx.send(()).expect("prefilling the in-flight permit channel");
+            }
+
             for worker_idx in 0..n_threads {
                 let job_rx = &job_rx;
                 let done_tx = done_tx.clone();
@@ -559,16 +591,27 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 let mut idx = 0u64;
                 read_fasta(p_file, &mut fasta_timers, |query_id, seq, progress| {
                     timers.stop("query_reading");
-                    // A send error only happens once every worker has
-                    // already exited; the collector loop below will observe
-                    // the closed `done_rx` and stop, so it's safe to just
-                    // drop the remaining records here.
-                    let _ = job_tx.send(Job {
-                        idx,
-                        query_id: query_id.to_string(),
-                        seq,
-                        progress,
-                    });
+                    // One permit per dispatched read, handed back by the
+                    // collector once it has applied that read's output. An
+                    // error here means the collector has already stopped
+                    // (`permit_tx` dropped -- e.g. an early return through
+                    // `?` on a write error), so there is no point handing off
+                    // more work either: `read_fasta` has no way to stop
+                    // mid-file, so, like a `job_tx` send failure, the
+                    // remaining records are parsed and silently dropped
+                    // rather than sent anywhere.
+                    if permit_rx.recv().is_ok() {
+                        // A send error only happens once every worker has
+                        // already exited; the collector loop below will
+                        // observe the closed `done_rx` and stop, so it's safe
+                        // to just drop the remaining records here.
+                        let _ = job_tx.send(Job {
+                            idx,
+                            query_id: query_id.to_string(),
+                            seq,
+                            progress,
+                        });
+                    }
                     idx += 1;
                     timers.start("query_reading");
                 })?;
@@ -630,6 +673,14 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         progress_bar.update(done.progress as f64);
                     }
                     next_idx += 1;
+                    // Hand the permit back now that this read is fully
+                    // applied. Every acquire (in the reader) is matched by
+                    // exactly one release here, and the channel started
+                    // prefilled to capacity, so this send always has room and
+                    // never blocks. Ignored on error: that only happens if
+                    // the reader has already exited (e.g. `read_fasta` itself
+                    // failed), and there is then nobody left to receive it.
+                    let _ = permit_tx.send(());
                     if profiler.enabled() {
                         collector_timers.stop("collector_busy");
                     }
