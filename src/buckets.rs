@@ -14,10 +14,11 @@ use crate::types::{BucketContent, BucketLoc, Hit, QPos, RPos, SegmId};
 /// Smallest allowed bucket half-length.
 pub const MIN_HALFLEN: QPos = 5;
 
-/// At or below this nucleotide read length, a read is treated as short-read
-/// class and (for the refining metrics) its bucket half-length is floored —
-/// see [`Buckets::set_halflen`]'s `floor` arg, chosen from `p_seq.len()` and
-/// the metric in `SHMapper::query_mapping`.
+/// At or below this nucleotide read length, a read is a short-read-*length*
+/// candidate for the floor — see [`SHORT_READ_HASHRATIO_THRESHOLD`], which
+/// gates whether the floor actually applies, and [`Buckets::set_halflen`]'s
+/// `floor` arg, chosen from `p_seq.len()`, `params.h_frac` and the metric in
+/// `SHMapper::query_mapping`.
 ///
 /// Keyed on raw length, not sketch size, on purpose: a short read at the
 /// short-read `hashratio` (r = 0.1) and a ~1 kb HiFi read at r = 0.01 both
@@ -27,7 +28,34 @@ pub const MIN_HALFLEN: QPos = 5;
 /// and blowing up `bucket_SH`'s reported span. 400 covers 150 bp Illumina
 /// with headroom for 2x250 and sits far below any HiFi/ONT read the suite
 /// measures.
+///
+/// Length alone is not sufficient, though: real long-read sets are not
+/// uniformly long. The 1.5.0 real-corpus re-run found 27 reads as short as
+/// 62 bp inside B04's HiFi set (`r = 0.01`); a handful sketch to >=
+/// `MIN_HALFLEN` by chance and, under length alone, took the short-read
+/// floor meant for a 150 bp read at `r = 0.1` — 2048-wide buckets under
+/// long-read scoring, not the ~12-wide geometry `r = 0.01` implies. Net
+/// effect on the real corpus: 29 fewer mapped reads, some mapq-60 shifts.
+/// [`SHORT_READ_HASHRATIO_THRESHOLD`] closes it: the floor is for the
+/// short-read *parameter regime*, not for any short fragment that happens
+/// to land in a long-read run.
 pub const SHORT_READ_LEN_THRESHOLD: QPos = 400;
+
+/// `Buckets::set_halflen`'s floor applies only when the run's configured
+/// `hashratio` (`params.h_frac`) is at or above this. The suite runs exactly
+/// two active densities — 0.01 (`[params.paper]`, long reads) and 0.1
+/// (`[params.short-read]`, 150 bp Illumina) — so anything strictly between
+/// separates them; 0.075 keeps `[params.ablation]` (0.05, not part of the
+/// gate) and the disabled `[params.ont-k15]` (0.0625, long ONT reads) on the
+/// unfloored side too, which is correct for both: neither is the dense
+/// short-read regime the floor was tuned for.
+///
+/// This is what [`SHORT_READ_LEN_THRESHOLD`]'s doc comment calls closing the
+/// gap: a read's own length cannot tell "150 bp read, sampled densely" from
+/// "short fragment inside a sparsely-sampled long-read set", but the run's
+/// `hashratio` can, because it is fixed once per run rather than guessed
+/// per read.
+pub const SHORT_READ_HASHRATIO_THRESHOLD: f64 = 0.075;
 
 /// Bucket half-length floor for a short-read `Containment` map (see
 /// [`SHORT_READ_LEN_THRESHOLD`], and [`Buckets::set_halflen`]).

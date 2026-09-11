@@ -802,18 +802,28 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         };
 
         // Short-read-class: floor the bucket half-length so `match_seeds`
-        // stops fragmenting (RESULTS.md §11). Keyed on the read's nucleotide
-        // length, not its sketch size — a 150 bp read at r = 0.1 and a ~1 kb
-        // HiFi read at r = 0.01 sketch to the same ~12 k-mers. The floor
-        // depends on the refine path this map will take: `Containment` with
-        // the sparse anchor sweep (no `AP`, no rarity weighting — see
+        // stops fragmenting (RESULTS.md §11). Gated on two things, both
+        // necessary: the read's own nucleotide length, and the run's
+        // configured `hashratio` (`params.h_frac`). Length alone cannot
+        // distinguish a 150 bp read at r = 0.1 from a ~1 kb HiFi read at
+        // r = 0.01 by sketch size (both ~12 k-mers) — that is
+        // `SHORT_READ_LEN_THRESHOLD`'s job. But length alone also floors a
+        // stray short fragment inside an otherwise long-read set, scoring it
+        // with long-read parameters under short-read bucket geometry — see
+        // `SHORT_READ_HASHRATIO_THRESHOLD`'s doc comment for the real-corpus
+        // regression this caused. The floor is for the short-read parameter
+        // regime specifically, so both must hold. The refine path this map
+        // will take then picks which floor: `Containment` with the sparse
+        // anchor sweep (no `AP`, no rarity weighting — see
         // `find_best_mapping`) is anchor-bound and takes a much wider bucket
         // ([`SHORT_READ_HALFLEN`]); `Jaccard` and the weighted/`AP` paths use
         // the O(halflen) dense sweep and take a modest one
         // ([`SHORT_READ_HALFLEN_DENSE`]); `bucket_SH`/`bucket_LCS` report the
         // raw bucket extent and are never floored. `AP` keeps the read's own
         // length as the half-length as before.
-        let is_short = !AP && (p_seq.len() as QPos) <= crate::buckets::SHORT_READ_LEN_THRESHOLD;
+        let is_short = !AP
+            && (p_seq.len() as QPos) <= crate::buckets::SHORT_READ_LEN_THRESHOLD
+            && params.h_frac >= crate::buckets::SHORT_READ_HASHRATIO_THRESHOLD;
         let floor = if !is_short {
             crate::buckets::MIN_HALFLEN
         } else {
