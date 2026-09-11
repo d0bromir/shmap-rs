@@ -496,9 +496,23 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             // is protecting -- while giving long reads, which never approach
             // this depth (mapping one is far slower than dispatching or
             // collecting it), no reason to ever see the cap.
-            let inflight_cap = n_threads * 1024;
-            let (permit_tx, permit_rx) = mpsc::sync_channel::<()>(inflight_cap);
-            for _ in 0..inflight_cap {
+            let inflight_cap = n_threads as u64 * 1024;
+            // Each channel message is worth `PERMIT_BATCH` reads, not one.
+            // A `mpsc::sync_channel` locks a mutex on every send/recv whether
+            // or not it would block, so at one message per read this channel
+            // itself became the bottleneck it was designed to avoid: strace
+            // on a real B04 (long-read) run at `-@32` showed 95% of syscall
+            // time in `futex`, ~3 M calls for 2.4 M reads, entirely from this
+            // channel and its `job_tx` counterpart. Batching amortizes that
+            // lock over 64 reads instead of one, cutting the call count by
+            // ~64x. Slack this adds to the bound above: at most one batch's
+            // worth held by the reader (claimed via one `recv` but not yet
+            // dispatched) plus one held by the collector (applied but not yet
+            // released) -- ~2 x 64 x 1 KB, still negligible.
+            const PERMIT_BATCH: u64 = 64;
+            let n_tokens = inflight_cap.div_ceil(PERMIT_BATCH);
+            let (permit_tx, permit_rx) = mpsc::sync_channel::<()>(n_tokens as usize);
+            for _ in 0..n_tokens {
                 permit_tx.send(()).expect("prefilling the in-flight permit channel");
             }
 
@@ -589,18 +603,30 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 let mut fasta_timers = Timers::new();
                 timers.start("query_reading");
                 let mut idx = 0u64;
+                // Local share of permits claimed from `permit_rx` but not yet
+                // spent on a dispatch, and whether the channel has been seen
+                // closed -- both needed because one `recv` now covers
+                // `PERMIT_BATCH` reads instead of one.
+                let mut permits_held: u64 = 0;
+                let mut permits_closed = false;
                 read_fasta(p_file, &mut fasta_timers, |query_id, seq, progress| {
                     timers.stop("query_reading");
-                    // One permit per dispatched read, handed back by the
-                    // collector once it has applied that read's output. An
-                    // error here means the collector has already stopped
-                    // (`permit_tx` dropped -- e.g. an early return through
-                    // `?` on a write error), so there is no point handing off
-                    // more work either: `read_fasta` has no way to stop
-                    // mid-file, so, like a `job_tx` send failure, the
-                    // remaining records are parsed and silently dropped
-                    // rather than sent anywhere.
-                    if permit_rx.recv().is_ok() {
+                    if !permits_closed && permits_held == 0 {
+                        // A recv error means the collector has already
+                        // stopped (`permit_tx` dropped -- e.g. an early
+                        // return through `?` on a write error), so there is
+                        // no point handing off more work either: `read_fasta`
+                        // has no way to stop mid-file, so, like a `job_tx`
+                        // send failure, the remaining records are parsed and
+                        // silently dropped rather than sent anywhere.
+                        if permit_rx.recv().is_ok() {
+                            permits_held = PERMIT_BATCH;
+                        } else {
+                            permits_closed = true;
+                        }
+                    }
+                    if permits_held > 0 {
+                        permits_held -= 1;
                         // A send error only happens once every worker has
                         // already exited; the collector loop below will
                         // observe the closed `done_rx` and stop, so it's safe
@@ -627,6 +653,12 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             let mut pending: HashMap<u64, Done> = HashMap::new();
             let mut collector_timers = Timers::new();
             let mut collector_counters = Counters::new();
+            // Reads applied since the last permit was released back; a batch
+            // is only handed back once `PERMIT_BATCH` of them have landed,
+            // matching the reader's own batching above. A partial batch left
+            // over when the file ends is never released, which is fine --
+            // there is no more work for it to admit.
+            let mut applied_since_release: u64 = 0;
             while let Ok(done) = done_rx.recv() {
                 pending.insert(done.idx, done);
                 if profiler.enabled() {
@@ -673,14 +705,19 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         progress_bar.update(done.progress as f64);
                     }
                     next_idx += 1;
-                    // Hand the permit back now that this read is fully
-                    // applied. Every acquire (in the reader) is matched by
-                    // exactly one release here, and the channel started
-                    // prefilled to capacity, so this send always has room and
-                    // never blocks. Ignored on error: that only happens if
-                    // the reader has already exited (e.g. `read_fasta` itself
-                    // failed), and there is then nobody left to receive it.
-                    let _ = permit_tx.send(());
+                    // Hand a permit back once a full batch of reads is fully
+                    // applied. Every `PERMIT_BATCH` acquired (in the reader)
+                    // is matched by exactly one release here, and the channel
+                    // started prefilled to capacity, so this send always has
+                    // room and never blocks. Ignored on error: that only
+                    // happens if the reader has already exited (e.g.
+                    // `read_fasta` itself failed), and there is then nobody
+                    // left to receive it.
+                    applied_since_release += 1;
+                    if applied_since_release == PERMIT_BATCH {
+                        applied_since_release = 0;
+                        let _ = permit_tx.send(());
+                    }
                     if profiler.enabled() {
                         collector_timers.stop("collector_busy");
                     }
