@@ -1240,12 +1240,13 @@ mapper whose entire claim is identical output, 1.3-3.1x faster, by architecture-
 That is this port's claim, in this port's venue. mapquik is the algorithmic peer; this is the
 structural one.
 
-Measured on **B06-B08**: GIAB HG002 Element AVITI 2x150, UltraQ chemistry, sequenced 2023-08 to
-2024-09, at 2x / 4x / 7x of hs1 (8.3, 16.6 and 29.1 GB). The three are exact nested prefixes of one
-stream, so depth is the only thing that varies between them. Corpus and matrix are in `suite.toml`.
-The shmap-rs figures are from `1.4.1-x86_64-dad2d06b15a5-2026-08-16` (long reads) and its `-run2`
-companion (short reads); the bwa-mem2 figures are from the reference-mapper corpus, which the fix
-below does not touch.
+Measured on **B06-B09**: B06-B08 are GIAB HG002 Element AVITI 2x150, UltraQ chemistry, sequenced
+2023-08 to 2024-09, at 2x / 4x / 7x of hs1 (8.3, 16.6 and 29.1 GB) and exact nested prefixes of one
+stream, so depth is the only thing that varies between them; B09 is GIAB HG008-N-D Illumina NovaSeq
+6000 2x150 (2024), a different platform and sample, at 1x. Corpus and matrix are in `suite.toml`.
+The shmap-rs figures are from `18d0f83627b5` (2026-09-12, both hosts); the bwa-mem2 figures are
+from the reference-mapper corpus, which this commit does not touch — a2 has never measured
+bwa-mem2 on B09, so that row is galaxy-only.
 
 **Single-end, R1 only.** shmap-rs has no paired-end mode, and mate rescue is a large advantage on
 exactly the repetitive regions this comparison is about — one shmap-rs structurally cannot use. Both
@@ -1256,32 +1257,47 @@ these numbers are quoted.
 
 | | reads | shmap-rs | bwa-mem2 | ratio | shmap-rs RSS | bwa-mem2 RSS |
 |---|---:|---:|---:|---:|---:|---:|
-| **a2** B06 | 41.8 M | 82.3 min | 8.9 min | 9.2x | 18.32 GB | 35.74 GB |
-| **a2** B07 | 83.5 M | 166.0 min | 17.1 min | 9.7x | 18.34 GB | 35.72 GB |
-| **a2** B08 | 146.2 M | 293.0 min | 28.7 min | 10.2x | 18.47 GB | 35.86 GB |
-| **galaxy** B06 | 41.8 M | 98.2 min | 9.4 min | 10.4x | 18.68 GB | 35.66 GB |
-| **galaxy** B07 | 83.5 M | 200.4 min | 17.7 min | 11.3x | 18.69 GB | 35.66 GB |
-| **galaxy** B08 | 146.2 M | 350.6 min | 30.4 min | 11.5x | 18.74 GB | 35.66 GB |
+| **a2** B06 | 41.8 M | 11.3 min | 8.9 min | 1.26x slower | 17.11 GB | 35.74 GB |
+| **a2** B07 | 83.5 M | 22.0 min | 17.1 min | 1.28x slower | 17.14 GB | 35.72 GB |
+| **a2** B08 | 146.2 M | 38.4 min | 28.7 min | 1.34x slower | 17.15 GB | 35.86 GB |
+| **a2** B09 | 20.6 M | 5.6 min | — | — (not measured here) | 17.08 GB | — |
+| **galaxy** B06 | 41.8 M | 8.4 min | 9.4 min | **1.12x faster** | 17.16 GB | 35.66 GB |
+| **galaxy** B07 | 83.5 M | 16.6 min | 17.7 min | **1.06x faster** | 17.17 GB | 35.66 GB |
+| **galaxy** B08 | 146.2 M | 29.0 min | 30.4 min | **1.05x faster** | 17.15 GB | 35.66 GB |
+| **galaxy** B09 | 20.6 M | 4.1 min | 4.4 min | **1.07x faster** | 17.12 GB | 24.06 GB |
 
-The galaxy rows are from the pre-fix binary; a re-measurement is running. The fix
-(§[Defect 1](#two-defects-this-benchmark-found-on-its-first-run)) took ~2% off the a2 shmap-rs
-times, because reads below the sketch floor now stop before the seed-matching sweep instead of
-going through it, so the galaxy figures should move by about that much and the ratios not at all.
+These figures moved enormously since this section was first written: the whole-genome short-read
+bucket floor (this port's own optimization, unrelated to the two upstream defects below) cut
+`match_seeds`'s fragmentation on short reads directly, taking shmap-rs from ~9-11x slower than
+bwa-mem2 to roughly on par — faster on galaxy, ~1.3x behind on a2. The gap that remains no longer
+widens with depth the way it used to (a2's ratio moves 1.26x -> 1.34x across the 3.5x depth range,
+not 9.2x -> 10.2x), and galaxy is now the *faster* host in absolute terms despite being the slower
+one on the long-read benchmarks elsewhere in this document — the short-read floor and its knock-on
+optimizations happened to favor galaxy's topology (1 socket, 128 cores) more than a2's (4 sockets,
+64 cores) on this workload.
 
-**bwa-mem2 is about 10x faster and shmap-rs uses about half the memory.** The caveat runs against
-us, not for us: bwa-mem2 is doing full Smith-Waterman extension and emitting SAM alignments, while
-shmap-rs stops at coordinates. It does strictly more work and is still 10x quicker.
+**shmap-rs now roughly matches bwa-mem2's wall time and still uses about half the memory.** The
+caveat still runs against us, not for us: bwa-mem2 does full Smith-Waterman extension and emits SAM
+alignments, while shmap-rs stops at coordinates. It does strictly more work and is no longer
+meaningfully slower doing it.
 
-Indexing is not the story — shmap-rs builds its `r = 0.1` index of hs1 in 10-24 s and spends
-everything else mapping. The ratio drifts up with depth (9.2 -> 10.2 on a2), so shmap-rs scales
-slightly worse here, and galaxy is a flat 1.17-1.18x slower than a2 across all three.
+Indexing is not the story — shmap-rs builds its `r = 0.1` index of hs1 in the tens of seconds and
+spends everything else mapping.
 
-### Why it is slow, which is the same reason it is inaccurate
+### Why it was slow, which is the same reason it is inaccurate
 
-`match_seeds` is **92%** of mapping time. Buckets are sized to the read's sketch
-(§[8 in the algorithm docs](docs/sections/08_bucketing.tex)), so the number of candidate buckets in
-the genome scales as *1/read length*: a 150 bp read makes the genome-wide bucket space roughly 200x
-larger than a 24 kb read does. Per-read costs that amortise away over 24 000 bases dominate over 150.
+`match_seeds` **was 92%** of mapping time when this section was first written. Buckets are sized to
+the read's sketch (§[8 in the algorithm docs](docs/sections/08_bucketing.tex)), so the number of
+candidate buckets in the genome scaled as *1/read length*: a 150 bp read made the genome-wide bucket
+space roughly 200x larger than a 24 kb read does. Per-read costs that amortise away over 24 000
+bases dominated over 150.
+
+That specific cost is fixed: §[11](#11-what-to-try-next)'s whole-genome short-read bucket floor
+widens a short read's buckets automatically, and on the current B06 profile `match_seeds` is down to
+**34%** of `query_mapping` — the largest share is now `match_rest`/`refine` at **45%** (mostly
+`refine` itself, ~38%), the floor's own documented follow-on cost (§11: "refine is the new short-read
+bottleneck"). The *accuracy* half of this section is unaffected by that fix — it is about how much
+evidence a short read's sketch carries at all, not about what shape its buckets take once it has one:
 
 This is the design assumption meeting its limit, not a tuning miss — and the same assumption is
 what forces a separate `hashratio`. shmap-rs samples a fraction *r* of a read's k-mers, so evidence
@@ -1306,13 +1322,16 @@ choice rests on.)
 
 | | reference mapped | recall | agreement | **good** |
 |---|---:|---:|---:|---:|
-| B06 | 41 722 937 | 0.9776 | 0.9294 | **0.9085** |
-| B07 | 83 430 048 | 0.9818 | 0.9296 | **0.9127** |
-| B08 | 145 987 234 | 0.9828 | 0.9296 | **0.9136** |
+| B06 | 41 722 937 | 0.9776 | 0.9293 | **0.9085** |
+| B07 | 83 430 048 | 0.9818 | 0.9296 | **0.9126** |
+| B08 | 145 987 234 | 0.9828 | 0.9295 | **0.9135** |
+| B09 | 20 590 623 | 0.9717 | 0.9431 | **0.9164** |
 
-**shmap-rs reproduces 91% of bwa-mem2's placements**, mapping 97.8-98.3% of the reads it maps and
-agreeing on 92.9% of the ones both place. Agreement is identical to three decimals across a 3.5x
-depth range.
+**shmap-rs reproduces 91% of bwa-mem2's placements**, mapping 97.2-98.3% of the reads it maps and
+agreeing on 92.9-94.3% of the ones both place. Agreement is stable to three decimals across the
+3.5x depth range within B06-B08; B09, a different platform and sample (Illumina NovaSeq rather than
+Element AVITI), agrees slightly more and recalls slightly less, which is a property of that corpus,
+not of a further change to shmap-rs.
 
 These are post-fix figures. The fix costs about 0.6 points of recall — it drops the ~0.6% of reads
 whose sketch falls below five k-mers, which were previously placed on one to four k-mers each —
