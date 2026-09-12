@@ -28,6 +28,7 @@ import os
 import platform
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -931,6 +932,31 @@ def add_per_read_stats(outdir: Path, suite: dict, reg: dict, lock) -> int:
     return 0
 
 
+# Free space required before starting each measurement. A single raw PAF can
+# be hundreds of MB (B04 ~600 MB) to several GB at whole-genome scale
+# (B06-B09), and a full matrix writes many of them before the end-of-group
+# trim (below) deletes all but one per (benchmark, metric). Hitting 0 free
+# mid-write crashes with an unhandled OSError deep in logging (lock.note's
+# flush), not a clean message -- found by a run that died mid-B04 with the
+# disk at 100%, losing the rest of the matrix and needing a manual cleanup
+# and relaunch. Checked before every job, not just once at startup, because
+# free space is a moving target across a run that itself writes several GB
+# per job.
+MIN_FREE_BYTES = 10 * 1024**3  # 10 GiB
+
+
+def check_disk_space(path: Path, min_free: int = MIN_FREE_BYTES) -> None:
+    free = shutil.disk_usage(path).free
+    if free < min_free:
+        sys.exit(
+            f"only {free / 1024**3:.1f} GiB free on the filesystem holding {path} "
+            f"(need >= {min_free / 1024**3:.0f} GiB) -- stopping before another "
+            f"measurement instead of crashing mid-write. Free some space (old "
+            f"bench-results/ sets, stale bench-work/ builds) and relaunch; "
+            f"--recheck can re-judge whatever this run already wrote under "
+            f"{path}/raw without re-measuring it.")
+
+
 def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
             outdir: Path, authorized_by: str, lock) -> int:
     outdir.mkdir(parents=True, exist_ok=True)
@@ -952,6 +978,7 @@ def execute(jobs: list[dict], suite: dict, reg: dict, commit: str, wt: Path,
                 sh(["bash", "-c", f"cat {shlex.quote(p)} > /dev/null"])
         grows = []
         for j in gjobs:
+            check_disk_space(outdir)
             rep = f" rep{j['repeat']+1}/{j['repeats']}" if j.get("repeats", 1) > 1 else ""
             lock.note(f"commit={commit[:12]} {bid}/{metric} {j['impl']} -@{j['threads']}{rep} ({n}/{len(groups)})")
             r = measure(j, binaries[j["impl"]], raw, suite)
