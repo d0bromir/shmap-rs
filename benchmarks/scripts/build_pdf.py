@@ -106,6 +106,11 @@ PREAMBLE = r"""\documentclass[10pt,a4paper]{article}
 \renewcommand{\fps@figure}{H}
 \makeatother
 \setlength{\parindent}{0pt}
+% pdfTeX (and LuaTeX, via the same primitive) writes a random trailer /ID by
+% default -- unaffected by SOURCE_DATE_EPOCH, which only covers /CreationDate
+% -- so two builds of byte-identical content still differ, and --check always
+% fails. \ifdefined guards engines (XeTeX) that lack the primitive.
+\ifdefined\pdftrailerid \pdftrailerid{} \fi
 \begin{document}
 """
 

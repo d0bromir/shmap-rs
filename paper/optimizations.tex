@@ -50,6 +50,11 @@
 \author{\shmAuthors}
 \date{}
 
+% pdfTeX writes a random trailer /ID by default, unaffected by
+% SOURCE_DATE_EPOCH (which only covers /CreationDate), so two builds of
+% byte-identical content still differ and build_paper.py --check always
+% fails. \ifdefined guards engines (XeTeX) that lack the primitive.
+\ifdefined\pdftrailerid \pdftrailerid{} \fi
 \begin{document}
 \maketitle
 \vspace{-0.7cm}
