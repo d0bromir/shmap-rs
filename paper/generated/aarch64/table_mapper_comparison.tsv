@@ -4,7 +4,7 @@
 # commit:     18d0f83627b5
 # host:       galaxy
 # measured:   2026-09-12
-# inputs:     sha256:152df922eb144f3f
+# inputs:     sha256:41e718b1bbefe8cb
 # provenance: paper/generated/PROVENANCE.md#table_mapper_comparison
 benchmark	tool	metric	threads	mapped	mapq60	missed_pct	wrong_q60	index_s	map_s	peak_rss_gb
 B01	shmap-rs	Containment	1	149194	139309	6.78		6.531	37.47	2.66
