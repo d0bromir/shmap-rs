@@ -215,6 +215,21 @@ impl Timers {
         self.timers.clear();
     }
 
+    pub fn reset(&mut self) {
+        for timer in self.timers.values_mut() {
+            *timer = Timer::default();
+        }
+    }
+
+    pub fn merge_batch(&mut self, other: &Timers) {
+        for (name, timer) in &other.timers {
+            let current = self.timers.entry(name.clone()).or_default();
+            current.accumulated += timer.accumulated;
+            current.min = current.min.min(timer.min);
+            current.max = current.max.max(timer.max);
+        }
+    }
+
     /// Every registered timer's name and accumulated seconds (a running
     /// timer's partial elapsed time is included, matching [`Timer::secs`]).
     /// Used by [`crate::profiling`] to serialize a whole `Timers` set
@@ -240,7 +255,13 @@ impl Timers {
 impl AddAssign<&Timers> for Timers {
     fn add_assign(&mut self, other: &Timers) {
         for (name, timer) in other.timers.iter() {
-            *self.timers.entry(name.clone()).or_default() += timer;
+            if let Some(current) = self.timers.get_mut(name) {
+                *current += timer;
+            } else {
+                let mut current = Timer::default();
+                current += timer;
+                self.timers.insert(name.clone(), current);
+            }
         }
     }
 }
@@ -328,6 +349,12 @@ impl Counters {
         self.counters.clear();
     }
 
+    pub fn reset(&mut self) {
+        for counter in self.counters.values_mut() {
+            *counter = Counter::default();
+        }
+    }
+
     /// Every registered counter's name and value. Used by
     /// [`crate::profiling`] to serialize a whole `Counters` set without
     /// needing to know the names in advance.
@@ -355,7 +382,7 @@ impl Counters {
 impl AddAssign<&Counters> for Counters {
     fn add_assign(&mut self, other: &Counters) {
         for (name, counter) in other.counters.iter() {
-            *self.counters.entry(name.clone()).or_default() += *counter;
+            self.inc(name, counter.count());
         }
     }
 }

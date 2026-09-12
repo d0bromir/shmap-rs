@@ -314,8 +314,27 @@ def check_paf_intersection(tmp: Path) -> list[str]:
 
 
 def main() -> int:
+    from report import validate_profile_provenance
+
+    manifest = {"binaries": {"shmap-rs": "shmap 1.5.0"},
+                "started": "2026-09-12T00:00:00+00:00", "finished": "2026-09-12T23:59:59+00:00"}
+    validate_profile_provenance({"shmap_version": "1.5.0", "started_at_unix": 1789214400}, manifest, "valid.json")
+    for profile in [{"shmap_version": "1.3.1"}, {"shmap_version": "1.5.0", "started_at_unix": 1785594168}]:
+        try:
+            validate_profile_provenance(profile, manifest, "stale.json")
+        except ValueError:
+            pass
+        else:
+            FAIL.append("stale profile provenance was accepted")
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
+
+        from benchmark_adaptive import assess
+        probe = tmp / "adaptive.paf"
+        probe.write_text("test\t12000\t0\t12000\t+\tref\t50000\t1400\t13000\t100\t12000\t255\n")
+        scored = assess(probe, {"test": {"start": 100, "end": 12100, "length": 12000, "strand": "+", "category": "unique"}})
+        check("placement accuracy is separate from endpoints", (scored["correct"], scored["endpoints_1kb"]), (1, 0))
+        check("MAPQ 255 is not confident", scored["wrong_confident"], 0)
 
         print("single-record file:")
         src = tmp / "one.fa"

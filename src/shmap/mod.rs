@@ -70,6 +70,7 @@
 //! every call, so a panic mid-read can't leave anything for the *next* read
 //! on that worker to inherit.
 
+mod adaptive;
 mod pruning;
 mod scoring;
 mod seeding;
@@ -94,6 +95,12 @@ use crate::utils::{Counters, ProgressBar, Timers};
 /// methods it calls) increments — see the module doc comment for why this
 /// is a superset of the C++'s own (buggy, partial) `C.init(...)` list.
 const PER_READ_COUNTERS: &[&str] = &[
+    "adaptive_fast",
+    "adaptive_rescue",
+    "adaptive_bases",
+    "adaptive_hits",
+    "adaptive_candidates",
+    "mapq_unavailable",
     "seeds_limit_reached",
     "mapped_reads",
     "kmers",
@@ -142,6 +149,10 @@ const PER_READ_COUNTERS: &[&str] = &[
 /// return safe -- a read rejected before seeding has no `match_seeds` to
 /// report, and reporting zero is both true and what the reader expects.
 const PER_READ_TIMERS: &[&str] = &[
+    "adaptive",
+    "group_kmers",
+    "collect_kmer_info",
+    "sort_kmers",
     "query_mapping",
     "sketching",
     "prepare",
@@ -230,6 +241,8 @@ fn catch_read_panic<'idx, const NBP: bool, const OS: bool, const AP: bool>(
     .unwrap_or_else(|panic_payload| {
         worker.timers.clear();
         worker.counters.clear();
+        worker.timers.init(PER_READ_TIMERS);
+        worker.counters.init(PER_READ_COUNTERS);
         Err(anyhow::anyhow!(
             "panicked while mapping read {query_id:?}: {}",
             panic_message(&*panic_payload)
@@ -302,6 +315,8 @@ fn per_read_stats_row(query_id: &str, counters: &Counters, timers: &Timers) -> S
     let mapped = c("mapped_reads");
     let mapq = if mapped == 0 {
         -1
+    } else if c("mapq_unavailable") > 0 {
+        255
     } else if c("mapq60") > 0 {
         60
     } else {
@@ -333,6 +348,7 @@ fn per_read_stats_row(query_id: &str, counters: &Counters, timers: &Timers) -> S
 /// combinations — see [`crate::mapper::create_mapper`].
 pub struct SHMapper<'idx, const NBP: bool, const OS: bool, const AP: bool> {
     tidx: &'idx crate::index::SketchIndex,
+    adaptive: adaptive::Adaptive,
     /// Per-read-cycle local counters, merged into the `Handler`'s run-wide
     /// counters after each read (matching the C++'s own local `C` member,
     /// merged via `H->C += C`).
@@ -354,10 +370,15 @@ pub struct SHMapper<'idx, const NBP: bool, const OS: bool, const AP: bool> {
 
 impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, OS, AP> {
     pub fn new(tidx: &'idx crate::index::SketchIndex) -> Self {
+        let mut counters = Counters::new();
+        counters.init(PER_READ_COUNTERS);
+        let mut timers = Timers::new();
+        timers.init(PER_READ_TIMERS);
         SHMapper {
             tidx,
-            counters: Counters::new(),
-            timers: Timers::new(),
+            adaptive: adaptive::Adaptive::default(),
+            counters,
+            timers,
             rarity: Vec::new(),
             m_weight: 0.0,
             rarity_scores: false,
@@ -423,6 +444,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         profiler.mem_mark("mapping_start");
 
         let n_threads = handler.params.threads.max(1);
+        let batch_size = handler.params.read_batch_size;
         let tidx = self.tidx;
         let params = &handler.params;
         let sketcher = &handler.sketcher;
@@ -447,7 +469,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 
         // Bounded so a fast-reading thread can't buffer the whole input
         // file ahead of slower mapping workers.
-        let (job_tx, job_rx) = mpsc::sync_channel::<Job>(n_threads * 4);
+        let (job_tx, job_rx) = mpsc::sync_channel::<Vec<Job>>(n_threads * 4);
         let job_rx = Mutex::new(job_rx);
         // Unbounded, deliberately: a worker must never block trying to hand
         // back a finished read. It used to be *only* unbounded, which let
@@ -467,7 +489,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         // channel itself cheap and lock-free: only the reader and the
         // collector ever touch a bounded channel, so the cost is O(reads),
         // not O(reads x n_threads).
-        let (done_tx, done_rx) = mpsc::channel::<Done>();
+        let (done_tx, done_rx) = mpsc::channel::<Vec<Done>>();
 
         let mut read_err: Option<anyhow::Error> = None;
         std::thread::scope(|scope| -> anyhow::Result<()> {
@@ -516,7 +538,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             // not a wider cap on the same call -- and a short-read run keeps
             // the original, tested 1024/thread that has never needed
             // widening for the regime it was measured against.
-            let short_read_run = handler.params.h_frac >= crate::buckets::SHORT_READ_HASHRATIO_THRESHOLD;
+            let short_read_run =
+                handler.params.h_frac >= crate::buckets::SHORT_READ_HASHRATIO_THRESHOLD || batch_size > 1;
             let inflight_cap = n_threads as u64 * 1024;
             // Each channel message is worth `PERMIT_BATCH` reads, not one.
             // A `mpsc::sync_channel` locks a mutex on every send/recv whether
@@ -573,33 +596,44 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     }
                     loop {
                         let job = job_rx.lock().unwrap().recv();
-                        let Ok(job) = job else { break };
-                        let result =
-                            catch_read_panic(&mut worker, sketcher, params, &job.query_id, &job.seq, &mut buckets);
-                        // Formatted here, on the worker, rather than in the
-                        // collector: the counters and timers are this read's
-                        // own and are overwritten by the next `map_read`
-                        // call, and doing it here keeps the serial collector
-                        // free of per-read formatting.
-                        let stats_row = if per_read_stats_on && job.idx % per_read_stats_sample == 0 {
-                            Some(per_read_stats_row(&job.query_id, &worker.counters, &worker.timers))
-                        } else {
-                            None
-                        };
-                        if profiler.enabled() {
-                            thread_timers += &worker.timers;
-                            thread_counters += &worker.counters;
-                            jobs_done += 1;
+                        let Ok(jobs) = job else { break };
+                        let mut completed = Vec::with_capacity(jobs.len());
+                        let mut batch_counters = Counters::new();
+                        let mut batch_timers = Timers::new();
+                        for job in jobs {
+                            let result =
+                                catch_read_panic(&mut worker, sketcher, params, &job.query_id, &job.seq, &mut buckets);
+                            // Formatted here, on the worker, rather than in the
+                            // collector: the counters and timers are this read's
+                            // own and are overwritten by the next `map_read`
+                            // call, and doing it here keeps the serial collector
+                            // free of per-read formatting.
+                            let stats_row = if per_read_stats_on && job.idx % per_read_stats_sample == 0 {
+                                Some(per_read_stats_row(&job.query_id, &worker.counters, &worker.timers))
+                            } else {
+                                None
+                            };
+                            if profiler.enabled() {
+                                thread_timers += &worker.timers;
+                                thread_counters += &worker.counters;
+                                jobs_done += 1;
+                            }
+                            batch_counters += &worker.counters;
+                            batch_timers += &worker.timers;
+                            completed.push(Done {
+                                idx: job.idx,
+                                progress: job.progress,
+                                counters: Counters::new(),
+                                timers: Timers::new(),
+                                result,
+                                stats_row,
+                            });
                         }
-                        let done = Done {
-                            idx: job.idx,
-                            progress: job.progress,
-                            counters: worker.counters.clone(),
-                            timers: worker.timers.clone(),
-                            result,
-                            stats_row,
-                        };
-                        if done_tx.send(done).is_err() {
+                        if let Some(last) = completed.last_mut() {
+                            last.counters = batch_counters;
+                            last.timers = batch_timers;
+                        }
+                        if done_tx.send(completed).is_err() {
                             break;
                         }
                     }
@@ -635,6 +669,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 // `!short_read_run` -- see this closure's dispatch below.
                 let mut permits_held: u64 = 0;
                 let mut permits_closed = false;
+                let mut batch = Vec::with_capacity(batch_size);
+                let mut batch_bytes = 0;
                 read_fasta(p_file, &mut fasta_timers, |query_id, seq, progress| {
                     timers.stop("query_reading");
                     if profiler.enabled() {
@@ -664,12 +700,17 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         // already exited; the collector loop below will
                         // observe the closed `done_rx` and stop, so it's safe
                         // to just drop the remaining records here.
-                        let _ = job_tx.send(Job {
+                        batch_bytes += seq.len();
+                        batch.push(Job {
                             idx,
                             query_id: query_id.to_string(),
                             seq,
                             progress,
                         });
+                        if batch.len() >= batch_size || batch_bytes >= 4 * 1024 * 1024 {
+                            let _ = job_tx.send(std::mem::replace(&mut batch, Vec::with_capacity(batch_size)));
+                            batch_bytes = 0;
+                        }
                     }
                     idx += 1;
                     if profiler.enabled() {
@@ -678,6 +719,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     timers.start("query_reading");
                 })?;
                 timers.stop("query_reading");
+                if !batch.is_empty() {
+                    let _ = job_tx.send(batch);
+                }
                 timers += &fasta_timers;
                 if profiler.enabled() {
                     profiler.record_thread("reader", "io", idx, timers.clone(), Counters::new());
@@ -695,71 +739,73 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             // over when the file ends is never released, which is fine --
             // there is no more work for it to admit.
             let mut applied_since_release: u64 = 0;
-            while let Ok(done) = done_rx.recv() {
-                pending.insert(done.idx, done);
-                if profiler.enabled() {
-                    collector_counters.update_max("max_pending_reorder_buffer", pending.len() as i64);
-                }
-                while let Some(done) = pending.remove(&next_idx) {
+            while let Ok(completed) = done_rx.recv() {
+                for done in completed {
+                    pending.insert(done.idx, done);
                     if profiler.enabled() {
-                        collector_timers.start("collector_busy");
+                        collector_counters.update_max("max_pending_reorder_buffer", pending.len() as i64);
                     }
-                    handler.counters.inc1("reads");
-                    handler.counters += &done.counters;
-                    handler.timers += &done.timers;
-
-                    // Written from the collector, which runs strictly in
-                    // original read order, so the file is byte-identical
-                    // across thread counts for the same reason the PAF is.
-                    // Before the result match: a read that panicked still has
-                    // valid counters for the work it did, and dropping its row
-                    // would silently thin the sample.
-                    if let Some(row) = &done.stats_row
-                        && let Some(f) = stats_out.as_mut()
-                    {
-                        writeln!(f, "{row}")?;
-                    }
-
-                    match done.result {
-                        Ok(output) => {
-                            apply_read_output(
-                                &output,
-                                &mut stdout_writer,
-                                unmapped_out.as_mut(),
-                                paulout.as_mut(),
-                                &mut paulout_is_first_row,
-                            )?;
+                    while let Some(done) = pending.remove(&next_idx) {
+                        if profiler.enabled() {
+                            collector_timers.start("collector_busy");
                         }
-                        Err(e) => {
-                            if read_err.is_none() {
-                                read_err = Some(e);
+                        handler.counters.inc1("reads");
+                        handler.counters += &done.counters;
+                        handler.timers.merge_batch(&done.timers);
+
+                        // Written from the collector, which runs strictly in
+                        // original read order, so the file is byte-identical
+                        // across thread counts for the same reason the PAF is.
+                        // Before the result match: a read that panicked still has
+                        // valid counters for the work it did, and dropping its row
+                        // would silently thin the sample.
+                        if let Some(row) = &done.stats_row
+                            && let Some(f) = stats_out.as_mut()
+                        {
+                            writeln!(f, "{row}")?;
+                        }
+
+                        match done.result {
+                            Ok(output) => {
+                                apply_read_output(
+                                    &output,
+                                    &mut stdout_writer,
+                                    unmapped_out.as_mut(),
+                                    paulout.as_mut(),
+                                    &mut paulout_is_first_row,
+                                )?;
+                            }
+                            Err(e) => {
+                                if read_err.is_none() {
+                                    read_err = Some(e);
+                                }
                             }
                         }
-                    }
 
-                    if handler.counters.count("mapped_reads") % 100 == 0 {
-                        progress_bar.update(done.progress as f64);
-                    }
-                    next_idx += 1;
-                    // Hand a permit back once a full batch of reads is fully
-                    // applied. Every `PERMIT_BATCH` acquired (in the reader)
-                    // is matched by exactly one release here, and the channel
-                    // started prefilled to capacity, so this send always has
-                    // room and never blocks. Ignored on error: that only
-                    // happens if the reader has already exited (e.g.
-                    // `read_fasta` itself failed), and there is then nobody
-                    // left to receive it. Skipped entirely for a long-read
-                    // run, matching the reader's own closure above: it never
-                    // acquires there, so nothing here needs releasing back.
-                    if short_read_run {
-                        applied_since_release += 1;
-                        if applied_since_release == PERMIT_BATCH {
-                            applied_since_release = 0;
-                            let _ = permit_tx.send(());
+                        if handler.counters.count("mapped_reads") % 100 == 0 {
+                            progress_bar.update(done.progress as f64);
                         }
-                    }
-                    if profiler.enabled() {
-                        collector_timers.stop("collector_busy");
+                        next_idx += 1;
+                        // Hand a permit back once a full batch of reads is fully
+                        // applied. Every `PERMIT_BATCH` acquired (in the reader)
+                        // is matched by exactly one release here, and the channel
+                        // started prefilled to capacity, so this send always has
+                        // room and never blocks. Ignored on error: that only
+                        // happens if the reader has already exited (e.g.
+                        // `read_fasta` itself failed), and there is then nobody
+                        // left to receive it. Skipped entirely for a long-read
+                        // run, matching the reader's own closure above: it never
+                        // acquires there, so nothing here needs releasing back.
+                        if short_read_run {
+                            applied_since_release += 1;
+                            if applied_since_release == PERMIT_BATCH {
+                                applied_since_release = 0;
+                                let _ = permit_tx.send(());
+                            }
+                        }
+                        if profiler.enabled() {
+                            collector_timers.stop("collector_busy");
+                        }
                     }
                 }
             }
@@ -801,13 +847,41 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         p_seq: &[u8],
         buckets: &mut Buckets<'idx, AP>,
     ) -> anyhow::Result<ReadOutput> {
-        self.counters.clear();
-        self.counters.init(PER_READ_COUNTERS);
-        self.timers.clear();
-        self.timers.init(PER_READ_TIMERS);
+        self.counters.reset();
+        self.timers.reset();
         buckets.clear();
 
         self.timers.start("query_mapping");
+
+        if params.adaptive {
+            self.timers.start("adaptive");
+            let placement = self.adaptive.locate(self.tidx, sketcher, p_seq, params.theta);
+            self.timers.stop("adaptive");
+            self.counters.inc("adaptive_bases", self.adaptive.bases as i64);
+            self.counters.inc("adaptive_hits", self.adaptive.hits as i64);
+            self.counters.inc("adaptive_candidates", self.adaptive.checked as i64);
+            if let Some(placement) = placement {
+                self.counters.inc1("adaptive_fast");
+                self.counters.inc1("mapped_reads");
+                self.counters.inc1("mappings");
+                self.counters.inc1("mapq_unavailable");
+                self.counters.inc("read_len", p_seq.len() as i64);
+                self.counters.inc("kmers_sketched", placement.sampled as i64);
+                self.counters.inc("kmers", placement.sampled as i64);
+                self.counters
+                    .inc("matches_in_reported_mappings", placement.matches as i64);
+                self.timers.stop("query_mapping");
+                self.timers.start("output");
+                let stdout = placement.paf(self.tidx, query_id, p_seq.len(), sketcher.k);
+                self.timers.stop("output");
+                return Ok(ReadOutput {
+                    stdout,
+                    unmapped_line: None,
+                    paul_row: None,
+                });
+            }
+            self.counters.inc1("adaptive_rescue");
+        }
 
         self.timers.start("sketching");
         let p = sketcher.sketch(p_seq, &mut self.counters);

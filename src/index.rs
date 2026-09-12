@@ -38,6 +38,7 @@
 //! for mapping output.
 
 use std::collections::HashMap;
+mod storage;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
@@ -109,8 +110,21 @@ pub struct Shard {
     pub h2multi: FxHashMap<Hash, Vec<Hit>>,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+enum Posting {
+    Single(Hit),
+    Many { start: usize, len: usize },
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CompactIndex {
+    entries: FxHashMap<Hash, Posting>,
+    postings: Vec<Hit>,
+}
+
 pub struct SketchIndex {
     pub segments: Vec<RefSegment>,
+    compact: Option<CompactIndex>,
     /// The hash → hit(s) map, split into [`N_SHARDS`] independent pieces so
     /// it can be built by all `-@` threads at once. `index_initializing` was
     /// a single thread performing ~31 M cache-missing hash-map inserts and
@@ -128,6 +142,7 @@ impl Default for SketchIndex {
     fn default() -> Self {
         SketchIndex {
             segments: Vec::new(),
+            compact: None,
             shards: std::array::from_fn(|_| Shard::default()),
         }
     }
@@ -173,6 +188,42 @@ impl SketchIndex {
         Self::default()
     }
 
+    pub fn compact(&mut self) {
+        if self.compact.is_some() {
+            return;
+        }
+        let mut entries = FxHashMap::default();
+        let mut postings = Vec::new();
+        for shard in &mut self.shards {
+            for (hash, hit) in std::mem::take(&mut shard.h2single) {
+                entries.insert(hash, Posting::Single(hit));
+            }
+            for (hash, hits) in std::mem::take(&mut shard.h2multi) {
+                let start = postings.len();
+                let len = hits.len();
+                postings.extend(hits);
+                entries.insert(hash, Posting::Many { start, len });
+            }
+        }
+        self.compact = Some(CompactIndex { entries, postings });
+    }
+
+    pub fn hits(&self, hash: Hash) -> &[Hit] {
+        if let Some(index) = &self.compact {
+            return match index.entries.get(&hash) {
+                Some(Posting::Single(hit)) => std::slice::from_ref(hit),
+                Some(Posting::Many { start, len }) => &index.postings[*start..*start + *len],
+                None => &[],
+            };
+        }
+        let shard = &self.shards[shard_of(hash)];
+        if let Some(hit) = shard.h2single.get(&hash) {
+            std::slice::from_ref(hit)
+        } else {
+            shard.h2multi.get(&hash).map_or(&[], Vec::as_slice)
+        }
+    }
+
     pub fn segments_len(&self) -> usize {
         self.segments.len()
     }
@@ -190,6 +241,9 @@ impl SketchIndex {
     /// Panics if absent, matching the `h2single[&h]` indexing this replaced.
     #[inline]
     pub fn single_hit(&self, h: Hash) -> Hit {
+        if self.compact.is_some() {
+            return self.hits(h)[0];
+        }
         self.shards[shard_of(h)].h2single[&h]
     }
 
@@ -197,11 +251,17 @@ impl SketchIndex {
     /// sorted by `(segm_id, r)`.
     #[inline]
     pub fn multi_hits(&self, h: Hash) -> &[Hit] {
+        if self.compact.is_some() {
+            return self.hits(h);
+        }
         &self.shards[shard_of(h)].h2multi[&h]
     }
 
     /// Number of hits in the reference for k-mer hash `h`.
     pub fn count(&self, h: Hash) -> RPos {
+        if self.compact.is_some() {
+            return self.hits(h).len() as RPos;
+        }
         let shard = &self.shards[shard_of(h)];
         if shard.h2single.contains_key(&h) {
             return 1;

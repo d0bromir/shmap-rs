@@ -20,7 +20,7 @@ pub type SegmId = i32;
 ///
 /// `r` is the right end of the k-mer's half-open interval `[l, r)` where
 /// `l + k == r`. `strand`: `false` = forward, `true` = reverse.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Kmer {
     pub r: RPos,
     pub h: Hash,
@@ -40,7 +40,7 @@ impl fmt::Display for Kmer {
 }
 
 /// A k-mer hit in the reference T.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Hit {
     /// Right end of the k-mer `[l, r)`.
     pub r: RPos,

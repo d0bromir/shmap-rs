@@ -313,6 +313,23 @@ def block_checks(rs: dict) -> str:
     return "\n".join(out) + "\n"
 
 
+def validate_profile_provenance(profile: dict, manifest: dict, name: str) -> None:
+    from datetime import datetime
+
+    binary = manifest.get("binaries", {}).get(SUBJECT, "")
+    expected = binary.rsplit(maxsplit=1)[-1] if binary else None
+    actual = profile.get("shmap_version")
+    if expected and actual != expected:
+        raise ValueError(f"{name}: profile version {actual!r} differs from manifest {expected!r}; "
+                         "restore the matching raw profiles or re-run the benchmark")
+    started = manifest.get("started")
+    finished = manifest.get("finished")
+    timestamp = profile.get("started_at_unix")
+    if started and finished and timestamp is not None:
+        if not datetime.fromisoformat(started).timestamp() - 1 <= timestamp <= datetime.fromisoformat(finished).timestamp() + 1:
+            raise ValueError(f"{name}: profile timestamp is outside the manifest run; raw profiles are stale")
+
+
 def _profiles(rs: dict, section: str = "timers_secs") -> dict[tuple, dict]:
     """(benchmark, metric, threads) -> one section of the run's own `-x` reports.
 
@@ -344,6 +361,7 @@ def _profiles(rs: dict, section: str = "timers_secs") -> dict[tuple, dict]:
             j = json.loads(data)
         except (ValueError, json.JSONDecodeError):
             return
+        validate_profile_provenance(j, rs.get("manifest", {}), name)
         t = j.get("global", {}).get(section)
         if t:
             out[(parts[0], parts[1], threads)] = t
@@ -774,4 +792,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except ValueError as error:
+        print(f"invalid benchmark evidence: {error}", file=sys.stderr)
+        sys.exit(2)

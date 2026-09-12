@@ -146,6 +146,26 @@ pub struct Params {
     #[arg(short = '@', long = "threads", default_value_t = 1)]
     pub threads: usize,
 
+    /// Use contiguous postings with inline singleton hits
+    #[arg(long)]
+    pub compact_index: bool,
+
+    /// Load a persistent index, or create it when the path does not exist
+    #[arg(long)]
+    pub index_cache: Option<std::path::PathBuf>,
+
+    /// Hash the complete reference when loading a cache (otherwise check size and modification time)
+    #[arg(long, requires = "index_cache")]
+    pub verify_index_reference: bool,
+
+    /// Experimental HiFi positional sampling; unresolved reads use the original mapper, fast records have MAPQ 255
+    #[arg(long)]
+    pub adaptive: bool,
+
+    /// Reads per worker handoff (1 preserves the original scheduling granularity)
+    #[arg(long, default_value_t = 1)]
+    pub read_batch_size: usize,
+
     /// Enables profiling instrumentation: per-stage timings, a per-thread
     /// breakdown, and memory-usage sampling, written once (as JSON) to
     /// `--profile-log` at the end of the run. Off by default so normal runs
@@ -203,6 +223,23 @@ impl Params {
     /// Range/sign checks equivalent to `params_t::prsArgs`'s validation
     /// (clap handles the parsing/required-ness itself).
     pub fn validate(&self) -> Result<()> {
+        if !(1..=256).contains(&self.read_batch_size) {
+            bail!("--read-batch-size must be between 1 and 256");
+        }
+        if self.adaptive
+            && (self.metric != Metric::Containment
+                || self.abs_pos
+                || self.no_bucket_pruning
+                || self.one_sweep
+                || self.rarity_weight != 0.0
+                || self.rarity_tiebreak != 0.0
+                || self.max_matches.is_some()
+                || self.verbose >= 2)
+        {
+            bail!(
+                "--adaptive requires plain Containment without pruning overrides, rarity scoring, frequency filtering, or verbose ground-truth analysis"
+            );
+        }
         if self.k <= 0 {
             bail!("K-mer length (-k) should be positive. You provided {}.", self.k);
         }
@@ -309,6 +346,15 @@ impl Params {
             ("one-sweep", (self.one_sweep as i32).to_string()),
             ("abs-pos", (self.abs_pos as i32).to_string()),
             ("threads", self.threads.to_string()),
+            ("adaptive", self.adaptive.to_string()),
+            ("read-batch-size", self.read_batch_size.to_string()),
+            ("compact-index", self.compact_index.to_string()),
+            (
+                "index-cache",
+                self.index_cache
+                    .as_ref()
+                    .map_or_else(String::new, |path| path.display().to_string()),
+            ),
         ]
     }
 

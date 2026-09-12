@@ -103,6 +103,11 @@ separates confident mappings from ambiguous ones.
 
 ## How it works
 
+An opt-in long-read redesign prototype adds progressive positional sampling,
+compact/persistent indexing, and batched dispatch. It is **not a validated 10x
+replacement**: sampled mappings have uncalibrated MAPQ 255, and difficult reads
+still use the original mapper. See [implementation status and local measurements](docs/long_read_redesign.md).
+
 1. **Sketch** the reference and each read with FracMinHash, keeping k-mers whose hash falls below
    `r · u64::MAX`.
 2. **Seed** — look up each read k-mer in the index, rarest first.

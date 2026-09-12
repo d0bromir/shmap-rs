@@ -132,13 +132,8 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     // the order buckets are added in doesn't affect the result.
                     let occs = seed.occs_in_p;
                     let mut cur_sid: SegmId = -1;
-                    // Bucket index of the current hit, tracked incrementally:
-                    // `pos` is non-decreasing within a segment, so instead of
-                    // a division `pos / halflen` per hit we advance `b` (and
-                    // its upper bound `b_hi = (b+1)*halflen`) by comparison,
-                    // recomputing by division only on a segment change. Over
-                    // billions of hits this replaces a per-hit integer divide
-                    // with an amortized-O(1) compare.
+                    // Reuse the bucket for nearby hits and jump directly over
+                    // empty buckets when the next position crosses its edge.
                     let mut b: RPos = 0;
                     let mut b_hi: RPos = 0;
                     // The only two buckets that can still receive a
@@ -167,11 +162,10 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                             b_hi = (b + 1) * halflen;
                             base = (b - 1).max(0);
                         } else {
-                            // Advance `b` to the bucket containing `pos`
-                            // (monotonic within a segment — no division).
-                            while pos >= b_hi {
-                                b += 1;
-                                b_hi += halflen;
+                            // Advance directly to the bucket containing `pos`.
+                            if pos >= b_hi {
+                                b = pos / halflen;
+                                b_hi = (b + 1) * halflen;
                             }
                             // Slide the two-slot window up to the new `base`,
                             // finalizing whatever falls out the bottom.
@@ -216,7 +210,52 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 mod tests {
     use super::*;
     use crate::index::SketchIndex;
+    use crate::sketch::RefSegment;
+    use crate::types::Hit;
     use std::collections::HashSet;
+
+    #[test]
+    fn distant_seed_hits_skip_empty_buckets() {
+        let mut tidx = SketchIndex::new();
+        let kmer = Kmer::new(0, 8, false);
+        tidx.segments
+            .push(RefSegment::new(vec![kmer; 25_001], "ref".into(), 25_001, 0));
+        tidx.shards[0].h2multi.insert(
+            8,
+            vec![Hit::new(&kmer, 0, 0), Hit::new(&Kmer::new(25_000, 8, false), 25_000, 0)],
+        );
+        let seeds = vec![Seed::new(kmer, 2, 1, 0, vec![0].into())];
+        let mut mapper: SHMapper<false, false, false> = SHMapper::new(&tidx);
+        let mut buckets = Buckets::new(&tidx);
+        assert!(buckets.set_halflen(5, 5));
+        mapper.match_seeds(&seeds, &mut buckets, 1);
+        buckets.propagate_seeds_to_buckets();
+        let mut actual: Vec<_> = buckets
+            .get_sorted_buckets()
+            .iter()
+            .map(|(loc, content)| (loc.segm_id, loc.b, content.matches, content.codirection))
+            .collect();
+        actual.sort_unstable();
+        assert_eq!(actual, vec![(0, 0, 1, 1), (0, 4999, 1, 1), (0, 5000, 1, 1)]);
+        let original = tidx.hits(8).to_vec();
+        tidx.compact();
+        tidx.compact();
+        assert_eq!(tidx.count(8), 2);
+        assert_eq!(tidx.hits(8), original);
+        assert!(tidx.hits(999).is_empty());
+        let mut mapper: SHMapper<false, false, false> = SHMapper::new(&tidx);
+        let mut buckets = Buckets::new(&tidx);
+        assert!(buckets.set_halflen(5, 5));
+        mapper.match_seeds(&seeds, &mut buckets, 1);
+        buckets.propagate_seeds_to_buckets();
+        let mut compact: Vec<_> = buckets
+            .get_sorted_buckets()
+            .iter()
+            .map(|(loc, content)| (loc.segm_id, loc.b, content.matches, content.codirection))
+            .collect();
+        compact.sort_unstable();
+        assert_eq!(compact, actual);
+    }
 
     #[test]
     fn unique_elements_groups_by_hash_and_collects_pmatches() {
