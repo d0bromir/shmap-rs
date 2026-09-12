@@ -490,13 +490,32 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             // (`thread::scope` cannot return until the reader finishes, and
             // the reader cannot finish until `permit_tx` drops).
             //
-            // Sized generously: worst-case buffered `Done` memory is
-            // `inflight_cap` x ~1 KB, so even 1024 permits per thread caps it
-            // at tens of MB -- negligible next to the multi-GB baseline this
-            // is protecting -- while giving long reads, which never approach
-            // this depth (mapping one is far slower than dispatching or
-            // collecting it), no reason to ever see the cap.
-            let inflight_cap = n_threads as u64 * 1024;
+            // 1024 permits/thread (the original value) assumed long reads
+            // never approach the cap, because mapping one is far slower than
+            // dispatching or collecting it -- true per-read, but wrong in
+            // aggregate: at `-@64` on a real B04 (long-read) run, 64 workers
+            // finish reads faster in total than the single collector can
+            // apply them, so the reader hits the cap almost immediately and
+            // stays throttled to the collector's rate for most of the run.
+            // Measured directly (a temporary `dispatch` timer bracketing
+            // just the acquire+send below): 11.2 s of a 27.0 s wall time was
+            // the reader blocked in `permit_rx.recv()` at 1024/thread, on a
+            // host where the collector is not otherwise the bottleneck (see
+            // `PERMIT_BATCH`'s comment on this same run). 20x more headroom
+            // (20480/thread) cuts that to 1.1 s, landing wall time at 23.7 s
+            // -- close to the 22.4 s with no output-side bounding at all.
+            //
+            // The cost: worst-case buffered `Done` memory is `inflight_cap`
+            // x ~1 KB, so this is 20x the original's tens of MB, not the same
+            // "negligible" -- and it lands on the exact case this bound
+            // exists for, since a short-read run's collector genuinely is
+            // the slow stage on a many-socket host (see `map_reads`'s doc
+            // comment on `8274766`). Measured on B09 (many-socket, `-@32`):
+            // peak RSS rose from 17.1 GB to 21.0 GB. Real, but a fraction of
+            // the multi-hundred-GB blowup being bounded against, and 100x
+            // (peak RSS 38.0 GB there) bought only 0.6 s more on B04 -- 20x
+            // is the point past which more headroom stops paying for itself.
+            let inflight_cap = n_threads as u64 * 1024 * 20;
             // Each channel message is worth `PERMIT_BATCH` reads, not one.
             // A `mpsc::sync_channel` locks a mutex on every send/recv whether
             // or not it would block, so at one message per read this channel
@@ -594,7 +613,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 
             let reader = scope.spawn(move || -> anyhow::Result<Timers> {
                 let mut timers = Timers::new();
-                timers.init(&["query_reading"]);
+                timers.init(&["query_reading", "dispatch"]);
                 // Separate object: `read_fasta` needs its own `&mut Timers`
                 // for its internal fasta_parse_next/fasta_extract sub-stage
                 // timers, which would otherwise alias the callback's own
@@ -611,6 +630,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 let mut permits_closed = false;
                 read_fasta(p_file, &mut fasta_timers, |query_id, seq, progress| {
                     timers.stop("query_reading");
+                    if profiler.enabled() {
+                        timers.start("dispatch");
+                    }
                     if !permits_closed && permits_held == 0 {
                         // A recv error means the collector has already
                         // stopped (`permit_tx` dropped -- e.g. an early
@@ -639,6 +661,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                         });
                     }
                     idx += 1;
+                    if profiler.enabled() {
+                        timers.stop("dispatch");
+                    }
                     timers.start("query_reading");
                 })?;
                 timers.stop("query_reading");
