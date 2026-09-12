@@ -490,49 +490,54 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
             // (`thread::scope` cannot return until the reader finishes, and
             // the reader cannot finish until `permit_tx` drops).
             //
-            // 1024 permits/thread (the original value) assumed long reads
-            // never approach the cap, because mapping one is far slower than
-            // dispatching or collecting it -- true per-read, but wrong in
-            // aggregate: at `-@64` on a real B04 (long-read) run, 64 workers
-            // finish reads faster in total than the single collector can
-            // apply them, so the reader hits the cap almost immediately and
-            // stays throttled to the collector's rate for most of the run.
-            // Measured directly (a temporary `dispatch` timer bracketing
-            // just the acquire+send below): 11.2 s of a 27.0 s wall time was
-            // the reader blocked in `permit_rx.recv()` at 1024/thread, on a
-            // host where the collector is not otherwise the bottleneck (see
-            // `PERMIT_BATCH`'s comment on this same run). 20x more headroom
-            // (20480/thread) cuts that to 1.1 s, landing wall time at 23.7 s
-            // -- close to the 22.4 s with no output-side bounding at all.
+            // This whole mechanism exists for one regime: short reads at
+            // WGS scale on a many-socket host, where the collector's
+            // cross-NUMA per-read merge is slow enough that unbounded
+            // workers pile up ~150 GB of unapplied `Done`s (see `8274766`'s
+            // doc comment two lines up). B01-B05 (long reads) never showed
+            // that failure -- and applying the same cap to them anyway cost
+            // real wall time: at `-@64` on a real B04 run, 64 workers finish
+            // reads faster in aggregate than the single collector can apply
+            // them, so the reader hit the 1024/thread cap almost immediately
+            // and spent 11.2 s of a 27.0 s wall time blocked in
+            // `permit_rx.recv()` (measured with a temporary `dispatch` timer
+            // bracketing just the acquire+send below). Widening the cap
+            // recovered most of that (20x -> 23.7 s) but not by fixing
+            // anything -- it just gave the *unaffected* regime more rope,
+            // at a real memory cost measured on the regime the cap protects
+            // (B09, many-socket, `-@32`: peak RSS 17.1 GB -> 21.0 GB for 20x).
             //
-            // The cost: worst-case buffered `Done` memory is `inflight_cap`
-            // x ~1 KB, so this is 20x the original's tens of MB, not the same
-            // "negligible" -- and it lands on the exact case this bound
-            // exists for, since a short-read run's collector genuinely is
-            // the slow stage on a many-socket host (see `map_reads`'s doc
-            // comment on `8274766`). Measured on B09 (many-socket, `-@32`):
-            // peak RSS rose from 17.1 GB to 21.0 GB. Real, but a fraction of
-            // the multi-hundred-GB blowup being bounded against, and 100x
-            // (peak RSS 38.0 GB there) bought only 0.6 s more on B04 -- 20x
-            // is the point past which more headroom stops paying for itself.
-            let inflight_cap = n_threads as u64 * 1024 * 20;
+            // `short_read_run`, decided once per run from `params.h_frac`
+            // exactly as `query_mapping`'s own `is_short` decides per read
+            // (see `SHORT_READ_HASHRATIO_THRESHOLD`), is the actual fix:
+            // skip this bound entirely when it isn't the regime that needs
+            // it. A long read run then dispatches exactly as it did before
+            // `8274766` ever existed -- zero calls to `permit_rx.recv()`,
+            // not a wider cap on the same call -- and a short-read run keeps
+            // the original, tested 1024/thread that has never needed
+            // widening for the regime it was measured against.
+            let short_read_run = handler.params.h_frac >= crate::buckets::SHORT_READ_HASHRATIO_THRESHOLD;
+            let inflight_cap = n_threads as u64 * 1024;
             // Each channel message is worth `PERMIT_BATCH` reads, not one.
             // A `mpsc::sync_channel` locks a mutex on every send/recv whether
             // or not it would block, so at one message per read this channel
             // itself became the bottleneck it was designed to avoid: strace
             // on a real B04 (long-read) run at `-@32` showed 95% of syscall
-            // time in `futex`, ~3 M calls for 2.4 M reads, entirely from this
-            // channel and its `job_tx` counterpart. Batching amortizes that
-            // lock over 64 reads instead of one, cutting the call count by
-            // ~64x. Slack this adds to the bound above: at most one batch's
-            // worth held by the reader (claimed via one `recv` but not yet
-            // dispatched) plus one held by the collector (applied but not yet
-            // released) -- ~2 x 64 x 1 KB, still negligible.
+            // time in `futex`, ~3 M calls for 2.4 M reads -- from this
+            // channel and its `job_tx` counterpart, back when short-read
+            // runs and long-read runs still shared it. Batching amortizes
+            // the lock over 64 reads instead of one for the regime that
+            // still uses this channel. Slack this adds to the bound above:
+            // at most one batch's worth held by the reader (claimed via one
+            // `recv` but not yet dispatched) plus one held by the collector
+            // (applied but not yet released) -- ~2 x 64 x 1 KB, negligible.
             const PERMIT_BATCH: u64 = 64;
             let n_tokens = inflight_cap.div_ceil(PERMIT_BATCH);
             let (permit_tx, permit_rx) = mpsc::sync_channel::<()>(n_tokens as usize);
-            for _ in 0..n_tokens {
-                permit_tx.send(()).expect("prefilling the in-flight permit channel");
+            if short_read_run {
+                for _ in 0..n_tokens {
+                    permit_tx.send(()).expect("prefilling the in-flight permit channel");
+                }
             }
 
             for worker_idx in 0..n_threads {
@@ -625,7 +630,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 // Local share of permits claimed from `permit_rx` but not yet
                 // spent on a dispatch, and whether the channel has been seen
                 // closed -- both needed because one `recv` now covers
-                // `PERMIT_BATCH` reads instead of one.
+                // `PERMIT_BATCH` reads instead of one. Both stay at their
+                // initial value, and `permit_rx` is never touched, when
+                // `!short_read_run` -- see this closure's dispatch below.
                 let mut permits_held: u64 = 0;
                 let mut permits_closed = false;
                 read_fasta(p_file, &mut fasta_timers, |query_id, seq, progress| {
@@ -633,7 +640,7 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     if profiler.enabled() {
                         timers.start("dispatch");
                     }
-                    if !permits_closed && permits_held == 0 {
+                    if short_read_run && !permits_closed && permits_held == 0 {
                         // A recv error means the collector has already
                         // stopped (`permit_tx` dropped -- e.g. an early
                         // return through `?` on a write error), so there is
@@ -647,8 +654,12 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                             permits_closed = true;
                         }
                     }
-                    if permits_held > 0 {
-                        permits_held -= 1;
+                    // A long-read run always takes this branch -- unbounded,
+                    // exactly as it did before this permit mechanism existed.
+                    if !short_read_run || permits_held > 0 {
+                        if short_read_run {
+                            permits_held -= 1;
+                        }
                         // A send error only happens once every worker has
                         // already exited; the collector loop below will
                         // observe the closed `done_rx` and stop, so it's safe
@@ -737,11 +748,15 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                     // room and never blocks. Ignored on error: that only
                     // happens if the reader has already exited (e.g.
                     // `read_fasta` itself failed), and there is then nobody
-                    // left to receive it.
-                    applied_since_release += 1;
-                    if applied_since_release == PERMIT_BATCH {
-                        applied_since_release = 0;
-                        let _ = permit_tx.send(());
+                    // left to receive it. Skipped entirely for a long-read
+                    // run, matching the reader's own closure above: it never
+                    // acquires there, so nothing here needs releasing back.
+                    if short_read_run {
+                        applied_since_release += 1;
+                        if applied_since_release == PERMIT_BATCH {
+                            applied_since_release = 0;
+                            let _ = permit_tx.send(());
+                        }
                     }
                     if profiler.enabled() {
                         collector_timers.stop("collector_busy");

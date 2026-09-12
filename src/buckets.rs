@@ -55,6 +55,12 @@ pub const SHORT_READ_LEN_THRESHOLD: QPos = 400;
 /// "short fragment inside a sparsely-sampled long-read set", but the run's
 /// `hashratio` can, because it is fixed once per run rather than guessed
 /// per read.
+///
+/// Reused by `SHMapper::map_reads` (`short_read_run`) to decide, once per
+/// run rather than per read, whether the pipeline's in-flight-reads cap
+/// applies at all -- that bound exists only for the same dense short-read
+/// regime this threshold identifies, and costs long-read runs real wall
+/// time for no reason when applied to them too (see its doc comment).
 pub const SHORT_READ_HASHRATIO_THRESHOLD: f64 = 0.075;
 
 /// Bucket half-length floor for a short-read `Containment` map (see
