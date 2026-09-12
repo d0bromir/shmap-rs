@@ -33,6 +33,7 @@ fn main() -> anyhow::Result<()> {
     profiler.meta("h_frac", params.h_frac);
     profiler.meta("theta", params.theta);
     profiler.meta("threads_requested", params.threads);
+    profiler.meta("reader_threads", params.reader_threads);
     profiler.meta(
         "available_parallelism",
         std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
@@ -41,6 +42,7 @@ fn main() -> anyhow::Result<()> {
     profiler.meta("p_file", &p_file);
     profiler.meta("os", std::env::consts::OS);
     profiler.meta("adaptive", params.adaptive);
+    profiler.meta("adaptive_dense", params.adaptive_dense);
     profiler.meta("compact_index", params.compact_index || params.index_cache.is_some());
 
     let mut handler = Handler::new(params)?;
@@ -95,6 +97,11 @@ fn main() -> anyhow::Result<()> {
         handler.timers.start("index_compact");
         tidx.compact();
         handler.timers.stop("index_compact");
+    }
+    if handler.params.adaptive_dense {
+        handler.timers.start("repeat_indexing");
+        tidx.build_repeat_index(&t_file, handler.params.k, &mut handler.counters, &mut handler.timers)?;
+        handler.timers.stop("repeat_indexing");
     }
     profiler.mem_mark("after_index");
 

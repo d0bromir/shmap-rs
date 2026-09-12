@@ -95,7 +95,9 @@ fn compact_and_cached_indexes_preserve_paf() {
     let expected = run(&[]);
     assert_eq!(run(&["--compact-index"]), expected);
     assert_eq!(run(&["--adaptive"]), expected);
+    assert_eq!(run(&["--adaptive", "--adaptive-dense"]), expected);
     assert_eq!(run(&["--read-batch-size", "2"]), expected);
+    assert_eq!(run(&["--read-batch-size", "2", "--reader-threads", "4"]), expected);
     assert_eq!(run(&["--index-cache", cache.to_str().unwrap()]), expected);
     assert_eq!(
         run(&[

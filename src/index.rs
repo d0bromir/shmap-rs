@@ -38,6 +38,7 @@
 //! for mapping output.
 
 use std::collections::HashMap;
+mod repeats;
 mod storage;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -124,6 +125,7 @@ struct CompactIndex {
 
 pub struct SketchIndex {
     pub segments: Vec<RefSegment>,
+    pub repeats: Option<repeats::RepeatIndex>,
     compact: Option<CompactIndex>,
     /// The hash → hit(s) map, split into [`N_SHARDS`] independent pieces so
     /// it can be built by all `-@` threads at once. `index_initializing` was
@@ -142,6 +144,7 @@ impl Default for SketchIndex {
     fn default() -> Self {
         SketchIndex {
             segments: Vec::new(),
+            repeats: None,
             compact: None,
             shards: std::array::from_fn(|_| Shard::default()),
         }

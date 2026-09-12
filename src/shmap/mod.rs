@@ -83,7 +83,7 @@ use std::sync::mpsc;
 
 use crate::buckets::Buckets;
 use crate::handler::Handler;
-use crate::io::read_fasta;
+use crate::io::read_queries;
 use crate::mapping::{Mapping, MappingPaf};
 use crate::params::Params;
 use crate::profiling::Profiler;
@@ -96,6 +96,7 @@ use crate::utils::{Counters, ProgressBar, Timers};
 /// is a superset of the C++'s own (buggy, partial) `C.init(...)` list.
 const PER_READ_COUNTERS: &[&str] = &[
     "adaptive_fast",
+    "adaptive_dense",
     "adaptive_rescue",
     "adaptive_bases",
     "adaptive_hits",
@@ -150,6 +151,7 @@ const PER_READ_COUNTERS: &[&str] = &[
 /// report, and reporting zero is both true and what the reader expects.
 const PER_READ_TIMERS: &[&str] = &[
     "adaptive",
+    "adaptive_dense",
     "group_kmers",
     "collect_kmer_info",
     "sort_kmers",
@@ -671,53 +673,58 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
                 let mut permits_closed = false;
                 let mut batch = Vec::with_capacity(batch_size);
                 let mut batch_bytes = 0;
-                read_fasta(p_file, &mut fasta_timers, |query_id, seq, progress| {
-                    timers.stop("query_reading");
-                    if profiler.enabled() {
-                        timers.start("dispatch");
-                    }
-                    if short_read_run && !permits_closed && permits_held == 0 {
-                        // A recv error means the collector has already
-                        // stopped (`permit_tx` dropped -- e.g. an early
-                        // return through `?` on a write error), so there is
-                        // no point handing off more work either: `read_fasta`
-                        // has no way to stop mid-file, so, like a `job_tx`
-                        // send failure, the remaining records are parsed and
-                        // silently dropped rather than sent anywhere.
-                        if permit_rx.recv().is_ok() {
-                            permits_held = PERMIT_BATCH;
-                        } else {
-                            permits_closed = true;
+                read_queries(
+                    p_file,
+                    params.reader_threads,
+                    &mut fasta_timers,
+                    |query_id, seq, progress| {
+                        timers.stop("query_reading");
+                        if profiler.enabled() {
+                            timers.start("dispatch");
                         }
-                    }
-                    // A long-read run always takes this branch -- unbounded,
-                    // exactly as it did before this permit mechanism existed.
-                    if !short_read_run || permits_held > 0 {
-                        if short_read_run {
-                            permits_held -= 1;
+                        if short_read_run && !permits_closed && permits_held == 0 {
+                            // A recv error means the collector has already
+                            // stopped (`permit_tx` dropped -- e.g. an early
+                            // return through `?` on a write error), so there is
+                            // no point handing off more work either: `read_fasta`
+                            // has no way to stop mid-file, so, like a `job_tx`
+                            // send failure, the remaining records are parsed and
+                            // silently dropped rather than sent anywhere.
+                            if permit_rx.recv().is_ok() {
+                                permits_held = PERMIT_BATCH;
+                            } else {
+                                permits_closed = true;
+                            }
                         }
-                        // A send error only happens once every worker has
-                        // already exited; the collector loop below will
-                        // observe the closed `done_rx` and stop, so it's safe
-                        // to just drop the remaining records here.
-                        batch_bytes += seq.len();
-                        batch.push(Job {
-                            idx,
-                            query_id: query_id.to_string(),
-                            seq,
-                            progress,
-                        });
-                        if batch.len() >= batch_size || batch_bytes >= 4 * 1024 * 1024 {
-                            let _ = job_tx.send(std::mem::replace(&mut batch, Vec::with_capacity(batch_size)));
-                            batch_bytes = 0;
+                        // A long-read run always takes this branch -- unbounded,
+                        // exactly as it did before this permit mechanism existed.
+                        if !short_read_run || permits_held > 0 {
+                            if short_read_run {
+                                permits_held -= 1;
+                            }
+                            // A send error only happens once every worker has
+                            // already exited; the collector loop below will
+                            // observe the closed `done_rx` and stop, so it's safe
+                            // to just drop the remaining records here.
+                            batch_bytes += seq.len();
+                            batch.push(Job {
+                                idx,
+                                query_id: query_id.to_string(),
+                                seq,
+                                progress,
+                            });
+                            if batch.len() >= batch_size || batch_bytes >= 4 * 1024 * 1024 {
+                                let _ = job_tx.send(std::mem::replace(&mut batch, Vec::with_capacity(batch_size)));
+                                batch_bytes = 0;
+                            }
                         }
-                    }
-                    idx += 1;
-                    if profiler.enabled() {
-                        timers.stop("dispatch");
-                    }
-                    timers.start("query_reading");
-                })?;
+                        idx += 1;
+                        if profiler.enabled() {
+                            timers.stop("dispatch");
+                        }
+                        timers.start("query_reading");
+                    },
+                )?;
                 timers.stop("query_reading");
                 if !batch.is_empty() {
                     let _ = job_tx.send(batch);
@@ -855,13 +862,21 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 
         if params.adaptive {
             self.timers.start("adaptive");
-            let placement = self.adaptive.locate(self.tidx, sketcher, p_seq, params.theta);
+            let mut placement = self.adaptive.locate(self.tidx, sketcher, p_seq, params.theta);
+            if placement.is_none() && params.adaptive_dense {
+                self.timers.start("adaptive_dense");
+                placement = self.adaptive.resolve_repeats(self.tidx, p_seq, params.theta);
+                self.timers.stop("adaptive_dense");
+            }
             self.timers.stop("adaptive");
             self.counters.inc("adaptive_bases", self.adaptive.bases as i64);
             self.counters.inc("adaptive_hits", self.adaptive.hits as i64);
             self.counters.inc("adaptive_candidates", self.adaptive.checked as i64);
             if let Some(placement) = placement {
                 self.counters.inc1("adaptive_fast");
+                if placement.dense {
+                    self.counters.inc1("adaptive_dense");
+                }
                 self.counters.inc1("mapped_reads");
                 self.counters.inc1("mappings");
                 self.counters.inc1("mapq_unavailable");

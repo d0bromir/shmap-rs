@@ -162,9 +162,17 @@ pub struct Params {
     #[arg(long)]
     pub adaptive: bool,
 
+    /// Build a separate dense repeat index and compare unresolved positional candidates
+    #[arg(long, requires = "adaptive")]
+    pub adaptive_dense: bool,
+
     /// Reads per worker handoff (1 preserves the original scheduling granularity)
     #[arg(long, default_value_t = 1)]
     pub read_batch_size: usize,
+
+    /// Parser threads for uncompressed query FASTA, additional to mapping workers
+    #[arg(long, default_value_t = 1)]
+    pub reader_threads: usize,
 
     /// Enables profiling instrumentation: per-stage timings, a per-thread
     /// breakdown, and memory-usage sampling, written once (as JSON) to
@@ -223,6 +231,9 @@ impl Params {
     /// Range/sign checks equivalent to `params_t::prsArgs`'s validation
     /// (clap handles the parsing/required-ness itself).
     pub fn validate(&self) -> Result<()> {
+        if !(1..=8).contains(&self.reader_threads) {
+            bail!("--reader-threads must be between 1 and 8");
+        }
         if !(1..=256).contains(&self.read_batch_size) {
             bail!("--read-batch-size must be between 1 and 256");
         }
@@ -347,7 +358,9 @@ impl Params {
             ("abs-pos", (self.abs_pos as i32).to_string()),
             ("threads", self.threads.to_string()),
             ("adaptive", self.adaptive.to_string()),
+            ("adaptive-dense", self.adaptive_dense.to_string()),
             ("read-batch-size", self.read_batch_size.to_string()),
+            ("reader-threads", self.reader_threads.to_string()),
             ("compact-index", self.compact_index.to_string()),
             (
                 "index-cache",

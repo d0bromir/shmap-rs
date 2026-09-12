@@ -6,6 +6,10 @@ This is an experimental implementation of part of the proposed redesign, not a
 completed or validated 10x replacement. The original mapping algorithm remains
 the default. No production accuracy claim follows from the local synthetic test.
 
+Mapping and rescue are implemented in shmap itself. No external mapper is a
+dependency, feature, subprocess, or fallback. The proposed external-mapper
+integration was abandoned and its dependency removed before integration.
+
 Implemented:
 
 - Direct bucket jumps instead of advancing through every empty bucket.
@@ -16,22 +20,26 @@ Implemented:
   bases each and expanding to 256 and 512 bases when necessary.
 - Orientation-aware positional candidate voting and local posting-list searches.
 - Reuse of verified anchors for approximate coordinates and sampled similarity.
+- Optional regional dense repeat sketches and native candidate comparison, with
+  independent variant evidence required across multiple query regions.
+- Candidate-local dense sketch scans in place of repeated global posting lookups.
 - Conservative rescue through the original mapper when evidence is insufficient,
   repetitive, inconsistent, or exceeds the candidate/work budget. This is not
   a guarantee that every false candidate will be detected.
 - Reusable worker diagnostics and bounded batched dispatch/result collection.
+- Optional record-boundary-parallel parsing for uncompressed FASTA, with ordered
+  delivery and the original reader retained for other input formats.
 - Rejection of profile archives whose version or date disagrees with their manifest.
 - A repeated, interleaved local benchmark with truth, CPU, memory, and PAF checks.
 
 Not implemented or validated:
 
-- Selective dense repeat indexes, seed-pair/minimizer-tuple indexing, or a new
-  repeat rescue algorithm. Frequent seeds are not removed from the reference;
-  they participate in local verification or original-mapper rescue.
+- Seed-pair/minimizer-tuple indexing and whole-genome validation of regional repeat
+  rescue. Frequent seeds remain available to verification and original-mapper rescue.
 - A robust noisy-ONT seed policy, base-level alignment, or split-read output.
 - Exhaustive alternative-locus discovery or calibrated MAPQ for sampled mappings.
 - Memory-mapped cache loading, posting-block skip directories, numeric counter
-  storage, parallel query parsing, or NUMA-specific scheduling.
+  storage, or NUMA-specific scheduling.
 - Whole-genome accuracy/performance, cold-cache performance, or 10x acceleration.
 
 ## Usage
@@ -67,6 +75,16 @@ Profiling distinguishes `index_load`, `index_save`, and `index_compact` from fre
 indexing. Adaptive counters include `adaptive_fast`, `adaptive_rescue`,
 `adaptive_bases`, `adaptive_hits`, and `adaptive_candidates`; `adaptive` includes
 both successful attempts and attempts that subsequently require rescue.
+
+`--adaptive-dense` adds a separate sketch at density 0.1 over repeat-rich regions.
+It requires `--adaptive`, leaves the base sketch unchanged, and adds a reference
+read/build cost. Candidates lacking regional coverage, unresolved ties, and
+work-budget exhaustion return to the original mapper. Successful dense records
+use `am:Z:adaptive-dense-v1` and still have MAPQ 255. Dense rescue is an
+accuracy-oriented option, not a general speed recommendation.
+
+`--reader-threads 2` enables two query parser threads, additional to the mapping
+workers. It does not change the mapping algorithm or seed selection.
 
 ## Local experiment
 
@@ -131,10 +149,56 @@ definition for its `correct` column; do not compare that column to the final run
 
 ## Remaining gates
 
+### Native dense lookup experiment
+
+After adding dense rescue, the per-candidate verification loop was changed to
+scan the candidate's reference sketch sequentially and match against a reusable
+query hash table. Duplicate query hashes use linked sample indices; nearest-hit
+selection, orientation, tie order, variant evidence, and scoring are unchanged
+when neither implementation exhausts its work limit. The scan budget also counts
+reference entries examined, so unusually large or repetitive candidates may now
+return to the original mapper earlier.
+
+Measured on the same seed-42 synthetic corpus (10,000 reads, 5 Mb reference), one
+mapping thread, five interleaved repeats, one binary, dense indexing included:
+
+| Dense verification | Median mapping | Median total | Median CPU |
+|---|---:|---:|---:|
+| Global posting lookups | 0.945 s | 1.20 s | 1.16 s |
+| Candidate-local sketch scan | 0.703 s | 1.00 s | 0.93 s |
+
+This is a **1.34x mapping-phase improvement**, not a 10x result. Mapping-time
+ranges were 0.869-0.987 s versus 0.662-0.728 s. Total-time ranges overlapped
+(1.00-1.21 s versus 0.80-1.01 s), so the 1.20x total-speedup estimate is noisier.
+
+All ten PAF outputs agreed after removing timing tags: 9,495 mapped reads,
+9,000 correctly placed out of 9,500 non-chimeric truth reads, and 1,914 dense
+rescues. All 2,000 repeat reads were placed correctly in this synthetic set;
+all 500 noisy reads remained unmapped. This does not establish real-genome
+repeat accuracy or noisy-read support. The scan and posting methods both used
+unavailable MAPQ for the same 8,701 adaptive records.
+
+The report, commands, binary hash, raw profiles, and PAF files are retained in
+`target/native-dense-scan-t1/`. Reproduce with:
+
+```sh
+python3 benchmarks/scripts/benchmark_adaptive.py \
+  --output target/native-dense-comparison --reads 10000 --repeats 5 \
+  --threads 1 --dense-lookup-ablation
+```
+
+`SHMAP_DENSE_POSTING_LOOKUPS=1` selects the prior loop for diagnostics. The
+benchmark controls and records this switch explicitly. The default uses local
+scanning; neither variant invokes another mapper.
+
+### Validation
+
 Rust debug/release tests and strict clippy passed during implementation. The
 default golden PAF is unchanged. New checks cover strand handling, ambiguous
 candidate rescue, compact/cache parity, corrupt caches, parameter mismatch,
 partial batches, thread invariance, and profile provenance.
+All 71 Rust tests pass in both profiles after the native dense-scan change,
+including nearest-anchor parity for both strands and duplicate query seeds.
 
 The maintained whole-genome suite could not run: its corpus is not present in
 this workspace and `SHMAP_DATA` is unset. Also, `report.py --check` now rejects the
@@ -143,6 +207,6 @@ existing x86_64 archive: its 105 JSON profiles identify version 1.3.1 from Augus
 must be restored or remeasured; neither metadata nor tables were relabeled.
 
 Before expanding or promoting this mode, measure real repeat-rich references and
-cross-individual truth, implement and validate repeat/ONT/split rescue, calibrate
+cross-individual truth, validate repeat rescue and implement native ONT/split rescue, calibrate
 confidence, and check the full suite. A fast common path with unchanged difficult
 reads is not sufficient for the proposed 10x target.

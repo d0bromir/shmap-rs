@@ -10,7 +10,9 @@ use needletail::parse_fastx_file;
 
 use crate::utils::Timers;
 
+mod queries;
 pub mod semantics;
+pub use queries::read_queries;
 
 use semantics::Semantics;
 

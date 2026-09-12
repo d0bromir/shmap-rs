@@ -7,6 +7,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import platform
 import random
 import statistics
@@ -89,7 +90,7 @@ def assess(path: Path, truth: dict) -> dict:
             categories[item["category"]]["correct"] += correct
             counts["wrong_confident"] += item["category"] != "chimera" and not correct and 10 <= mapq < 255
             counts["mapq_unavailable"] += mapq == 255
-            counts["fast"] += "am:Z:adaptive-v1" in fields
+            counts["fast"] += any(field.startswith("am:Z:adaptive") for field in fields)
     return {**counts, "categories": categories}
 
 
@@ -99,7 +100,8 @@ def warm(path: Path) -> None:
             pass
 
 
-def run(binary: Path, extra: list[str], prefix: Path, reference: Path, reads: Path, threads: int, truth: dict) -> dict:
+def run(binary: Path, extra: list[str], prefix: Path, reference: Path, reads: Path, threads: int, truth: dict,
+    posting_lookups: bool = False) -> dict:
     profile = prefix.with_suffix(".json")
     timing = prefix.with_suffix(".time")
     paf = prefix.with_suffix(".paf")
@@ -108,8 +110,12 @@ def run(binary: Path, extra: list[str], prefix: Path, reference: Path, reads: Pa
                "-d", "0.075", "-o", "0.3", "-@", str(threads), "-x", "--profile-log", str(profile), *extra]
     warm(reference)
     warm(reads)
+    environment = os.environ.copy()
+    environment.pop("SHMAP_DENSE_POSTING_LOOKUPS", None)
+    if posting_lookups:
+        environment["SHMAP_DENSE_POSTING_LOOKUPS"] = "1"
     with paf.open("w") as stdout, prefix.with_suffix(".stderr").open("w") as stderr:
-        subprocess.run(command, stdout=stdout, stderr=stderr, check=True)
+        subprocess.run(command, stdout=stdout, stderr=stderr, check=True, env=environment)
     wall, user, system, rss = map(float, timing.read_text().split())
     data = json.loads(profile.read_text())
     timers = data["global"]["timers_secs"]
@@ -120,7 +126,9 @@ def run(binary: Path, extra: list[str], prefix: Path, reference: Path, reads: Pa
             "adaptive_bases": counters.get("adaptive_bases", 0),
             "adaptive_hits": counters.get("adaptive_hits", 0),
             "adaptive_candidates": counters.get("adaptive_candidates", 0),
-            "command": command, **assess(paf, truth)}
+            "dense_rescued": counters.get("adaptive_dense", 0),
+            "repeat_indexing_s": timers.get("repeat_indexing", 0),
+            "posting_lookups": posting_lookups, "command": command, **assess(paf, truth)}
 
 
 def digest(path: Path) -> str:
@@ -137,6 +145,8 @@ def main() -> None:
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--dense-lookup-ablation", action="store_true",
+                        help="compare candidate-local scans with global posting searches in the same binary")
     args = parser.parse_args()
     if min(args.reads, args.repeats, args.threads) < 1:
         parser.error("reads, repeats, and threads must be positive")
@@ -152,19 +162,25 @@ def main() -> None:
         "compact": (binary, ["--compact-index"]),
         "adaptive": (binary, ["--compact-index", "--adaptive"]),
         "adaptive-batched": (binary, ["--compact-index", "--adaptive", "--read-batch-size", "64"]),
+        "adaptive-dense": (binary, ["--compact-index", "--adaptive", "--adaptive-dense", "--read-batch-size", "64"]),
+        "adaptive-parsing": (binary, ["--compact-index", "--adaptive", "--read-batch-size", "64", "--reader-threads", "2"]),
         "adaptive-cached": (binary, ["--adaptive", "--read-batch-size", "64", "--index-cache", str(cache)]),
     }
+    if args.dense_lookup_ablation:
+        configs = {"adaptive-dense": configs["adaptive-dense"], "dense-postings": configs["adaptive-dense"]}
     build = run(binary, ["--index-cache", str(cache)], args.output / "cache-build", reference, reads, args.threads, truth)
     rows = []
     names = list(configs)
     for repeat in range(args.repeats):
         for name in names[repeat % len(names):] + names[:repeat % len(names)]:
             executable, extra = configs[name]
-            row = {"mode": name, "repeat": repeat, **run(executable, extra, args.output / f"{name}-{repeat}", reference, reads, args.threads, truth)}
+            row = {"mode": name, "repeat": repeat, **run(executable, extra, args.output / f"{name}-{repeat}", reference, reads, args.threads, truth,
+                                                        posting_lookups=name == "dense-postings")}
             rows.append(row)
             print(f"{name:20} repeat={repeat} wall={row['wall_s']:.3f}s map={row['mapping_s']:.3f}s correct={row['correct']}/{row['truth_reads']} fast={row['fast']}", flush=True)
     summary = {}
-    base_wall = statistics.median(row["wall_s"] for row in rows if row["mode"] == "baseline")
+    baseline_mode = "dense-postings" if args.dense_lookup_ablation else "baseline"
+    base_wall = statistics.median(row["wall_s"] for row in rows if row["mode"] == baseline_mode)
     for name in names:
         group = [row for row in rows if row["mode"] == name]
         wall = statistics.median(row["wall_s"] for row in group)
@@ -172,10 +188,11 @@ def main() -> None:
                          "mapping_s": statistics.median(row["mapping_s"] for row in group),
                          "cpu_s": statistics.median(row["cpu_s"] for row in group),
                          "peak_rss_kb": max(row["peak_rss_kb"] for row in group),
-                         **{key: group[0][key] for key in ["mapped", "correct", "endpoints_1kb", "wrong_confident", "fast", "invalid", "mapq_unavailable", "categories"]}}
+                         **{key: group[0][key] for key in ["mapped", "correct", "endpoints_1kb", "wrong_confident", "fast", "invalid", "mapq_unavailable", "categories", "dense_rescued"]}}
         assert all(row["invalid"] == 0 for row in group), f"invalid PAF in {name}"
         assert len({(row["mapped"], row["correct"], row["fast"]) for row in group}) == 1, f"nondeterministic counts in {name}"
     report = {"scope": "synthetic 5 Mb reference; not WGS; cache-build is excluded only from adaptive-cached",
+              "baseline_mode": baseline_mode,
               "accuracy": "correct: both endpoints within one read length on the true strand; endpoints_1kb is stricter; chimeras excluded from both; MAPQ 255 is not confidence",
               "seed": args.seed, "threads": args.threads, "repeats": args.repeats, "host": platform.platform(),
               "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
