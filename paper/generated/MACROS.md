@@ -14,7 +14,7 @@ re-measurement rewrites the sentences rather than leaving them quietly wrong.
 | `x86_64` | x86_64/current on a2 @ 18d0f83627b5 (2026-09-12) |
 | `aarch64` | aarch64/current on galaxy @ 18d0f83627b5 (2026-09-12) |
 | reference | `x86_64` — macros ending `X` name it, `A` names `aarch64` |
-| input digest | `sha256:32da7e14ac55e610` |
+| input digest | `sha256:d44635e56d1be819` |
 
 Regenerate with `python3 benchmarks/scripts/manuscript.py`; verify with `--check`,
 which fails if any value would change **or** if the draft uses a macro that no longer

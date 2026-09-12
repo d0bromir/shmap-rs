@@ -130,8 +130,8 @@
   ],
   "rows": 9,
   "measured_in_run": 6,
-  "from_commit": "9b9dcd5",
-  "measured": "2026-09-07",
+  "from_commit": "18d0f83627b5",
+  "measured": "2026-09-12",
   "why": "role=reference in suite.toml: re-measured only when the binary changes, so the previous measurement stands. The drift probe covers part of it every run; these are the keys it does not. Re-measure all of it with run.py --impls shmap-rs,cpp-shmap."
  }
 }

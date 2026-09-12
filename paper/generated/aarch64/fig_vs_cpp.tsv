@@ -4,7 +4,7 @@
 # commit:     18d0f83627b5
 # host:       galaxy
 # measured:   2026-09-12
-# inputs:     sha256:152df922eb144f3f
+# inputs:     sha256:41e718b1bbefe8cb
 # provenance: paper/generated/PROVENANCE.md#fig_vs_cpp
 benchmark	metric	speedup_vs_cpp	rss_ratio_vs_cpp	cpp_wall_s	rs_wall_s	cpp_rss_gb	rs_rss_gb
 B01	Containment	2.321	7.084	103.09	44.41	18.849	2.661
