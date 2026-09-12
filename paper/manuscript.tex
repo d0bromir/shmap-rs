@@ -110,11 +110,11 @@ admissible seed heuristic, and refines the survivors with a sliding window.
 \textbf{Everything mapping-relevant here is Ivanov's.} The algorithm, the seed
 heuristic and its admissibility argument, the metrics, the parameterisation and
 the C++ implementation we measure against are all his; this paper contributes
-no algorithmic idea and reports no accuracy improvement, because there is none
-to report. What it contributes is engineering: the same algorithm's cost
-is dominated by dependent memory references rather than arithmetic, and that
-was worth re-engineering. No change may alter a single output record, so every
-number below compares two implementations of one algorithm --- his.
+no algorithmic idea and reports no accuracy improvement, because there is none.
+Its contribution is engineering: the same algorithm's cost is dominated by
+dependent memory references rather than arithmetic, worth re-engineering. No
+change may alter a single output record, so every number below compares two
+implementations of one algorithm --- his.
 
 \section{Implementation}
 
@@ -191,12 +191,11 @@ keeps a \shmRssRatioCap$\times$ advantage, on cores the reference cannot use.
 \input{x86_64/fig_stage_breakdown.tex}}
 
 \textbf{Where the time goes.} Figure~\ref{fig:stages} gives every stage's share
-of \texttt{query\_mapping} for all \shmNumCells{} cells. The costliest is
-\texttt{\shmTopStage} at \shmTopStageShare\% of CPU on average: pointer-chasing
-and latency-bound, which is why the profitable changes concerned the shape of
-the data rather than the width of the arithmetic. The profile barely moves
-between machines --- largest shift in any stage's share \shmShiftPP{}
-percentage points, in \texttt{\shmShiftStage}, which is input reading.
+of \texttt{query\_mapping} for all \shmNumCells{} cells. Costliest is
+\texttt{\shmTopStage} at \shmTopStageShare\% of CPU: pointer-chasing and
+latency-bound, which is why the profitable changes concerned the data's shape
+rather than the arithmetic's width. The profile barely moves between machines ---
+largest shift \shmShiftPP{} points, in \texttt{\shmShiftStage} (input reading).
 
 \textbf{Thread scaling, and where it stops.} On \shmScaleXPeakBench{}
 \texttt{\shmHostX} reaches \shmScaleXPeak$\times$ at \shmScaleXPeakThreads{}
@@ -204,10 +203,9 @@ threads then falls back; \texttt{\shmHostA} climbs monotonically to
 \shmScaleAPeak$\times$ at \shmScaleAPeakThreads. Matrix medians
 \shmScaleXKnee$\times$ against \shmScaleAKnee$\times$ at \shmKneeThreads{}
 threads, \shmScaleXCap$\times$ against \shmScaleACap$\times$ at \shmCapThreads.
-Not the instruction set but the topologies above: the ceiling is
-memory-bandwidth contention on the shared index,
-appearing as soon as a run spans more than one socket; \texttt{numactl} to one
-node recovers most of it.
+The topologies above explain it, not the instruction set: the ceiling is
+memory-bandwidth contention on the shared index, appearing as soon as a run
+spans more than one socket; \texttt{numactl} to one node recovers most of it.
 
 \textbf{Accuracy is unchanged, and checked.} On the simulated benchmark, the
 only input with ground truth, reads land within one read length of their true
@@ -215,27 +213,24 @@ position for \shmAccMin--\shmAccMax\% of reads by metric, and at most
 \shmWrongQMax{} reads under any metric are placed wrongly while reported as
 confident.
 
-\textbf{Four things that did not pay}, recorded because a negative result
-nobody writes down gets retried. The sketching loop is load-port bound at six
-level-one loads per base, which sinks both SIMD (more lanes, same ports) and
-two-bit packing (removes the wrong two loads). Prefetching the pruning lookups
-is at best break-even. Per-node index replication, in five implementations, was slower
-than doing nothing wherever a run spanned more than one socket.
+\textbf{What did not pay}, recorded so it is not retried: sketching is
+load-port bound at six loads per base, sinking SIMD and two-bit packing alike;
+prefetching the pruning lookups is at best break-even; per-node index
+replication was slower than nothing once a run spanned more than one socket.
 
 \section{Conclusion}
 
 The headroom was not algorithmic --- which is the point. Ivanov's seed
-heuristic on sketches is what makes the mapping decisions, and it is unchanged
-here down to the byte; the change that mattered most was a data structure sized
-by the query rather than by the reference. Every number, table and figure here
-is regenerated from the committed result sets by scripts in the repository, and
-CI fails if any drifts from what it reports.
+heuristic on sketches makes the mapping decisions, unchanged here down to the
+byte; what mattered most was a data structure sized by the query, not the
+reference. Every number, table and figure here is regenerated from the
+committed result sets, and CI fails if any drifts from what it reports.
 
 \small
-\vspace{0.4em}
+\vspace{0.2em}
 \noindent\textbf{Acknowledgements.} \shmContributors{} contributed to this
 work as a project member.
-\vspace{0.2em}
+\vspace{0.1em}
 
 \begin{thebibliography}{9}
 \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}
