@@ -336,6 +336,22 @@ def main() -> int:
         check("placement accuracy is separate from endpoints", (scored["correct"], scored["endpoints_1kb"]), (1, 0))
         check("MAPQ 255 is not confident", scored["wrong_confident"], 0)
 
+        from benchmark_native_hosts import assess as assess_native
+        native_record = "S1_1!chr1!10!110!+\t100\t0\t100\t+\tchr1\t110\t10\t110\t100\t100\t255\tam:Z:adaptive-v1\tt:f:1\n"
+        probe.write_text(native_record)
+        native = assess_native(probe)
+        check("native half-open segment endpoint is valid", native["invalid"], 0)
+        check("native MAPQ 255 is unavailable", native["mapq_unavailable"], 1)
+        check("native truth overlap and endpoints", (native["truth_overlap_correct"], native["endpoints_1kb"]), (1, 1))
+        probe.write_text(native_record.replace("t:f:1", "t:f:2"))
+        check("native determinism ignores timing tags", assess_native(probe)["paf_without_timing_sha256"], native["paf_without_timing_sha256"])
+        probe.write_text(native_record.replace("\t+\tchr1", "\t-\tchr1"))
+        wrong = assess_native(probe)
+        check("native truth requires correct strand", wrong["truth_overlap_correct"], 0)
+        check("native unavailable MAPQ is not false confidence", wrong["wrong_mapq60"], 0)
+        probe.write_text("bad\n")
+        check("native malformed PAF fails validation", assess_native(probe)["invalid"], 1)
+
         print("single-record file:")
         src = tmp / "one.fa"
         src.write_text(">r1\nACGT\nACGT\n")

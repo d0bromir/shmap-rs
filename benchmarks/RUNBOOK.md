@@ -61,6 +61,39 @@ whichever commit was already there — four hours attributed to the wrong tree. 
 `git rev-parse HEAD` equals the branch you meant, and that `git status --porcelain` is empty,
 before spending a machine.
 
+## Native Adaptive Experiments
+
+`benchmark_native_hosts.py` compares only shmap-rs modes on the registered
+B01-B05 inputs: default, adaptive with batching, adaptive with dense rescue,
+and adaptive with two additional parser threads. It uses Containment at 1, 16,
+and 64 mapping workers and the host's repeat count (a2: three; galaxy: one).
+It does not run external mappers or drift probes, change the suite definition,
+reuse an index cache, or promote results. This is a separate experiment, not
+the full maintained compatibility gate. Ratios compare modes of the same binary,
+not the current binary against an older release. Parser workers are additional
+to mapping workers and must be counted in resource comparisons.
+
+Run from an isolated checkout of the trusted revision with the dataset root set:
+
+```bash
+export PATH="$HOME/.cargo/bin:$HOME/bin:$PATH"
+export SHMAP_DATA="$HOME"
+python3 benchmarks/scripts/benchmark_native_hosts.py --commit <trusted-sha> \
+  --out "$HOME/bench-results/native-<trusted-sha>" --dry-run
+setsid nohup python3 benchmarks/scripts/benchmark_native_hosts.py \
+  --commit <trusted-sha> --out "$HOME/bench-results/native-<trusted-sha>" \
+  > "$HOME/native-<trusted-sha>.log" 2>&1 < /dev/null &
+```
+
+The driver holds the host lock itself, verifies registered dataset sizes, and
+builds a detached worktree. It refuses an existing build worktree or output
+directory. Raw PAF, profile, stderr, and resource measurements are retained,
+along with exact commands and a progressively updated `report.json`. Worktrees
+are retained for inspection. Output hashes omit only timing tags and must agree
+across repeats and worker counts within each mode. MAPQ 255 is unavailable,
+not confidence; simulated-read placement requires the correct segment and
+strand with interval IoU above 0.1. Real-read mapping counts are not accuracy.
+
 ## Re-judging without re-measuring
 
 Checks are deterministic functions of the retained PAFs, so a corrected threshold or a rebuilt
