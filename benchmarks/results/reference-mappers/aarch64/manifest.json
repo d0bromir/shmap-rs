@@ -1,10 +1,58 @@
 {
   "schema": 2,
-  "generated": "2026-08-10T12:13:44.911134+00:00",
+  "generated": "2026-09-12T16:23:41.235753+00:00",
   "host": "galaxy",
   "arch": "aarch64",
   "cache_dir": "/home/mpiuser/bench-refs",
   "entries": [
+    {
+      "mapper": "bwa-mem2",
+      "benchmark": "B06",
+      "role": "peer",
+      "status": "cached",
+      "version": "2.2.1 [bwa-mem2-2.3-h1e84f2d_0]",
+      "cmd": "/home/mpiuser/micromamba/envs/refmappers/bin/bwa-mem2 mem -t 32 /home/mpiuser/bench-refs/REF-HS1.bwamem2.fa /home/mpiuser/shmap-rs/benchmarks/data/files/aviti150/reads_aviti_2x.fa > /home/mpiuser/bench-refs/bwa-mem2/B06.sam && /home/mpiuser/shmap-rs/benchmarks/scripts/sam2paf.py --stats /home/mpiuser/bench-refs/bwa-mem2/B06.sam > /home/mpiuser/bench-refs/bwa-mem2/B06.paf && rm -f /home/mpiuser/bench-refs/bwa-mem2/B06.sam",
+      "mapped": 41807925,
+      "wall_s": 565.2,
+      "peak_rss_kb": 37387132,
+      "measured": "2026-08-15T19:15:47.399266+00:00"
+    },
+    {
+      "mapper": "bwa-mem2",
+      "benchmark": "B07",
+      "role": "peer",
+      "status": "cached",
+      "version": "2.2.1 [bwa-mem2-2.3-h1e84f2d_0]",
+      "cmd": "/home/mpiuser/micromamba/envs/refmappers/bin/bwa-mem2 mem -t 32 /home/mpiuser/bench-refs/REF-HS1.bwamem2.fa /home/mpiuser/shmap-rs/benchmarks/data/files/aviti150/reads_aviti_4x.fa > /home/mpiuser/bench-refs/bwa-mem2/B07.sam && /home/mpiuser/shmap-rs/benchmarks/scripts/sam2paf.py --stats /home/mpiuser/bench-refs/bwa-mem2/B07.sam > /home/mpiuser/bench-refs/bwa-mem2/B07.paf && rm -f /home/mpiuser/bench-refs/bwa-mem2/B07.sam",
+      "mapped": 83600076,
+      "wall_s": 1061.9,
+      "peak_rss_kb": 37388576,
+      "measured": "2026-08-15T19:33:39.731134+00:00"
+    },
+    {
+      "mapper": "bwa-mem2",
+      "benchmark": "B08",
+      "role": "peer",
+      "status": "cached",
+      "version": "2.2.1 [bwa-mem2-2.3-h1e84f2d_0]",
+      "cmd": "/home/mpiuser/micromamba/envs/refmappers/bin/bwa-mem2 mem -t 32 /home/mpiuser/bench-refs/REF-HS1.bwamem2.fa /home/mpiuser/shmap-rs/benchmarks/data/files/aviti150/reads_aviti_7x.fa > /home/mpiuser/bench-refs/bwa-mem2/B08.sam && /home/mpiuser/shmap-rs/benchmarks/scripts/sam2paf.py --stats /home/mpiuser/bench-refs/bwa-mem2/B08.sam > /home/mpiuser/bench-refs/bwa-mem2/B08.paf && rm -f /home/mpiuser/bench-refs/bwa-mem2/B08.sam",
+      "mapped": 146287615,
+      "wall_s": 1822.8,
+      "peak_rss_kb": 37394184,
+      "measured": "2026-08-15T20:04:20.610133+00:00"
+    },
+    {
+      "mapper": "bwa-mem2",
+      "benchmark": "B09",
+      "role": "peer",
+      "status": "cached",
+      "version": "2.2.1 [bwa-mem2-2.3-h1e84f2d_0]",
+      "cmd": "/home/mpiuser/micromamba/envs/refmappers/bin/bwa-mem2 mem -t 32 /home/mpiuser/bench-refs/REF-HS1.bwamem2.fa /home/mpiuser/shmap-rs/benchmarks/data/files/shortread2024/reads_hg008_1x.fa > /home/mpiuser/bench-refs/bwa-mem2/B09.sam && /home/mpiuser/shmap-rs/benchmarks/scripts/sam2paf.py --stats /home/mpiuser/bench-refs/bwa-mem2/B09.sam > /home/mpiuser/bench-refs/bwa-mem2/B09.paf && rm -f /home/mpiuser/bench-refs/bwa-mem2/B09.sam",
+      "mapped": 20638443,
+      "wall_s": 264.5,
+      "peak_rss_kb": 25225760,
+      "measured": "2026-09-07T09:07:38.109302+00:00"
+    },
     {
       "mapper": "mapquik",
       "benchmark": "B01",
@@ -36,6 +84,14 @@
       "status": "missing",
       "version": "",
       "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/shmap-rs/benchmarks/data/files/hifi_real/hifi_10x.fa --reference /home/mpiuser/bench-refs/REF-HS1.oneline.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B04"
+    },
+    {
+      "mapper": "mapquik",
+      "benchmark": "B09",
+      "role": "peer",
+      "status": "missing",
+      "version": "",
+      "cmd": "/home/mpiuser/tools/mapquik/mapquik /home/mpiuser/shmap-rs/benchmarks/data/files/shortread2024/reads_hg008_1x.fa --reference /home/mpiuser/bench-refs/REF-HS1.oneline.fa --threads 32 -p /home/mpiuser/bench-refs/mapquik/B09"
     },
     {
       "mapper": "winnowmap2",
@@ -96,6 +152,14 @@
       "wall_s": 327.1,
       "peak_rss_kb": 6405764,
       "measured": "2026-08-10T12:13:44.910778+00:00"
+    },
+    {
+      "mapper": "winnowmap2",
+      "benchmark": "B09",
+      "role": "gold",
+      "status": "missing",
+      "version": "2.03",
+      "cmd": "/home/mpiuser/tools/Winnowmap/bin/winnowmap -W /home/mpiuser/bench-refs/REF-HS1.repetitive.k15.txt -t 32 -x sr /home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa /home/mpiuser/shmap-rs/benchmarks/data/files/shortread2024/reads_hg008_1x.fa"
     }
   ]
 }

@@ -47,7 +47,7 @@ concordance_winnowmap2	B03	bucket_SH	True	good=0.9655 recall=0.9992 agreement=0.
 thread_determinism	B04	Containment	True	identical across all thread counts
 validate_paf	B04	Containment	True	all structural and score invariants hold
 concordance_mapquik	B04	Containment	True	good=0.9699 recall=0.9989 agreement=0.9710 ref=2394360
-concordance_winnowmap2	B04	Containment	True	good=0.9662 recall=0.9990 agreement=0.9671 ref=2422135
+concordance_winnowmap2	B04	Containment	True	good=0.9661 recall=0.9990 agreement=0.9671 ref=2422135
 thread_determinism	B04	Jaccard	True	identical across all thread counts
 validate_paf	B04	Jaccard	True	all structural and score invariants hold
 concordance_mapquik	B04	Jaccard	True	good=0.9674 recall=0.9958 agreement=0.9714 ref=2394360
@@ -55,7 +55,7 @@ concordance_winnowmap2	B04	Jaccard	True	good=0.9632 recall=0.9956 agreement=0.96
 thread_determinism	B04	bucket_SH	True	identical across all thread counts
 validate_paf	B04	bucket_SH	True	all structural and score invariants hold
 concordance_mapquik	B04	bucket_SH	True	good=0.9699 recall=0.9991 agreement=0.9708 ref=2394360
-concordance_winnowmap2	B04	bucket_SH	True	good=0.9645 recall=0.9993 agreement=0.9653 ref=2422135
+concordance_winnowmap2	B04	bucket_SH	True	good=0.9645 recall=0.9992 agreement=0.9653 ref=2422135
 thread_determinism	B05	Containment	True	identical across all thread counts
 validate_paf	B05	Containment	True	all structural and score invariants hold
 concordance_winnowmap2	B05	Containment	True	good=0.4621 recall=0.4724 agreement=0.9783 ref=83853
@@ -69,9 +69,10 @@ validate_paf	B05	bucket_SH	True	all structural and score invariants hold
 concordance_winnowmap2	B05	bucket_SH	True	good=0.4794 recall=0.4903 agreement=0.9776 ref=83853
 impl_agreement	B05	bucket_SH	True	40368/41115 = 0.9818
 validate_paf	B06	Containment	True	all structural and score invariants hold
-concordance_bwa-mem2	B06	Containment	True	good=0.9085 recall=0.9776 agreement=0.9294 ref=41722937
+concordance_bwa-mem2	B06	Containment	True	good=0.9085 recall=0.9776 agreement=0.9293 ref=41722937
 validate_paf	B07	Containment	True	all structural and score invariants hold
-concordance_bwa-mem2	B07	Containment	True	good=0.9127 recall=0.9818 agreement=0.9296 ref=83430048
+concordance_bwa-mem2	B07	Containment	True	good=0.9126 recall=0.9818 agreement=0.9296 ref=83430048
 validate_paf	B08	Containment	True	all structural and score invariants hold
-concordance_bwa-mem2	B08	Containment	True	good=0.9136 recall=0.9828 agreement=0.9296 ref=145987234
+concordance_bwa-mem2	B08	Containment	True	good=0.9135 recall=0.9828 agreement=0.9295 ref=145987234
 validate_paf	B09	Containment	True	all structural and score invariants hold
+concordance_bwa-mem2	B09	Containment	True	good=0.9164 recall=0.9717 agreement=0.9431 ref=20590623
