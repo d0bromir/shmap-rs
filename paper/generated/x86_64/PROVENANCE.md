@@ -7,11 +7,11 @@ transformation the code does not perform.
 | | |
 |---|---|
 | result set | `current` |
-| commit | `9b9dcd5` |
+| commit | `18d0f83627b5` |
 | host | `a2` |
-| measured | 2026-09-07 |
+| measured | 2026-09-12 |
 | suite / datasets | 1.2 / 3 |
-| input digest | `sha256:c392f48d09f03370` |
+| input digest | `sha256:51d37586d0e48420` |
 
 Regenerate with `python3 benchmarks/scripts/paper.py`; verify with `--check`, which fails if any
 artifact would change. Each artifact is emitted twice: a `.tex` fragment to `\input`

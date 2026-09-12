@@ -11,10 +11,10 @@ re-measurement rewrites the sentences rather than leaving them quietly wrong.
 
 | | |
 |---|---|
-| `x86_64` | x86_64/current on a2 @ 9b9dcd5 (2026-09-07) |
-| `aarch64` | aarch64/current on galaxy @ 9b9dcd5 (2026-09-07) |
+| `x86_64` | x86_64/current on a2 @ 18d0f83627b5 (2026-09-12) |
+| `aarch64` | aarch64/current on galaxy @ 18d0f83627b5 (2026-09-12) |
 | reference | `x86_64` — macros ending `X` name it, `A` names `aarch64` |
-| input digest | `sha256:e7e053eec3aa81eb` |
+| input digest | `sha256:32da7e14ac55e610` |
 
 Regenerate with `python3 benchmarks/scripts/manuscript.py`; verify with `--check`,
 which fails if any value would change **or** if the draft uses a macro that no longer
@@ -33,9 +33,9 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmCoresA` | 128 | cores | Cores on the second machine. | `hosts.toml :: cores` |
 | `\shmTopologyX` | 4 sockets $\times$ 16 cores, 4 NUMA nodes | — | Socket and NUMA layout of the reference machine. | `hosts.toml :: topology` |
 | `\shmTopologyA` | 1 socket $\times$ 128 cores, 1 NUMA node | — | Socket and NUMA layout of the second machine. | `hosts.toml :: topology` |
-| `\shmCommit` | 9b9dcd5 | — | Commit both result sets measure. | `current/manifest.json :: commit` |
-| `\shmMeasuredX` | 2026-09-07 | — | Date the reference set was measured. | `current/manifest.json :: finished` |
-| `\shmMeasuredA` | 2026-09-07 | — | Date the second set was measured. | `current/manifest.json :: finished` |
+| `\shmCommit` | 18d0f83627b5 | — | Commit both result sets measure. | `current/manifest.json :: commit` |
+| `\shmMeasuredX` | 2026-09-12 | — | Date the reference set was measured. | `current/manifest.json :: finished` |
+| `\shmMeasuredA` | 2026-09-12 | — | Date the second set was measured. | `current/manifest.json :: finished` |
 | `\shmRustc` | 1.97.1 | — | Compiler both sets were built with. | `current/manifest.json :: rustc` |
 | `\shmSuiteVersion` | 1.2 | — | Benchmark suite version the sets belong to. | `benchmarks/data/suite.toml :: suite_version` |
 | `\shmVersion` | 1.5.0 | — | Release of shmap-rs the paper describes. | `Cargo.toml :: package.version` |
@@ -76,34 +76,34 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmNumBenchmarks` | 9 | — | Benchmarks in the suite. | `current/results.tsv :: benchmark` |
 | `\shmNumMetrics` | 3 | — | Similarity metrics each benchmark is run under. | `current/results.tsv :: metric` |
 | `\shmNumCells` | 19 | — | (benchmark, metric) pairs behind every range quoted. | `current/results.tsv :: benchmark, metric` |
-| `\shmSpeedupXMin` | 2.14 | x | Smallest single-threaded speedup over the C++, reference machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
-| `\shmSpeedupXMax` | 2.97 | x | Largest single-threaded speedup over the C++, reference machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
-| `\shmSpeedupXMedian` | 2.62 | x | Median single-threaded speedup over the C++, reference machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
-| `\shmSpeedupAMin` | 1.94 | x | Smallest single-threaded speedup over the C++, second machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
-| `\shmSpeedupAMax` | 2.59 | x | Largest single-threaded speedup over the C++, second machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
-| `\shmSpeedupAMedian` | 2.29 | x | Median single-threaded speedup over the C++, second machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
-| `\shmRssRsMin` | 2.58 | GB | Lowest peak RSS of shmap-rs, single-threaded, reference machine. | `current/results.tsv :: peak_rss_kb at threads=1, shmap-rs` |
+| `\shmSpeedupXMin` | 2.07 | x | Smallest single-threaded speedup over the C++, reference machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
+| `\shmSpeedupXMax` | 2.95 | x | Largest single-threaded speedup over the C++, reference machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
+| `\shmSpeedupXMedian` | 2.58 | x | Median single-threaded speedup over the C++, reference machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
+| `\shmSpeedupAMin` | 1.75 | x | Smallest single-threaded speedup over the C++, second machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
+| `\shmSpeedupAMax` | 2.55 | x | Largest single-threaded speedup over the C++, second machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
+| `\shmSpeedupAMedian` | 2.21 | x | Median single-threaded speedup over the C++, second machine. | `current/results.tsv :: wall_s at threads=1, shmap-rs and cpp-shmap` |
+| `\shmRssRsMin` | 2.57 | GB | Lowest peak RSS of shmap-rs, single-threaded, reference machine. | `current/results.tsv :: peak_rss_kb at threads=1, shmap-rs` |
 | `\shmRssRsMax` | 2.67 | GB | Highest peak RSS of shmap-rs, single-threaded, reference machine. | `current/results.tsv :: peak_rss_kb at threads=1, shmap-rs` |
 | `\shmRssCpp` | 18.85 | GB | Peak RSS of the C++, reference machine (median over cells). | `current/results.tsv :: peak_rss_kb, cpp-shmap` |
 | `\shmRssCppSpreadMB` | 6 | MB | How far the C++'s peak RSS moves across every benchmark. | `current/results.tsv :: peak_rss_kb, cpp-shmap, max minus min` |
 | `\shmMinHalflen` | 5 | — | Bucket half-length floor; the C++ allocates a slot per this many bases of the reference. | `src/buckets.rs :: MIN_HALFLEN` |
-| `\shmRssRatioMin` | 7.0 | x | Smallest peak-RSS advantage over the C++, paired within a cell. | `current/results.tsv :: peak_rss_kb, both implementations` |
+| `\shmRssRatioMin` | 7.1 | x | Smallest peak-RSS advantage over the C++, paired within a cell. | `current/results.tsv :: peak_rss_kb, both implementations` |
 | `\shmRssRatioMax` | 7.3 | x | Largest peak-RSS advantage over the C++, paired within a cell. | `current/results.tsv :: peak_rss_kb, both implementations` |
 | `\shmRssRsFloor` | 1.85 | GB | Lowest peak RSS anywhere in the thread sweep. | `current/results.tsv :: peak_rss_kb, shmap-rs, all thread counts` |
 | `\shmRssRsFloorThreads` | 2 | — | Thread count at which it is lowest. | `current/results.tsv :: peak_rss_kb, shmap-rs, all thread counts` |
-| `\shmRssRsCap` | 8.78 | GB | Highest peak RSS at the sweep cap, across benchmarks. | `current/results.tsv :: peak_rss_kb, shmap-rs at threads=64` |
+| `\shmRssRsCap` | 9.12 | GB | Highest peak RSS at the sweep cap, across benchmarks. | `current/results.tsv :: peak_rss_kb, shmap-rs at threads=64` |
 | `\shmRssRsCapBench` | B04 | — | Benchmark that reaches it. | `current/results.tsv :: peak_rss_kb, shmap-rs at threads=64` |
 | `\shmRssRatioCap` | 2.1 | x | Peak-RSS advantage still held at the sweep cap, worst case. | `current/results.tsv :: peak_rss_kb, both implementations` |
 | `\shmKneeThreads` | 16 | — | Thread count the prose calls the reference machine's knee. | `constant in manuscript.py` |
 | `\shmCapThreads` | 64 | — | Highest thread count both machines sweep. | `benchmarks/data/hosts.toml :: thread_cap` |
-| `\shmScaleXKnee` | 6.2 | x | Median speedup at the knee, reference machine. | `current/results.tsv :: wall_s at threads=1 and threads=16` |
-| `\shmScaleAKnee` | 10.1 | x | Median speedup at the knee, second machine. | `current/results.tsv :: wall_s at threads=1 and threads=16` |
-| `\shmScaleXCap` | 6.0 | x | Median speedup at the sweep cap, reference machine. | `current/results.tsv :: wall_s at threads=1 and threads=64` |
-| `\shmScaleACap` | 12.0 | x | Median speedup at the sweep cap, second machine. | `current/results.tsv :: wall_s at threads=1 and threads=64` |
-| `\shmScaleXPeak` | 16.6 | x | Best speedup the reference machine reached anywhere in the matrix. | `current/results.tsv :: wall_s across the thread sweep` |
+| `\shmScaleXKnee` | 5.9 | x | Median speedup at the knee, reference machine. | `current/results.tsv :: wall_s at threads=1 and threads=16` |
+| `\shmScaleAKnee` | 10.0 | x | Median speedup at the knee, second machine. | `current/results.tsv :: wall_s at threads=1 and threads=16` |
+| `\shmScaleXCap` | 6.3 | x | Median speedup at the sweep cap, reference machine. | `current/results.tsv :: wall_s at threads=1 and threads=64` |
+| `\shmScaleACap` | 12.9 | x | Median speedup at the sweep cap, second machine. | `current/results.tsv :: wall_s at threads=1 and threads=64` |
+| `\shmScaleXPeak` | 17.9 | x | Best speedup the reference machine reached anywhere in the matrix. | `current/results.tsv :: wall_s across the thread sweep` |
 | `\shmScaleXPeakThreads` | 32 | — | Thread count at which it reached it. | `current/results.tsv :: wall_s across the thread sweep` |
 | `\shmScaleXPeakBench` | B04 | — | Benchmark on which it reached it. | `current/results.tsv :: wall_s across the thread sweep` |
-| `\shmScaleAPeak` | 27.3 | x | Best speedup the second machine reached anywhere in the matrix. | `current/results.tsv :: wall_s across the thread sweep` |
+| `\shmScaleAPeak` | 28.8 | x | Best speedup the second machine reached anywhere in the matrix. | `current/results.tsv :: wall_s across the thread sweep` |
 | `\shmScaleAPeakThreads` | 64 | — | Thread count at which it reached it. | `current/results.tsv :: wall_s across the thread sweep` |
 | `\shmScaleAPeakBench` | B04 | — | Benchmark on which it reached it. | `current/results.tsv :: wall_s across the thread sweep` |
 | `\shmAgreeCells` | 15 | — | (benchmark, metric) pairs whose counters are identical on both machines. | `current/profiles.tsv :: n_mapped_reads, n_mapq60, n_seeded_buckets, n_refined_buckets, n_final_buckets` |
@@ -114,11 +114,11 @@ everyone else, both from one computation so they cannot disagree.
 | `\shmAccMax` | 99.21 | % | Highest ground-truth accuracy across metrics on the simulated benchmark. | `current/checks.tsv :: check=ground_truth, detail` |
 | `\shmWrongQMax` | 6 | reads | Most confidently-wrong placements any metric produced. | `current/checks.tsv :: check=wrong_q60, detail` |
 | `\shmTopStage` | map: match\_rest | — | Costliest pipeline stage on the reference machine. | `current/profiles.tsv :: cpu_* stage timers at Containment/-@1` |
-| `\shmTopStageShare` | 21.0 | % | Its mean share of total CPU time across benchmarks. | `current/profiles.tsv :: cpu_* stage timers at Containment/-@1` |
-| `\shmShiftStage` | index: reading | — | Stage whose CPU share moves most between the machines. | `current/profiles.tsv :: cpu_* stage timers at Containment/-@1` |
-| `\shmShiftPP` | 6.5 | pp | How far it moves, in percentage points. | `current/profiles.tsv :: cpu_* stage timers at Containment/-@1` |
-| `\shmMapRatioMin` | 1.00 | x | Smallest ratio of second-machine to reference-machine mapping time. | `current/results.tsv :: map_s at threads=1, shmap-rs` |
-| `\shmMapRatioMax` | 1.17 | x | Largest ratio of second-machine to reference-machine mapping time. | `current/results.tsv :: map_s at threads=1, shmap-rs` |
+| `\shmTopStageShare` | 20.8 | % | Its mean share of total CPU time across benchmarks. | `current/profiles.tsv :: cpu_* stage timers at Containment/-@1` |
+| `\shmShiftStage` | map: match\_seeds | — | Stage whose CPU share moves most between the machines. | `current/profiles.tsv :: cpu_* stage timers at Containment/-@1` |
+| `\shmShiftPP` | 9.1 | pp | How far it moves, in percentage points. | `current/profiles.tsv :: cpu_* stage timers at Containment/-@1` |
+| `\shmMapRatioMin` | 0.97 | x | Smallest ratio of second-machine to reference-machine mapping time. | `current/results.tsv :: map_s at threads=1, shmap-rs` |
+| `\shmMapRatioMax` | 1.31 | x | Largest ratio of second-machine to reference-machine mapping time. | `current/results.tsv :: map_s at threads=1, shmap-rs` |
 
 ## Read with
 
