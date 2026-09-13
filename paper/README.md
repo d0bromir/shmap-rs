@@ -6,6 +6,14 @@ contains a number a person typed.
 
 ## Experimental Results Scope
 
+The [post-release revision validation](../benchmarks/results/native-compare-6e33e5c/README.md)
+adds 540 native measurements with exact output/work parity on both hosts. It
+shows primarily setup-time savings, not a general mapping gain. Its
+[historical C++ comparison chart](../benchmarks/results/native-compare-6e33e5c/versus-cpp.svg)
+uses latest Rust and older C++ timings, with dates and limitations visible.
+Neither comparison replaces the maintained measurements in the paper macros;
+the C++ chart is not a contemporaneous head-to-head experiment.
+
 The [native adaptive host measurements](../benchmarks/results/native-778d519f001d/README.md)
 are a separate, reproducibly generated supplement, not a promoted replacement
 for the result sets used by these notes. They compare modes of one binary,

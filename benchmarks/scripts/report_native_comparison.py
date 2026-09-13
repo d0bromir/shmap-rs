@@ -7,7 +7,10 @@ import hashlib
 import io
 import itertools
 import json
+import math
 from pathlib import Path
+import re
+import shlex
 import statistics
 import tarfile
 
@@ -15,6 +18,84 @@ ROOT = Path(__file__).resolve().parents[2]
 ARCHIVE = ROOT / "benchmarks/results/native-compare-6e33e5c"
 MODES = ["default", "adaptive", "parsing"]
 METRICS = ["wall_s", "mapping_s", "cpu_s", "peak_rss_kb"]
+
+
+def cpp_comparison():
+    comparisons = []
+    for host, arch in [("a2", "x86_64"), ("galaxy", "aarch64")]:
+        source = ROOT / f"benchmarks/results/suite-1.0/{arch}/current"
+        manifest = json.loads((source / "manifest.json").read_text())
+        native = json.loads((ARCHIVE / host / "report.json").read_text())
+        assert manifest["host"] == host
+        assert manifest["commit"] == "18d0f83627b5fcf9299a9e270460858f321c39ad"
+        assert manifest["dataset_version"] == native["dataset_version"]
+        with (source / "results.tsv").open() as handle:
+            cpp_rows = [row for row in csv.DictReader(handle, delimiter="\t")
+                        if row["impl"] == "cpp-shmap" and row["metric"] == "Containment"]
+        assert len(cpp_rows) == 5
+        for cpp in sorted(cpp_rows, key=lambda row: row["benchmark"]):
+            assert cpp["rc"] == "0" and cpp["threads"] == "1" and cpp["repeat"] == "median3"
+            command = shlex.split(cpp["cmd"])
+            timing_path = command[command.index("-o") + 1]
+            date = re.search(r"\d{4}-\d{2}-\d{2}", timing_path).group()
+            row = dict(host=host, benchmark=cpp["benchmark"], cpp_date=date, cpp_wall_s=float(cpp["wall_s"]))
+            for mode in ["default", "adaptive"]:
+                group = [item for item in native["rows"] if item["benchmark"] == cpp["benchmark"]
+                         and item["mode"] == mode and item["threads"] == 1]
+                assert len(group) == 3
+                for item in group:
+                    native_command = item["command"]
+                    for flag in ["-k", "-r", "-t", "-d", "-m"]:
+                        assert command[command.index(flag) + 1] == native_command[native_command.index(flag) + 1]
+                    cpp_overlap = command[max(index for index, value in enumerate(command) if value == "-o") + 1]
+                    native_overlap = native_command[max(index for index, value in enumerate(native_command) if value == "-o") + 1]
+                    assert cpp_overlap == native_overlap
+                    for flag, dataset in [("-s", cpp["reference_id"]), ("-p", cpp["reads_id"])]:
+                        suffix = native["datasets"][dataset]["rel"]
+                        assert command[command.index(flag) + 1].endswith("/" + suffix)
+                        assert native_command[native_command.index(flag) + 1].endswith("/" + suffix)
+                row[f"{mode}_wall_s"] = statistics.median(item["wall_s"] for item in group)
+                row[f"{mode}_speedup"] = row["cpp_wall_s"] / row[f"{mode}_wall_s"]
+            row["cpp_source"] = str((source / "results.tsv").relative_to(ROOT))
+            row["cpp_command"] = cpp["cmd"]
+            comparisons.append(row)
+    limit = math.ceil(max(row[f"{mode}_speedup"] for row in comparisons for mode in ["default", "adaptive"]))
+    svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="790" viewBox="0 0 1000 790" role="img" aria-labelledby="title desc">',
+           '<title id="title">Rust versus historical C++ shmap: whole-run speedup</title>',
+           '<desc id="desc">Same host, Containment, one mapping worker. C++ is the 1x baseline. Historical timings, not a fresh head-to-head run.</desc>',
+           '<rect width="1000" height="790" fill="#ffffff"/>',
+           '<g font-family="sans-serif" fill="#20262b">',
+           '<text x="32" y="35" font-size="23" font-weight="bold">Rust versus historical C++ shmap</text>',
+           '<text x="32" y="62" font-size="15">Whole-run speedup; larger is faster. Containment, one mapping worker.</text>',
+           '<rect x="32" y="81" width="18" height="14" fill="#087e8b"/><text x="58" y="94" font-size="14">Rust default</text>',
+           '<rect x="220" y="81" width="18" height="14" fill="#c43c59"/><text x="246" y="94" font-size="14">Rust adaptive (experimental; MAPQ unavailable)</text>']
+    labels = {"B01": "HiFi 23 kb", "B02": "Simulated 24 kb", "B03": "HiFi 1x", "B04": "HiFi 10x", "B05": "ONT 24 kb"}
+    for panel, host in enumerate(["a2", "galaxy"]):
+        left = 32 + panel * 492
+        start = left + 150
+        scale = 268 / limit
+        svg.append(f'<text x="{left}" y="134" font-size="20" font-weight="bold">{host}</text>')
+        for tick in range(limit + 1):
+            position = start + tick * scale
+            svg.append(f'<path d="M {position:.2f} 158 V 660" stroke="{"#555555" if tick == 1 else "#e3e7e9"}" stroke-dasharray="4 4"/>')
+            svg.append(f'<text x="{position:.2f}" y="681" text-anchor="middle" font-size="12">{tick}x</text>')
+        for index, row in enumerate(item for item in comparisons if item["host"] == host):
+            top = 172 + index * 98
+            svg.append(f'<text x="{left}" y="{top + 13}" font-size="14">{row["benchmark"]}: {labels[row["benchmark"]]}</text>')
+            svg.append(f'<text x="{left}" y="{top + 34}" font-size="12">C++ {row["cpp_wall_s"]:.2f} s</text>')
+            for offset, mode, color in [(0, "default", "#087e8b"), (30, "adaptive", "#c43c59")]:
+                width = row[f"{mode}_speedup"] * scale
+                svg.append(f'<rect x="{start}" y="{top + offset}" width="{width:.2f}" height="22" fill="{color}"/>')
+                svg.append(f'<text x="{start + width + 5:.2f}" y="{top + offset + 16}" font-size="12">{row[f"{mode}_speedup"]:.2f}x</text>')
+    svg += ['<text x="32" y="719" font-size="13">Rust: 6e33e5c, median of three runs. C++: archived median-of-three timings.</text>',
+            '<text x="32" y="742" font-size="13">C++ B01/B03/B04: Aug 10 (a2), Aug 9 (galaxy); B02/B05: Sep 12, 2026.</text>',
+            '<text x="32" y="765" font-size="13">Not contemporaneous; no new C++ accuracy or output-equivalence claim. Index construction included.</text>',
+            '</g></svg>']
+    table = io.StringIO()
+    writer = csv.DictWriter(table, fieldnames=list(comparisons[0]), delimiter="\t", lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(comparisons)
+    return {ARCHIVE / "versus-cpp.svg": "\n".join(svg) + "\n", ARCHIVE / "versus-cpp.tsv": table.getvalue()}
 
 
 def render():
@@ -105,7 +186,17 @@ def render():
               "Regenerate with `python3 benchmarks/scripts/report_native_comparison.py`;",
               "verify with `--check`. Verification checks complete matrix coverage,",
               "cross-host/revision PAF and counter parity, and archived profile agreement.", ""]
-    return {ARCHIVE / "README.md": "\n".join(lines), ARCHIVE / "results.tsv": table.getvalue()}
+    lines += ["## Historical C++ Comparison", "",
+              "![Same-host Rust versus historical C++ shmap timing ratios](versus-cpp.svg)", "",
+              "[Chart data and exact C++ commands](versus-cpp.tsv). Both implementations use",
+              "Containment and one mapping worker; default Rust is the compatibility mode.",
+              "Adaptive Rust is experimental and has different mapping semantics. Indexing",
+              "is included and each value is a median of three runs. C++ was not rerun:",
+              "B01/B03/B04 are from August 10 (a2) and August 9 (galaxy), and B02/B05",
+              "from September 12, 2026. Dates follow the original row commands, not the",
+              "carry-forward manifest date. This historical comparison is subject to host",
+              "drift and is not a new C++ accuracy, parity, or maintained-suite gate.", ""]
+    return {ARCHIVE / "README.md": "\n".join(lines), ARCHIVE / "results.tsv": table.getvalue(), **cpp_comparison()}
 
 
 def main():

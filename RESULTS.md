@@ -2,6 +2,28 @@
 
 ## Latest Native Experiment
 
+The [latest two-host validation](benchmarks/results/native-compare-6e33e5c/README.md)
+compares `6e33e5c` with release 1.6.0: **540 native invocations passed**, with
+normalized output and adaptive work counters unchanged across revisions and hosts.
+Adaptive/parser total-time speedups are 1.096x/1.102x on a2 and 1.173x/1.193x
+on galaxy; mapping-only ratios are 1.009x/1.013x and 0.993x/1.010x. Gains are
+primarily setup time, not a general long-read mapping speedup. These are geometric
+means over B01-B05 and 1/16/64 workers, using three-run medians.
+
+### Latest Rust Versus Historical C++
+
+![Latest Rust versus historical C++ shmap, one mapping worker](benchmarks/results/native-compare-6e33e5c/versus-cpp.svg)
+
+[Chart data and original commands](benchmarks/results/native-compare-6e33e5c/versus-cpp.tsv).
+Whole-run time includes indexing; both implementations use Containment and one
+mapping worker. C++ was **not rerun**: B01/B03/B04 were measured in August 2026,
+and B02/B05 on September 12. These same-host historical ratios are subject to
+drift, not a fresh head-to-head accuracy or parity test. Adaptive mode changes
+mapping semantics and reports unavailable MAPQ; default Rust is the compatibility
+mode. Do not confuse speed over C++ with speed over the previous Rust revision.
+
+### Earlier Mode Comparison
+
 The [2026-09-12/13 native host results](benchmarks/results/native-778d519f001d/README.md)
 compare default, adaptive, dense, and parsing modes at commit `778d519f001d`:
 240 invocations across a2 and galaxy, all passing the driver's validation and

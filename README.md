@@ -132,6 +132,17 @@ passed all 540 native invocations with unchanged output. Adaptive/parser modes
 improved total time by 1.10x on a2 and 1.17-1.19x on galaxy across the matrix;
 mapping time remained approximately flat. The gain is primarily setup time.
 
+### Compared With C++ shmap
+
+![Rust versus historical C++ shmap timings](benchmarks/results/native-compare-6e33e5c/versus-cpp.svg)
+
+Same-host whole-run medians, Containment, one mapping worker. Latest Rust
+(`6e33e5c`) is compared with **archived August/September 2026 C++ timings**, not
+a new head-to-head run. Adaptive mode is experimental and is not output-equivalent
+to default mapping. See [data, dates, and limits](benchmarks/results/native-compare-6e33e5c/README.md#historical-c-comparison).
+
+### Mapping Steps
+
 1. **Sketch** the reference and each read with FracMinHash, keeping k-mers whose hash falls below
    `r · u64::MAX`.
 2. **Seed** — look up each read k-mer in the index, rarest first.

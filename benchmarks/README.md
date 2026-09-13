@@ -5,6 +5,21 @@ version means and for the rule a pull request has to satisfy.
 
 ## Latest Native Results
 
+The [latest revision comparison](results/native-compare-6e33e5c/README.md) records
+540 invocations comparing `6e33e5c` with release 1.6.0 on both hosts. Output and
+adaptive counters are unchanged; adaptive/parser total time improves about 1.10x
+on a2 and 1.17-1.19x on galaxy, while mapping time is roughly flat. This is
+primarily a setup improvement, not a general mapping-throughput gain.
+
+Its [C++ comparison chart](results/native-compare-6e33e5c/versus-cpp.svg) uses
+archived same-host C++ medians and latest Rust medians at one mapping worker.
+C++ was not rerun. Dates and original commands are retained in the chart's TSV;
+historical ratios are not contemporaneous performance or accuracy validation.
+Regenerate all comparison artifacts with `scripts/report_native_comparison.py`;
+`--check` verifies chart/data consistency and parameter compatibility in CI.
+
+### Earlier Adaptive Mode Matrix
+
 The [native adaptive host archive](results/native-778d519f001d/README.md) preserves
 240 measurements from a2 and galaxy at commit `778d519f001d`. It compares four
 shmap-rs modes on B01-B05 using Containment at 1/16/64 mapping workers, with three

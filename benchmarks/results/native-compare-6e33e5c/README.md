@@ -74,3 +74,16 @@ profiles/stderr/resource logs. Raw PAF files remain on each host under
 Regenerate with `python3 benchmarks/scripts/report_native_comparison.py`;
 verify with `--check`. Verification checks complete matrix coverage,
 cross-host/revision PAF and counter parity, and archived profile agreement.
+
+## Historical C++ Comparison
+
+![Same-host Rust versus historical C++ shmap timing ratios](versus-cpp.svg)
+
+[Chart data and exact C++ commands](versus-cpp.tsv). Both implementations use
+Containment and one mapping worker; default Rust is the compatibility mode.
+Adaptive Rust is experimental and has different mapping semantics. Indexing
+is included and each value is a median of three runs. C++ was not rerun:
+B01/B03/B04 are from August 10 (a2) and August 9 (galaxy), and B02/B05
+from September 12, 2026. Dates follow the original row commands, not the
+carry-forward manifest date. This historical comparison is subject to host
+drift and is not a new C++ accuracy, parity, or maintained-suite gate.

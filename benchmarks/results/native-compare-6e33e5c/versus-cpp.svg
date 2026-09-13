@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="790" viewBox="0 0 1000 790" role="img" aria-labelledby="title desc">
+<title id="title">Rust versus historical C++ shmap: whole-run speedup</title>
+<desc id="desc">Same host, Containment, one mapping worker. C++ is the 1x baseline. Historical timings, not a fresh head-to-head run.</desc>
+<rect width="1000" height="790" fill="#ffffff"/>
+<g font-family="sans-serif" fill="#20262b">
+<text x="32" y="35" font-size="23" font-weight="bold">Rust versus historical C++ shmap</text>
+<text x="32" y="62" font-size="15">Whole-run speedup; larger is faster. Containment, one mapping worker.</text>
+<rect x="32" y="81" width="18" height="14" fill="#087e8b"/><text x="58" y="94" font-size="14">Rust default</text>
+<rect x="220" y="81" width="18" height="14" fill="#c43c59"/><text x="246" y="94" font-size="14">Rust adaptive (experimental; MAPQ unavailable)</text>
+<text x="32" y="134" font-size="20" font-weight="bold">a2</text>
+<path d="M 182.00 158 V 660" stroke="#e3e7e9" stroke-dasharray="4 4"/>
+<text x="182.00" y="681" text-anchor="middle" font-size="12">0x</text>
+<path d="M 235.60 158 V 660" stroke="#555555" stroke-dasharray="4 4"/>
+<text x="235.60" y="681" text-anchor="middle" font-size="12">1x</text>
+<path d="M 289.20 158 V 660" stroke="#e3e7e9" stroke-dasharray="4 4"/>
+<text x="289.20" y="681" text-anchor="middle" font-size="12">2x</text>
+<path d="M 342.80 158 V 660" stroke="#e3e7e9" stroke-dasharray="4 4"/>
+<text x="342.80" y="681" text-anchor="middle" font-size="12">3x</text>
+<path d="M 396.40 158 V 660" stroke="#e3e7e9" stroke-dasharray="4 4"/>
+<text x="396.40" y="681" text-anchor="middle" font-size="12">4x</text>
+<path d="M 450.00 158 V 660" stroke="#e3e7e9" stroke-dasharray="4 4"/>
+<text x="450.00" y="681" text-anchor="middle" font-size="12">5x</text>
+<text x="32" y="185" font-size="14">B01: HiFi 23 kb</text>
+<text x="32" y="206" font-size="12">C++ 109.32 s</text>
+<rect x="182" y="172" width="150.75" height="22" fill="#087e8b"/>
+<text x="337.75" y="188" font-size="12">2.81x</text>
+<rect x="182" y="202" width="224.85" height="22" fill="#c43c59"/>
+<text x="411.85" y="218" font-size="12">4.19x</text>
+<text x="32" y="283" font-size="14">B02: Simulated 24 kb</text>
+<text x="32" y="304" font-size="12">C++ 83.87 s</text>
+<rect x="182" y="270" width="140.18" height="22" fill="#087e8b"/>
+<text x="327.18" y="286" font-size="12">2.62x</text>
+<rect x="182" y="300" width="215.50" height="22" fill="#c43c59"/>
+<text x="402.50" y="316" font-size="12">4.02x</text>
+<text x="32" y="381" font-size="14">B03: HiFi 1x</text>
+<text x="32" y="402" font-size="12">C++ 121.55 s</text>
+<rect x="182" y="368" width="149.15" height="22" fill="#087e8b"/>
+<text x="336.15" y="384" font-size="12">2.78x</text>
+<rect x="182" y="398" width="216.66" height="22" fill="#c43c59"/>
+<text x="403.66" y="414" font-size="12">4.04x</text>
+<text x="32" y="479" font-size="14">B04: HiFi 10x</text>
+<text x="32" y="500" font-size="12">C++ 890.65 s</text>
+<rect x="182" y="466" width="129.42" height="22" fill="#087e8b"/>
+<text x="316.42" y="482" font-size="12">2.41x</text>
+<rect x="182" y="496" width="212.43" height="22" fill="#c43c59"/>
+<text x="399.43" y="512" font-size="12">3.96x</text>
+<text x="32" y="577" font-size="14">B05: ONT 24 kb</text>
+<text x="32" y="598" font-size="12">C++ 57.25 s</text>
+<rect x="182" y="564" width="154.05" height="22" fill="#087e8b"/>
+<text x="341.05" y="580" font-size="12">2.87x</text>
+<rect x="182" y="594" width="139.17" height="22" fill="#c43c59"/>
+<text x="326.17" y="610" font-size="12">2.60x</text>
+<text x="524" y="134" font-size="20" font-weight="bold">galaxy</text>
+<path d="M 674.00 158 V 660" stroke="#e3e7e9" stroke-dasharray="4 4"/>
+<text x="674.00" y="681" text-anchor="middle" font-size="12">0x</text>
+<path d="M 727.60 158 V 660" stroke="#555555" stroke-dasharray="4 4"/>
+<text x="727.60" y="681" text-anchor="middle" font-size="12">1x</text>
+<path d="M 781.20 158 V 660" stroke="#e3e7e9" stroke-dasharray="4 4"/>
+<text x="781.20" y="681" text-anchor="middle" font-size="12">2x</text>
+<path d="M 834.80 158 V 660" stroke="#e3e7e9" stroke-dasharray="4 4"/>
+<text x="834.80" y="681" text-anchor="middle" font-size="12">3x</text>
+<path d="M 888.40 158 V 660" stroke="#e3e7e9" stroke-dasharray="4 4"/>
+<text x="888.40" y="681" text-anchor="middle" font-size="12">4x</text>
+<path d="M 942.00 158 V 660" stroke="#e3e7e9" stroke-dasharray="4 4"/>
+<text x="942.00" y="681" text-anchor="middle" font-size="12">5x</text>
+<text x="524" y="185" font-size="14">B01: HiFi 23 kb</text>
+<text x="524" y="206" font-size="12">C++ 103.09 s</text>
+<rect x="674" y="172" width="129.68" height="22" fill="#087e8b"/>
+<text x="808.68" y="188" font-size="12">2.42x</text>
+<rect x="674" y="202" width="201.22" height="22" fill="#c43c59"/>
+<text x="880.22" y="218" font-size="12">3.75x</text>
+<text x="524" y="283" font-size="14">B02: Simulated 24 kb</text>
+<text x="524" y="304" font-size="12">C++ 87.04 s</text>
+<rect x="674" y="270" width="131.83" height="22" fill="#087e8b"/>
+<text x="810.83" y="286" font-size="12">2.46x</text>
+<rect x="674" y="300" width="228.25" height="22" fill="#c43c59"/>
+<text x="907.25" y="316" font-size="12">4.26x</text>
+<text x="524" y="381" font-size="14">B03: HiFi 1x</text>
+<text x="524" y="402" font-size="12">C++ 112.20 s</text>
+<rect x="674" y="368" width="124.72" height="22" fill="#087e8b"/>
+<text x="803.72" y="384" font-size="12">2.33x</text>
+<rect x="674" y="398" width="188.70" height="22" fill="#c43c59"/>
+<text x="867.70" y="414" font-size="12">3.52x</text>
+<text x="524" y="479" font-size="14">B04: HiFi 10x</text>
+<text x="524" y="500" font-size="12">C++ 902.68 s</text>
+<rect x="674" y="466" width="113.91" height="22" fill="#087e8b"/>
+<text x="792.91" y="482" font-size="12">2.13x</text>
+<rect x="674" y="496" width="188.99" height="22" fill="#c43c59"/>
+<text x="867.99" y="512" font-size="12">3.53x</text>
+<text x="524" y="577" font-size="14">B05: ONT 24 kb</text>
+<text x="524" y="598" font-size="12">C++ 51.99 s</text>
+<rect x="674" y="564" width="134.17" height="22" fill="#087e8b"/>
+<text x="813.17" y="580" font-size="12">2.50x</text>
+<rect x="674" y="594" width="124.13" height="22" fill="#c43c59"/>
+<text x="803.13" y="610" font-size="12">2.32x</text>
+<text x="32" y="719" font-size="13">Rust: 6e33e5c, median of three runs. C++: archived median-of-three timings.</text>
+<text x="32" y="742" font-size="13">C++ B01/B03/B04: Aug 10 (a2), Aug 9 (galaxy); B02/B05: Sep 12, 2026.</text>
+<text x="32" y="765" font-size="13">Not contemporaneous; no new C++ accuracy or output-equivalence claim. Index construction included.</text>
+</g></svg>

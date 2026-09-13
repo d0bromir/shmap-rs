@@ -10,6 +10,30 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import benchmark_native_hosts as native
+import report_native_comparison as report
+import xml.etree.ElementTree as ET
+
+
+class HistoricalChartTest(unittest.TestCase):
+    def test_chart_is_valid_and_labels_historical_scope(self):
+        artifacts = report.cpp_comparison()
+        chart = artifacts[report.ARCHIVE / "versus-cpp.svg"]
+        root = ET.fromstring(chart)
+        self.assertEqual(root.attrib["viewBox"], "0 0 1000 790")
+        self.assertIn("Not contemporaneous", chart)
+        self.assertEqual(len(root.findall(".//{http://www.w3.org/2000/svg}rect")), 23)
+
+    def test_mismatched_parameters_fail(self):
+        original = report.shlex.split
+
+        def changed(command):
+            fields = original(command)
+            fields[fields.index("-k") + 1] = "31"
+            return fields
+
+        with patch.object(report.shlex, "split", side_effect=changed):
+            with self.assertRaises(AssertionError):
+                report.cpp_comparison()
 
 
 class NativeComparisonTest(unittest.TestCase):

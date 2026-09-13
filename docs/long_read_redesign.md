@@ -135,6 +135,13 @@ Full medians, CPU/RSS, commands, provenance, and raw diagnostics are archived;
 the maintained suite and original release results are unchanged. Dense rescue,
 short reads, cold caches, and the full maintained acceptance gate were not run.
 
+The [historical C++ chart](../benchmarks/results/native-compare-6e33e5c/versus-cpp.svg)
+compares latest default/adaptive Rust with archived C++ at one mapping worker,
+using the same host, registered datasets, and Containment parameters. C++ was not
+rerun; its August/September timings are explicitly dated. This is contextual
+performance evidence, not proof of adaptive output equivalence or of improvement
+over the previous Rust revision.
+
 ### Next Priorities
 
 1. **Reduce exact fallback seeding/refinement work on long reads.** B04 parsing
