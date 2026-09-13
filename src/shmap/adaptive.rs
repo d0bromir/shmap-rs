@@ -2,7 +2,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::index::SketchIndex;
 use crate::sketch::FracMinHash;
-use crate::types::{Kmer, SegmId};
+use crate::types::{Hit, Kmer, SegmId};
 
 const TILES: usize = 8;
 const MAX_CANDIDATES: usize = 256;
@@ -22,7 +22,7 @@ struct Vote {
     tiles: u16,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Placement {
     pub segment: SegmId,
     pub reverse: bool,
@@ -53,8 +53,9 @@ impl Placement {
 }
 
 #[derive(Default)]
-pub(super) struct Adaptive {
+pub(super) struct Adaptive<'idx> {
     sample: Vec<Sample>,
+    sample_hits: Vec<&'idx [Hit]>,
     buffer: Vec<Kmer>,
     votes: FxHashMap<(SegmId, bool, i64), Vote>,
     candidates: Vec<Placement>,
@@ -68,10 +69,20 @@ pub(super) struct Adaptive {
     rescue_ready: bool,
 }
 
-impl Adaptive {
+impl<'idx> Adaptive<'idx> {
     pub fn locate(
         &mut self,
-        index: &SketchIndex,
+        index: &'idx SketchIndex,
+        sketcher: &FracMinHash,
+        sequence: &[u8],
+        threshold: f64,
+    ) -> Option<Placement> {
+        self.locate_with_posting_reuse::<true>(index, sketcher, sequence, threshold)
+    }
+
+    fn locate_with_posting_reuse<const REUSE: bool>(
+        &mut self,
+        index: &'idx SketchIndex,
         sketcher: &FracMinHash,
         sequence: &[u8],
         threshold: f64,
@@ -86,6 +97,7 @@ impl Adaptive {
         let tolerance = (sequence.len() as i64 / 100).max(64);
         for width in [128, 256, 512] {
             self.sample.clear();
+            self.sample_hits.clear();
             for tile in 0..TILES {
                 let start = tile * (sequence.len() - width) / (TILES - 1);
                 let region = &sequence[start..start + width];
@@ -106,6 +118,9 @@ impl Adaptive {
             self.votes.clear();
             for sample in &self.sample {
                 let hits = index.hits(sample.kmer.h);
+                if REUSE {
+                    self.sample_hits.push(hits);
+                }
                 if hits.len() > MAX_GLOBAL_OCCURRENCES {
                     continue;
                 }
@@ -155,8 +170,12 @@ impl Adaptive {
                 let mut candidate = self.candidates[candidate_index];
                 self.checked += 1;
                 self.anchors.clear();
-                for sample in &self.sample {
-                    let hits = index.hits(sample.kmer.h);
+                for (sample_index, sample) in self.sample.iter().enumerate() {
+                    let hits = if REUSE {
+                        self.sample_hits[sample_index]
+                    } else {
+                        index.hits(sample.kmer.h)
+                    };
                     let query_position =
                         oriented_position(sample.kmer.r, candidate.reverse, sequence.len(), sketcher.k);
                     let expected = candidate.start + query_position;
@@ -182,7 +201,7 @@ impl Adaptive {
                         self.anchors.push((query_position, position, sample.tile));
                     }
                 }
-                self.anchors.sort_unstable();
+                order_sampled_anchors(&mut self.anchors, candidate.reverse);
                 let mut tiles = 0u16;
                 let mut previous = (-1i64, -1i64);
                 let mut origin_sum = 0;
@@ -437,6 +456,13 @@ fn oriented_position(position: i32, reverse: bool, length: usize, k: i32) -> i64
     }
 }
 
+fn order_sampled_anchors(anchors: &mut [(i64, i64, usize)], reverse: bool) {
+    if reverse {
+        anchors.reverse();
+    }
+    debug_assert!(anchors.windows(2).all(|pair| pair[0].0 < pair[1].0));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,6 +500,211 @@ mod tests {
             ));
         }
         (index, sketcher, sequence)
+    }
+
+    #[test]
+    fn posting_reuse_preserves_placements_work_and_fallback_state() {
+        let (unique, sketcher, sequence) = fixture(false);
+        let (mut repeated, _, _) = fixture(true);
+        repeated.compact();
+        let mut reused = Adaptive::default();
+        let mut original = Adaptive::default();
+        for index in [&unique, &repeated, &unique] {
+            for length in [100, 4096, 12_000, 24_000] {
+                for stride in [0, 17, 100] {
+                    let mut read = sequence[1000..1000 + length].to_vec();
+                    if stride > 0 {
+                        for position in (0..read.len()).step_by(stride) {
+                            read[position] = if read[position] == b'A' { b'C' } else { b'A' };
+                        }
+                    }
+                    for reverse in [false, true] {
+                        if reverse {
+                            read.reverse();
+                            for base in &mut read {
+                                *base = match *base {
+                                    b'A' => b'T',
+                                    b'T' => b'A',
+                                    b'C' => b'G',
+                                    _ => b'C',
+                                };
+                            }
+                        }
+                        for threshold in [0.4, 0.95] {
+                            assert_eq!(
+                                reused.locate(index, &sketcher, &read, threshold),
+                                original.locate_with_posting_reuse::<false>(index, &sketcher, &read, threshold)
+                            );
+                            assert_eq!(
+                                (reused.bases, reused.hits, reused.checked, reused.rescue_ready),
+                                (original.bases, original.hits, original.checked, original.rescue_ready)
+                            );
+                            assert_eq!(reused.candidates, original.candidates);
+                        }
+                    }
+                }
+            }
+            assert_eq!(
+                reused.locate(index, &sketcher, &[b'N'; 5000], 0.4),
+                original.locate_with_posting_reuse::<false>(index, &sketcher, &[b'N'; 5000], 0.4)
+            );
+            assert_eq!(
+                (reused.bases, reused.hits, reused.checked, reused.rescue_ready),
+                (original.bases, original.hits, original.checked, original.rescue_ready)
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "manual same-binary adaptive posting reuse benchmark"]
+    fn adaptive_posting_reuse_benchmark() {
+        let (mut unique, sketcher, sequence) = fixture(false);
+        let (mut repeated, _, _) = fixture(true);
+        for index in [&mut unique, &mut repeated] {
+            for number in 0..1_000_000u64 {
+                let hash = u64::MAX - number;
+                index.shards[hash as usize & 7].h2single.insert(
+                    hash,
+                    Hit {
+                        r: 25,
+                        tpos: 0,
+                        strand: false,
+                        segm_id: 0,
+                    },
+                );
+            }
+            index.compact();
+        }
+        let reads: Vec<_> = (0..128)
+            .map(|number| {
+                let start = 1000 + number * 100;
+                let mut read = sequence[start..start + 12_000].to_vec();
+                for position in (0..read.len()).step_by(if number % 4 == 0 { 17 } else { 200 }) {
+                    read[position] = if read[position] == b'A' { b'C' } else { b'A' };
+                }
+                if number % 2 != 0 {
+                    read.reverse();
+                    for base in &mut read {
+                        *base = match *base {
+                            b'A' => b'T',
+                            b'T' => b'A',
+                            b'C' => b'G',
+                            _ => b'C',
+                        };
+                    }
+                }
+                read
+            })
+            .collect();
+        let mut samples = [Vec::new(), Vec::new()];
+        for repeat in 0..7 {
+            for variant in [repeat % 2, 1 - repeat % 2] {
+                let mut mapper = Adaptive::default();
+                let mut placed = 0;
+                let start = std::time::Instant::now();
+                for iteration in 0..32_768 {
+                    let index = if iteration % 3 == 0 { &repeated } else { &unique };
+                    let read = &reads[iteration % reads.len()];
+                    let result = if variant == 0 {
+                        mapper.locate_with_posting_reuse::<false>(index, &sketcher, read, 0.4)
+                    } else {
+                        mapper.locate(index, &sketcher, read, 0.4)
+                    };
+                    placed += usize::from(std::hint::black_box(result).is_some());
+                }
+                let elapsed = start.elapsed().as_secs_f64();
+                samples[variant].push(elapsed);
+                println!("variant={variant} repeat={repeat} locate_s={elapsed:.6} placed={placed}");
+            }
+        }
+        for sample in &mut samples {
+            sample.sort_by(f64::total_cmp);
+        }
+        println!(
+            "lookup_median_s={:.6} reuse_median_s={:.6} speedup={:.3}",
+            samples[0][3],
+            samples[1][3],
+            samples[0][3] / samples[1][3]
+        );
+    }
+
+    #[test]
+    fn sampled_anchor_order_matches_sort_for_all_sampling_widths() {
+        let (_, _, sequence) = fixture(false);
+        for length in [4096, 4097, 12_000, 24_000] {
+            for width in [128, 256, 512] {
+                for k in [1, 15, 25, 64] {
+                    for density in [0.01, 0.1, 1.0] {
+                        let sketcher = FracMinHash::new(k, density);
+                        let mut sample = Vec::new();
+                        for tile in 0..TILES {
+                            let start = tile * (length - width) / (TILES - 1);
+                            let kmers =
+                                sketcher.sketch_slice_into(&sequence[start..start + width], start as i32, Vec::new());
+                            sample.extend(kmers.into_iter().map(|kmer| (kmer, tile)));
+                        }
+                        for reverse in [false, true] {
+                            for stride in [1, 3, 11] {
+                                let mut anchors: Vec<_> = sample
+                                    .iter()
+                                    .step_by(stride)
+                                    .map(|(kmer, tile)| {
+                                        let position = oriented_position(kmer.r, reverse, length, k);
+                                        (position, (position * 17) % 1000, *tile)
+                                    })
+                                    .collect();
+                                let mut expected = anchors.clone();
+                                expected.sort_unstable();
+                                order_sampled_anchors(&mut anchors, reverse);
+                                assert_eq!(anchors, expected);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        order_sampled_anchors(&mut [], false);
+        order_sampled_anchors(&mut [], true);
+    }
+
+    #[test]
+    #[ignore = "manual same-binary sampled anchor ordering benchmark"]
+    fn sampled_anchor_order_benchmark() {
+        let mut samples = [Vec::new(), Vec::new()];
+        for repeat in 0..7 {
+            for variant in [repeat % 2, 1 - repeat % 2] {
+                let mut anchors = Vec::with_capacity(128);
+                let start = std::time::Instant::now();
+                for iteration in 0..100_000 {
+                    let count = [10, 40, 80, 128][iteration % 4];
+                    let reverse = iteration % 8 >= 4;
+                    anchors.clear();
+                    for offset in 0..count {
+                        let position = if reverse { count - offset } else { offset + 1 } as i64;
+                        anchors.push((position, position * 17 % 1000, offset % TILES));
+                    }
+                    let anchors = std::hint::black_box(anchors.as_mut_slice());
+                    if variant == 0 {
+                        anchors.sort_unstable();
+                    } else {
+                        order_sampled_anchors(anchors, reverse);
+                    }
+                    std::hint::black_box(anchors);
+                }
+                let elapsed = start.elapsed().as_secs_f64();
+                samples[variant].push(elapsed);
+                println!("variant={variant} repeat={repeat} ordering_s={elapsed:.6}");
+            }
+        }
+        for sample in &mut samples {
+            sample.sort_by(f64::total_cmp);
+        }
+        println!(
+            "sort_median_s={:.6} ordered_median_s={:.6} speedup={:.3}",
+            samples[0][3],
+            samples[1][3],
+            samples[0][3] / samples[1][3]
+        );
     }
 
     #[test]

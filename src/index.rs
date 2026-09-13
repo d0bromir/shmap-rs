@@ -195,8 +195,19 @@ impl SketchIndex {
         if self.compact.is_some() {
             return;
         }
-        let mut entries = FxHashMap::default();
-        let mut postings = Vec::new();
+        let entry_count = self
+            .shards
+            .iter()
+            .map(|shard| shard.h2single.len() + shard.h2multi.len())
+            .sum();
+        let posting_count = self
+            .shards
+            .iter()
+            .flat_map(|shard| shard.h2multi.values())
+            .map(Vec::len)
+            .sum();
+        let mut entries = FxHashMap::with_capacity_and_hasher(entry_count, Default::default());
+        let mut postings = Vec::with_capacity(posting_count);
         for shard in &mut self.shards {
             for (hash, hit) in std::mem::take(&mut shard.h2single) {
                 entries.insert(hash, Posting::Single(hit));
@@ -773,6 +784,131 @@ mod tests {
         write!(f, "{content}").unwrap();
         f.flush().unwrap();
         f
+    }
+
+    fn compact_test_index(count: usize) -> SketchIndex {
+        let mut index = SketchIndex::new();
+        for number in 0..count {
+            let hash = number as Hash;
+            let shard = &mut index.shards[shard_of(hash)];
+            let first = Hit {
+                r: 25,
+                tpos: 0,
+                strand: false,
+                segm_id: 0,
+            };
+            if number % 3 == 0 {
+                let second = Hit {
+                    r: 100,
+                    tpos: 7,
+                    strand: true,
+                    segm_id: 0,
+                };
+                let third = Hit {
+                    r: 25,
+                    tpos: 0,
+                    strand: false,
+                    segm_id: 1,
+                };
+                shard.h2multi.insert(hash, vec![first, second, third]);
+            } else {
+                shard.h2single.insert(hash, first);
+            }
+        }
+        index
+    }
+
+    #[test]
+    fn compact_preserves_all_hits_and_is_idempotent() {
+        for count in [0, 1, N_SHARDS, 257] {
+            let mut index = compact_test_index(count);
+            let expected: Vec<_> = (0..count).map(|number| index.hits(number as Hash).to_vec()).collect();
+            index.compact();
+            let compact = index.compact.as_ref().unwrap();
+            assert_eq!(compact.entries.len(), count);
+            let posting_count = expected
+                .iter()
+                .filter(|hits| hits.len() > 1)
+                .map(Vec::len)
+                .sum::<usize>();
+            assert_eq!(compact.postings.len(), posting_count);
+            assert_eq!(compact.postings.capacity(), posting_count);
+            assert!(
+                index
+                    .shards
+                    .iter()
+                    .all(|shard| shard.h2single.is_empty() && shard.h2multi.is_empty())
+            );
+            let entry_capacity = compact.entries.capacity();
+            let posting_ptr = compact.postings.as_ptr();
+            index.compact();
+            assert_eq!(index.compact.as_ref().unwrap().entries.capacity(), entry_capacity);
+            assert_eq!(index.compact.as_ref().unwrap().postings.as_ptr(), posting_ptr);
+            for (number, hits) in expected.iter().enumerate() {
+                let hash = number as Hash;
+                assert_eq!(index.hits(hash), hits);
+                assert_eq!(index.count(hash) as usize, hits.len());
+                if hits.len() == 1 {
+                    assert_eq!(index.single_hit(hash), hits[0]);
+                } else {
+                    assert_eq!(index.multi_hits(hash), hits);
+                }
+            }
+            assert!(index.hits(count as Hash).is_empty());
+            assert_eq!(index.count(count as Hash), 0);
+        }
+    }
+
+    #[test]
+    #[ignore = "manual same-binary compact allocation benchmark"]
+    fn compact_allocation_benchmark() {
+        fn growing_compact(index: &mut SketchIndex) {
+            let mut entries = FxHashMap::default();
+            let mut postings = Vec::new();
+            for shard in &mut index.shards {
+                for (hash, hit) in std::mem::take(&mut shard.h2single) {
+                    entries.insert(hash, Posting::Single(hit));
+                }
+                for (hash, hits) in std::mem::take(&mut shard.h2multi) {
+                    let start = postings.len();
+                    let len = hits.len();
+                    postings.extend(hits);
+                    entries.insert(hash, Posting::Many { start, len });
+                }
+            }
+            index.compact = Some(CompactIndex { entries, postings });
+        }
+
+        let mut samples = [Vec::new(), Vec::new()];
+        for repeat in 0..7 {
+            for variant in [repeat % 2, 1 - repeat % 2] {
+                let mut index = compact_test_index(1_000_000);
+                let start = std::time::Instant::now();
+                if variant == 0 {
+                    growing_compact(&mut index);
+                } else {
+                    index.compact();
+                }
+                let elapsed = start.elapsed().as_secs_f64();
+                let compact = std::hint::black_box(index.compact.as_ref().unwrap());
+                assert_eq!(compact.entries.len(), 1_000_000);
+                assert_eq!(compact.postings.len(), 1_000_002);
+                samples[variant].push(elapsed);
+                println!(
+                    "variant={variant} repeat={repeat} conversion_s={elapsed:.6} posting_capacity={}",
+                    compact.postings.capacity()
+                );
+            }
+        }
+        for sample in &mut samples {
+            sample.sort_by(f64::total_cmp);
+        }
+        println!(
+            "growing_median_s={:.6} reserved_median_s={:.6} speedup={:.3}",
+            samples[0][3],
+            samples[1][3],
+            samples[0][3] / samples[1][3]
+        );
     }
 
     #[test]

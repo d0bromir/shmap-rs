@@ -350,7 +350,7 @@ fn per_read_stats_row(query_id: &str, counters: &Counters, timers: &Timers) -> S
 /// combinations — see [`crate::mapper::create_mapper`].
 pub struct SHMapper<'idx, const NBP: bool, const OS: bool, const AP: bool> {
     tidx: &'idx crate::index::SketchIndex,
-    adaptive: adaptive::Adaptive,
+    adaptive: adaptive::Adaptive<'idx>,
     /// Per-read-cycle local counters, merged into the `Handler`'s run-wide
     /// counters after each read (matching the C++'s own local `C` member,
     /// merged via `H->C += C`).

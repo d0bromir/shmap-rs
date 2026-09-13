@@ -123,6 +123,10 @@ compact/persistent indexing, and batched dispatch. It is **not a validated 10x
 replacement**: sampled mappings have uncalibrated MAPQ 255, and difficult reads
 still use the original mapper. See [implementation status and host measurements](docs/long_read_redesign.md).
 
+The [long-read optimization roadmap](docs/long_read_redesign.md#long-read-optimization-roadmap)
+separates released features, current exact optimizations, rejected experiments,
+and planned mapping-throughput work. Local loop gains are not host speedup claims.
+
 1. **Sketch** the reference and each read with FracMinHash, keeping k-mers whose hash falls below
    `r · u64::MAX`.
 2. **Seed** — look up each read k-mer in the index, rarest first.
@@ -157,7 +161,8 @@ C++ and why; [RESULTS.md](RESULTS.md) is what it measures. Everything else suppo
 
 ## Correctness
 
-`cargo test` runs 71 tests; run it in **both** profiles, since debug activates the `debug_assert`s
+`cargo test` runs 74 tests plus three ignored manual benchmarks; run it in
+**both** profiles, since debug activates the `debug_assert`s
 that guard the parallel index build and reader. Beyond that, changes are checked by byte-identical
 PAF against the previous build on the whole human genome, by thread-count invariance, and by
 `profiling/validate_paf.py`, which verifies structural, score and ground-truth invariants —

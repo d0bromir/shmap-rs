@@ -100,6 +100,27 @@ across repeats and worker counts within each mode. MAPQ 255 is unavailable,
 not confidence; simulated-read placement requires the correct segment and
 strand with interval IoU above 0.1. Real-read mapping counts are not accuracy.
 
+For exact optimizations, compare two native revisions on the same host:
+
+```bash
+python3 benchmarks/scripts/test_native_hosts.py
+python3 benchmarks/scripts/benchmark_native_hosts.py --commit <candidate-sha> \
+  --baseline-commit <baseline-sha> --modes default,adaptive,parsing \
+  --only B01,B02,B03,B04,B05 --threads 1,16,64 --repeats 3 \
+  --out "$HOME/bench-results/native-compare-<candidate-sha>"
+```
+
+This schedules 270 invocations per host, interleaves revisions with rotating
+mode order, and builds both revisions in new detached worktrees. Existing build
+directories are never replaced. The driver requires normalized PAF and adaptive
+work counters to match across revisions, repeats, and worker counts within each
+mode. Any mismatch fails the run and preserves its partial report. Reports record
+both commits and binary hashes; speedups compare the same mode with its baseline,
+not adaptive mode with default. These are across-build bundled optimizations,
+not same-binary attribution to one code change. Dense mode is optional via
+`--modes`; excluding it does not validate dense-rescue performance. Keep these
+reports separate from the original mode matrix and the maintained suite gate.
+
 ## Re-judging without re-measuring
 
 Checks are deterministic functions of the retained PAFs, so a corrected threshold or a rebuilt

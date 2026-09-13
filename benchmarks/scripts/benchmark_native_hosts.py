@@ -67,12 +67,24 @@ def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--baseline-commit", help="interleave an older native revision and require exact output/work parity")
+    parser.add_argument("--modes", default=",".join(MODES), help="comma-separated native modes")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--only", default="B01,B02,B03,B04,B05")
     parser.add_argument("--threads", default="1,16,64")
     parser.add_argument("--repeats", type=int)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+    selected_modes = args.modes.split(",")
+    if not selected_modes or len(set(selected_modes)) != len(selected_modes) or not set(selected_modes) <= MODES.keys():
+        parser.error("invalid or duplicate modes")
+    if not args.baseline_commit and "default" not in selected_modes:
+        parser.error("single-revision comparisons require default mode")
+    modes = {}
+    for name in selected_modes:
+        if args.baseline_commit:
+            modes[f"baseline-{name}"] = MODES[name]
+        modes[name] = MODES[name]
     if os.geteuid() == 0:
         parser.error("refusing to run as root")
     threads = [int(value) for value in args.threads.split(",")]
@@ -89,30 +101,42 @@ def main() -> None:
         bench["metrics"], bench["threads"], bench["impls"] = ["Containment"], threads, ["shmap-rs"]
     repeats = runner.subject_repeats(suite, args.repeats)
     jobs = runner.plan(suite, registry, ["shmap-rs"], repeats)
-    print(f"native-only: {len(jobs) * len(MODES)} measurements; modes={list(MODES)} threads={threads} repeats={repeats}")
+    print(f"native-only: {len(jobs) * len(modes)} measurements; modes={list(modes)} threads={threads} repeats={repeats}")
     print("parsing uses two additional reader threads; other modes use the default reader; no cache reuse")
     if args.dry_run:
         return
     commit = subprocess.check_output(["git", "-C", str(runner.REPO), "rev-parse", "--verify", args.commit + "^{commit}"], text=True).strip()
+    baseline_commit = (subprocess.check_output(["git", "-C", str(runner.REPO), "rev-parse", "--verify", args.baseline_commit + "^{commit}"], text=True).strip()
+                       if args.baseline_commit else None)
+    if baseline_commit == commit:
+        parser.error("baseline and candidate must be different commits")
     args.out = args.out.expanduser().resolve()
     environment = {key: value for key, value in os.environ.items()
                    if not key.startswith(("GH_", "GITHUB_", "SHMAP_"))}
     with runner.HostLock() as lock:
         lock.note(f"native commit={commit[:12]} preparing")
         runner.verify_datasets(suite, registry)
-        if (runner.WORKROOT / commit[:12]).exists():
+        if baseline_commit:
+            runner.WORKROOT = runner.WORKROOT / f"{commit[:12]}-comparison"
+        revisions = {"candidate": commit}
+        if baseline_commit:
+            revisions["baseline"] = baseline_commit
+        if any((runner.WORKROOT / revision[:12]).exists() for revision in revisions.values()):
             raise RuntimeError("build worktree already exists; refusing to replace it")
         args.out.mkdir(parents=True, exist_ok=False)
         raw = args.out / "raw"
         raw.mkdir()
-        worktree = runner.prepare_worktree(commit)
-        binary = worktree / "target/release/shmap"
-        rows, hashes = [], {}
+        binaries = {name: runner.prepare_worktree(revision) / "target/release/shmap" for name, revision in revisions.items()}
+        binary = binaries["candidate"]
+        rows, hashes, work_counts = [], {}, {}
         manifest = dict(scope="native-only WGS ablation, not the maintained suite gate",
                         commit=commit, host=platform.node(), arch=platform.machine(),
                         driver_sha256=digest(Path(__file__)), rustc=runner.rustc_version(),
                         suite_version=suite["suite_version"], dataset_version=suite["dataset_version"],
-                        binary_sha256=digest(binary), repeats=repeats, threads=threads, modes=MODES,
+                        binary_sha256=digest(binary), baseline_commit=baseline_commit,
+                        binaries={name: dict(commit=revisions[name], sha256=digest(path)) for name, path in binaries.items()},
+                        repeats=repeats, threads=threads, modes=modes,
+                        comparison="same-mode baseline/candidate" if baseline_commit else "modes versus default",
                         accuracy="IoU > 0.1 on true segment AND strand; endpoints_1kb requires both endpoints; MAPQ 255 is unavailable",
                         datasets={key: value for key, value in registry.items() if key in {job[field] for job in jobs for field in ("reference_id", "reads_id")}},
                         status="running", rows=rows)
@@ -120,7 +144,7 @@ def main() -> None:
         report.write_text(json.dumps(manifest, indent=2) + "\n")
         try:
             for job in jobs:
-                names = list(MODES)
+                names = list(modes)
                 offset = job["repeat"] % len(names)
                 for mode in names[offset:] + names[:offset]:
                     runner.check_disk_space(args.out)
@@ -130,31 +154,38 @@ def main() -> None:
                     for field in ("reference", "reads"):
                         warm(Path(job[field]))
                     prefix = raw / tag
+                    revision = "baseline" if mode.startswith("baseline-") else "candidate"
+                    binary = binaries[revision]
                     paf, timing, profile = (prefix.with_suffix(suffix) for suffix in (".paf", ".time", ".json"))
                     command = ["/usr/bin/time", "-f", "%e\t%U\t%S\t%M", "-o", str(timing), str(binary),
                                "-s", job["reference"], "-p", job["reads"], *job["base"], "-m", "Containment",
-                               "-@", str(job["threads"]), "-x", "--profile-log", str(profile), *MODES[mode]]
+                               "-@", str(job["threads"]), "-x", "--profile-log", str(profile), *modes[mode]]
                     with paf.open("w") as output, prefix.with_suffix(".stderr").open("w") as errors:
                         subprocess.run(command, stdout=output, stderr=errors, env=environment, check=True)
                     wall, user, system, rss = map(float, timing.read_text().split())
-                    timers = json.loads(profile.read_text())["global"]["timers_secs"]
+                    diagnostics = json.loads(profile.read_text())["global"]
+                    timers = diagnostics["timers_secs"]
+                    counters = {key: value for key, value in diagnostics["counters"].items() if key.startswith("adaptive_")}
                     row = dict(benchmark=job["benchmark"], mode=mode, threads=job["threads"], repeat=job["repeat"],
+                               revision=revision, commit=revisions[revision], adaptive_counters=counters,
                                wall_s=wall, cpu_s=user + system, peak_rss_kb=rss,
                                mapping_s=timers.get("mapping"), indexing_s=timers.get("indexing"),
                                repeat_indexing_s=timers.get("repeat_indexing", 0), command=command, **assess(paf))
-                    key = (job["benchmark"], mode)
+                    key = (job["benchmark"], mode.removeprefix("baseline-"))
                     previous = hashes.setdefault(key, row["paf_without_timing_sha256"])
                     row["deterministic"] = previous == row["paf_without_timing_sha256"]
+                    row["work_parity"] = work_counts.setdefault(key, counters) == counters
                     rows.append(row)
                     report.write_text(json.dumps(manifest, indent=2) + "\n")
                     print(f"finished {tag}: wall={wall:.2f}s mapping={row['mapping_s']} mapped={row['mapped']} fast={row['fast']} invalid={row['invalid']} deterministic={row['deterministic']}")
-                    if row["invalid"] or not row["deterministic"]:
-                        raise RuntimeError(f"invalid or nondeterministic output: {tag}")
+                    if row["invalid"] or not row["deterministic"] or not row["work_parity"]:
+                        raise RuntimeError(f"invalid output or output/work parity failure: {tag}")
             summary = []
             for benchmark in selected:
                 for thread_count in threads:
-                    baseline = statistics.median(row["wall_s"] for row in rows if row["benchmark"] == benchmark and row["threads"] == thread_count and row["mode"] == "default")
-                    for mode in MODES:
+                    for mode in modes:
+                        baseline_mode = f"baseline-{mode.removeprefix('baseline-')}" if baseline_commit else "default"
+                        baseline = statistics.median(row["wall_s"] for row in rows if row["benchmark"] == benchmark and row["threads"] == thread_count and row["mode"] == baseline_mode)
                         group = [row for row in rows if row["benchmark"] == benchmark and row["threads"] == thread_count and row["mode"] == mode]
                         wall = statistics.median(row["wall_s"] for row in group)
                         summary.append(dict(benchmark=benchmark, threads=thread_count, mode=mode, wall_s=wall,

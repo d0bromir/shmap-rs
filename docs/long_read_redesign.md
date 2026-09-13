@@ -54,6 +54,123 @@ Not implemented or validated:
   storage, or NUMA-specific scheduling.
 - Cross-individual accuracy, cold-cache performance, or 10x acceleration.
 
+## Long-Read Optimization Roadmap
+
+Priority is **long-read mapping throughput**, especially B04 (2,425,341 real
+HiFi reads, 10x depth). Setup-only wins are tracked separately and must not be
+reported as mapping gains. The release measurements above remain immutable;
+the working-tree experiments below are not part of release 1.6.0's host results.
+
+### Implemented and Measured
+
+| Improvement | State | Evidence and limits |
+| --- | --- | --- |
+| Adaptive positional sampling and native fallback | Released, experimental | Host matrix shows deep-HiFi gains; small multithreaded inputs and ONT regress end-to-end |
+| Batching and parallel FASTA query parsing | Released, opt-in | B04/64-worker parsing mode: 1.66x total on a2, 1.89x on galaxy; two extra reader workers; bundled-mode comparison |
+| Compact/checksummed persistent index | Released, optional | Cache reuse not measured in the host matrix; uncached conversion adds setup cost |
+| Dense regional repeat rescue and candidate-local scan | Released, experimental | Only four extra correct B02 placements; repeat-index build takes 178-395 seconds; not a speed recommendation |
+| Exact compact storage preallocation | Implemented after 1.6.0; host measurement pending | One-million-key local conversion median 0.318 to 0.268 seconds, 1.18x; seven alternating repeats, same test binary; not a mapping benchmark |
+| Eliminate sorting of ordered sampled anchors | Implemented after 1.6.0; end-to-end speed pending | Local 100,000-buffer benchmark: 19.68 to 16.39 ms, 1.20x; seven alternating repeats; includes buffer filling; not whole-read or WGS speedup |
+| Reuse sparse sample postings during candidate verification | Implemented after 1.6.0; provisional local evidence | Same-binary adaptive-attempt median 1.568 to 1.450 seconds, 1.08x; seven alternating CPU-pinned repeats; noisy, excludes original-mapper fallback and the CLI pipeline |
+
+The anchor change preserves candidate discovery, work limits, evidence thresholds,
+nearest-hit choice, scoring, and ties. For reads of at least 4096 bases, all
+128/256/512-base sampling windows are disjoint and ordered. Each sample adds at
+most one anchor. Forward anchors therefore already have strictly increasing
+query positions; reverse anchors need reversal, not sorting. Tests compare the
+result with the old tuple sort across lengths, k values, densities, strands, and
+missing-anchor patterns. Dense candidate ordering is unchanged.
+
+The compact change sizes the destination hash table and repeated-hit array from
+the existing shards before conversion. It preserves posting order and index
+contents; parity tests cover empty/single/multi-hit indexes, repeated conversion,
+and cached/default PAF equality. It remains secondary to mapping work.
+
+The posting change retains borrowed immutable hit slices from the voting pass
+in reusable worker storage. Candidate verification uses those slices instead of
+repeating the hash lookup for every sample and candidate. No posting lists are
+copied or filtered, and all candidate comparisons and hit-budget accounting are
+preserved. Storage grows with the sampled seed count (one slice per sample), not
+the number of reference hits. The old path is instantiated only by tests through
+a compile-time parameter; there is no new runtime option or external dependency.
+
+The local benchmark performs 32,768 complete adaptive attempts per sample over
+128 mutated 12 kb reads on both strands, alternating unique and duplicated
+references. Each compact table has one million decoy singleton keys; these
+enlarge the table but do not reproduce whole-genome posting distributions or
+cache behavior. Both variants placed exactly 16,384 reads in every repeat.
+Lookup times ranged from 1.459 to 1.953 seconds and reuse from 1.268 to 1.659
+seconds. A shorter unpinned run was noisier still (1.04x median). Treat the 1.08x
+result as screening evidence, not an established end-to-end speedup.
+
+A direct regression test compares placements, retained candidates, work counters,
+and fallback readiness with the previous lookup path across sharded/compact
+indexes, repeated worker reuse, lengths, mutations, strands, thresholds, and
+invalid sequence. On the existing 10,000-read synthetic corpus, normalized CLI
+PAF and adaptive counters remain identical to the pre-reuse build for plain and
+adaptive modes at one and four workers: 9,495 mapped, 8,976 correct, and 6,787
+adaptive fast placements. These single CLI runs establish parity only. Their
+local artifacts are in `target/long-read-posting-reuse/` (not committed; removed
+by `cargo clean`). Whole-genome throughput and memory acceptance remain pending.
+
+### Next Priorities
+
+1. **Reduce exact fallback seeding/refinement work on long reads.** B04 parsing
+  profiles report 2,004,263 adaptive placements and 421,078 original-mapper
+  fallbacks on both hosts. On a2 at 64 workers, summed elapsed intervals include
+  140.07 seconds in `match_rest`, 124.96 in `match_seeds`, and 113.33 in `adaptive`;
+  these overlap hierarchically and are neither wall time nor process CPU time.
+  Investigate reusable range-local evidence and avoiding repeated posting visits
+  without discarding repeat copies or altering ambiguity decisions.
+2. **Reduce repeated adaptive candidate work.** Measure the implemented sample
+  posting reuse on whole-genome reads; assess a position-aware seed-pair index
+  only with bounded memory and complete
+  native fallback. Keep thresholds unchanged for exact optimizations; any
+  heuristic change needs separate simulated and repeat-rich accuracy gates.
+3. **Measure deep-HiFi at 1/16/64 workers before promotion.** Require repeated
+  same-binary ablations where feasible, normalized PAF parity, B02 placement
+  counts, counters, memory, mapping and full wall time. Count reader workers.
+  Validate B01/B03 too; synthetic microbenchmarks are screening tools only.
+4. **Make dense rescue affordable before wider use.** Investigate localized or
+  reusable repeat indexing, not whole-reference dense work on every invocation.
+  Preserve all retained candidate comparisons and account for index creation.
+5. **Native noisy-long-read support.** Improve ONT seed survival and split-read
+  handling as a separate algorithmic project, with truth and confidence checks.
+  Do not improve apparent throughput by mapping fewer reads.
+
+Deferred until profiles justify them: mmap loading, posting-block skip directories,
+numeric diagnostic storage, and NUMA scheduling. No external mapper integration is
+planned. Broad sparse refinement and frequency blacklisting remain unsuitable
+without new evidence; previously measured regressions must not be forgotten.
+
+### Rejected Local Experiment
+
+An exactly boundary-adjusted integer missing-seed limit replaced floating-point
+pruning comparisons temporarily. Boundary and PAF tests passed, but five
+alternating same-binary runs on the local 10,000-read, 5 Mb synthetic corpus gave
+mapping speedups of 0.996x/0.996x for plain mapping at 1/4 workers and 0.964x/1.054x
+for adaptive batching. This is not a consistent gain. The production change and
+its diagnostic switch were removed; do not describe it as shipped or faster.
+Raw local evidence remains in `target/long-read-pruning-ablation/report.json`
+(not committed; removed by `cargo clean`).
+
+Reproduce the retained local benchmarks with:
+
+```sh
+cargo test --release --lib compact_allocation_benchmark -- --ignored --nocapture
+cargo test --release --lib sampled_anchor_order_benchmark -- --ignored --nocapture
+cargo test --release --lib adaptive_posting_reuse_benchmark -- --ignored --nocapture
+```
+
+For less scheduling noise, prefix the last command with `taskset -c CPU`, choosing
+a CPU permitted by the current process's affinity mask. The reported longer run
+used the first permitted CPU.
+
+These benchmarks are ignored during normal tests and use the test binary's
+allocator. The CLI uses mimalloc, so allocation timings are not CLI guarantees.
+None of these experiments establishes a new host speedup or approaches the 10x
+goal on its own. The next acceptance decision must be based on long-read mapping.
+
 ## Usage
 
 ```sh
