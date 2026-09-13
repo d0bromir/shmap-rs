@@ -7,6 +7,19 @@ Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). **This file is the index.*
 the question, the answer in a few lines, and where the evidence lives — the reasoning and the
 numbers belong in [RESULTS.md](RESULTS.md) or [PORT_CHANGES.md](PORT_CHANGES.md), not here.
 
+## Native Long-Read Redesign Follow-up
+
+**2026-09-13:** a separate request to pursue a native 10x redesign led to the
+opt-in implementation in [docs/long_read_redesign.md](docs/long_read_redesign.md),
+not a revival of the rejected threshold experiment Q12. The
+[completed a2/galaxy measurements](benchmarks/results/native-778d519f001d/README.md)
+show useful deep-HiFi gains but do not meet the 10x target. Dense indexing and
+ONT regressions prevent a general speed recommendation. No external mapper was
+integrated or executed by this experiment; confidence calibration, general
+repeat accuracy, and native noisy/split-read handling remain open.
+
+## Original Questions
+
 | # | Question | Branch | PR | Status |
 |---|---|---|---|---|
 | Q1 | Replace `sketch.rs` with an already-optimised library | `q1-sketch-library` | #6 | merged |

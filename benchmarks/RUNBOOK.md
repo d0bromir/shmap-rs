@@ -63,6 +63,12 @@ before spending a machine.
 
 ## Native Adaptive Experiments
 
+The first completed [two-host result set](results/native-778d519f001d/README.md)
+contains 180 a2 and 60 galaxy invocations from commit `778d519f001d`.
+Regenerate its documentation with `python3 benchmarks/scripts/report_native.py`;
+verify with `--check`. Preserve source reports unchanged and archive future runs
+separately. Do not promote this reduced experimental matrix into `current/`.
+
 `benchmark_native_hosts.py` compares only shmap-rs modes on the registered
 B01-B05 inputs: default, adaptive with batching, adaptive with dense rescue,
 and adaptive with two additional parser threads. It uses Containment at 1, 16,

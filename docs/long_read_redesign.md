@@ -4,7 +4,19 @@
 
 This is an experimental implementation of part of the proposed redesign, not a
 completed or validated 10x replacement. The original mapping algorithm remains
-the default. No production accuracy claim follows from the local synthetic test.
+the default. Native-only whole-genome measurements on a2 and galaxy completed
+on 2026-09-12/13 at commit `778d519f001d`: 240 invocations, all passing the
+driver's structural and determinism checks, with normalized PAF hashes matching
+across architectures. These are experimental mode comparisons, not the full
+maintained suite gate or a production accuracy claim.
+
+On B04 (10x real HiFi), adaptive mapping with batching and two parser workers
+reduced total time at 64 mapping workers from 31.78 to 19.15 seconds on a2
+(1.66x) and from 21.68 to 11.47 seconds on galaxy (1.89x). Dense rescue regressed
+in every measured configuration; its repeat index alone took 178-395 seconds
+and peak RSS reached about 26.6 GiB. ONT and smaller multithreaded workloads also
+regressed end-to-end. See the [complete host results](../benchmarks/results/native-778d519f001d/README.md)
+for all configurations, placement counts, provenance, and limitations.
 
 Mapping and rescue are implemented in shmap itself. No external mapper is a
 dependency, feature, subprocess, or fallback. The proposed external-mapper
@@ -34,13 +46,13 @@ Implemented:
 
 Not implemented or validated:
 
-- Seed-pair/minimizer-tuple indexing and whole-genome validation of regional repeat
-  rescue. Frequent seeds remain available to verification and original-mapper rescue.
+- Seed-pair/minimizer-tuple indexing and general repeat-rescue accuracy validation.
+  Frequent seeds remain available to verification and original-mapper rescue.
 - A robust noisy-ONT seed policy, base-level alignment, or split-read output.
 - Exhaustive alternative-locus discovery or calibrated MAPQ for sampled mappings.
 - Memory-mapped cache loading, posting-block skip directories, numeric counter
   storage, or NUMA-specific scheduling.
-- Whole-genome accuracy/performance, cold-cache performance, or 10x acceleration.
+- Cross-individual accuracy, cold-cache performance, or 10x acceleration.
 
 ## Usage
 
@@ -200,11 +212,21 @@ partial batches, thread invariance, and profile provenance.
 All 71 Rust tests pass in both profiles after the native dense-scan change,
 including nearest-anchor parity for both strands and duplicate query seeds.
 
-The maintained whole-genome suite could not run: its corpus is not present in
-this workspace and `SHMAP_DATA` is unset. Also, `report.py --check` now rejects the
-existing x86_64 archive: its 105 JSON profiles identify version 1.3.1 from August
-1, while the manifest identifies 1.5.0 from September 12. Matching raw profiles
-must be restored or remeasured; neither metadata nor tables were relabeled.
+The native host driver measured B01-B05 with Containment, 1/16/64 mapping workers,
+four modes, three repeats on a2 and one on galaxy. It did not run the full
+maintained suite, other metrics, cache reuse, or an old-release comparison.
+On B02, all modes mapped 125,000 reads. Default and adaptive modes placed 123,977
+correctly (true segment/strand and IoU above 0.1); dense rescue placed 123,981.
+Both endpoints within 1 kb improved from 97,676 to 117,470 with adaptive mapping
+and 117,763 with dense rescue. Adaptive and dense outputs respectively contained
+105,203 and 106,669 records with unavailable MAPQ, not confident placements.
+
+During release preparation, the stale current profile archives were restored
+from the original `18d0f83627b5` run directories on a2 and galaxy. Recovered
+profiles passed version/timestamp checks, and all subject timing rows and stage
+TSVs matched the current baselines. The maintained report was regenerated from
+that evidence and `report.py --check` passes. No profile version/date was relabeled,
+no historical archived run was modified, and the native experiment was not promoted.
 
 Before expanding or promoting this mode, measure real repeat-rich references and
 cross-individual truth, validate repeat rescue and implement native ONT/split rescue, calibrate

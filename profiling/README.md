@@ -10,6 +10,21 @@ than left to rot into a second, contradictory set of numbers.
 
 What survived is what a re-run cannot give back.
 
+## Native Adaptive Profiles
+
+The [latest native host archive](../benchmarks/results/native-778d519f001d/README.md)
+contains all 240 profiles plus timing/stderr files from the completed a2/galaxy
+mode comparison. Dense repeat-index construction dominates its wall time; mapping
+improvements alone must not be presented as whole-run speedups. `index_compact`
+and `repeat_indexing` are additional setup stages, not free work.
+
+Stage intervals accumulated across workers are summed elapsed time, not measured
+CPU time. The native driver separately records process user+system CPU via
+`/usr/bin/time`. Its PAF assessment accepts MAPQ 255 as unavailable and checks
+half-open coordinates; the legacy `validate_paf.py` assumes MAPQ at most 60 and
+must not be used unchanged to judge adaptive records. See
+`benchmarks/scripts/benchmark_native_hosts.py` for the experimental checks.
+
 ---
 
 ## Instrumenting a run

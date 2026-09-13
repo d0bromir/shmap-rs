@@ -4,7 +4,7 @@
 # commit:     18d0f83627b5
 # host:       a2
 # measured:   2026-09-12
-# inputs:     sha256:51d37586d0e48420
+# inputs:     sha256:fd8e19c8bc8e2dfe
 # provenance: paper/generated/PROVENANCE.md#fig_thread_scaling
 benchmark	threads	wall_s	speedup_vs_1
 B01	1	39.88	1.0

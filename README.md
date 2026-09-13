@@ -3,9 +3,18 @@
 A Rust port of [`shmap`](https://github.com/pesho-ivanov/shmap) — a sketch-based long-read mapper
 that finds where a read belongs by k-mer set overlap rather than by alignment.
 
-**Latest release: [1.4.0](https://github.com/d0bromir/shmap-rs/releases/tag/1.4.0)** — per-read
-instrumentation (`--per-read-stats`), and the first release measured on two architectures with a
-working host-drift correction. Mapping output is unchanged.
+**Latest release: [1.6.0](https://github.com/d0bromir/shmap-rs/releases/tag/1.6.0)**:
+opt-in native adaptive mapping, compact/persistent indexes, dense repeat rescue,
+batched dispatch, and parallel query parsing. The original mapper remains the default.
+
+**Latest native-only experiment:** adaptive parsing improves the B04 10x HiFi
+whole run at 64 mapping workers by **1.66x on a2** and **1.89x on galaxy**,
+using two additional parser workers. All 240 measurements passed the driver's
+validation/determinism checks. Dense mode and ONT regress end-to-end; smaller
+multithreaded workloads often do too. This is **not a 10x improvement** or the
+full suite gate. [Full results and limitations](benchmarks/results/native-778d519f001d/README.md)
+are from commit `778d519f001d`, before the release version bump, not a remeasurement
+of the release commit. The generated historical suite figures below remain separate.
 
 <!-- BEGIN GENERATED: readme-pitch -->
 Against the C++ original on real whole-genome data: **2.1–3.0x faster single-threaded, up to 17.9x
@@ -94,6 +103,12 @@ Output is [PAF](https://github.com/lh3/miniasm/blob/master/PAF.md) on stdout, wi
 | `-m` | scoring metric: `Containment`, `Jaccard`, `bucket_SH`, `bucket_LCS` |
 | `-@` | mapping threads (default 1) |
 | `-x` | write a JSON profiling report (`--profile-log`) |
+| `--adaptive` | experimental positional sampling; plain Containment only; MAPQ 255 unavailable |
+| `--compact-index`, `--index-cache PATH` | optional compact storage; create/load a checksummed persistent index |
+| `--verify-index-reference` | verify cached reference content rather than size/mtime alone |
+| `--adaptive-dense` | experimental repeat rescue; requires adaptive mode; large build/memory cost |
+| `--read-batch-size N` | batch query dispatch and result collection |
+| `--reader-threads N` | additional parser workers for uncompressed FASTA |
 
 **Choosing `-m`.** `Containment` (`intersection / m`) is the default and the right choice almost
 always. `Jaccard` is stricter and ~24% slower, and it **collapses on high-error reads** — 6.5%
@@ -106,7 +121,7 @@ separates confident mappings from ambiguous ones.
 An opt-in long-read redesign prototype adds progressive positional sampling,
 compact/persistent indexing, and batched dispatch. It is **not a validated 10x
 replacement**: sampled mappings have uncalibrated MAPQ 255, and difficult reads
-still use the original mapper. See [implementation status and local measurements](docs/long_read_redesign.md).
+still use the original mapper. See [implementation status and host measurements](docs/long_read_redesign.md).
 
 1. **Sketch** the reference and each read with FracMinHash, keeping k-mers whose hash falls below
    `r · u64::MAX`.
@@ -128,6 +143,8 @@ C++ and why; [RESULTS.md](RESULTS.md) is what it measures. Everything else suppo
 |---|---|
 | [PORT_CHANGES.md](PORT_CHANGES.md) | **what makes it faster and lighter than the C++** — every optimization in one table, then each with verified C++ source snippets and the data structure that replaced it |
 | [RESULTS.md](RESULTS.md) | **all benchmark numbers** — the single source, generated from `benchmarks/`; §11 is also the single home for approaches tried and rejected, with the measurement that rejected them |
+| [Native host results](benchmarks/results/native-778d519f001d/README.md) | latest experimental same-binary mode comparison; all timings, placement counts, raw profiles, and limitations |
+| [Redesign status](docs/long_read_redesign.md) | opt-in algorithm, flags, PAF semantics, measurements, and remaining work |
 | [charts](benchmarks/results/suite-1.0/x86_64/current/chart-index.html) | the profiling tables drawn as pie charts, regenerated with every result set ([aarch64](benchmarks/results/suite-1.0/aarch64/current/chart-index.html), [both hosts side by side](paper/generated/cross-arch/charts.html)) |
 | [QUESTIONS.md](QUESTIONS.md) | the running log of what upstream asked, what was done, and what the benchmark said |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | how a PR is checked, and what decides a merge |
@@ -140,7 +157,7 @@ C++ and why; [RESULTS.md](RESULTS.md) is what it measures. Everything else suppo
 
 ## Correctness
 
-`cargo test` runs 58 tests; run it in **both** profiles, since debug activates the `debug_assert`s
+`cargo test` runs 71 tests; run it in **both** profiles, since debug activates the `debug_assert`s
 that guard the parallel index build and reader. Beyond that, changes are checked by byte-identical
 PAF against the previous build on the whole human genome, by thread-count invariance, and by
 `profiling/validate_paf.py`, which verifies structural, score and ground-truth invariants —

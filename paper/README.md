@@ -4,6 +4,17 @@ Two things live here: **the manuscript**, a two-page applications note somebody 
 **its artifacts**, the tables and figures generated from a benchmark result set. Neither
 contains a number a person typed.
 
+## Experimental Results Scope
+
+The [native adaptive host measurements](../benchmarks/results/native-778d519f001d/README.md)
+are a separate, reproducibly generated supplement, not a promoted replacement
+for the result sets used by these notes. They compare modes of one binary,
+include dense/ONT regressions, and do not establish a tenfold gain. The default
+mapper notes and their historical figures must not be read as validation of
+adaptive coordinates, unavailable MAPQ, or noisy/split-read handling. See
+[the redesign guide](../docs/long_read_redesign.md) for the implemented algorithm
+and remaining gates. No experimental values are substituted into historical macros.
+
 ```
 make paper                                  build everything below
 make paper-manuscript                       just the manuscript
@@ -12,7 +23,8 @@ make paper-check                            fail if any of it is stale (CI runs 
 
 ## The notes
 
-Two, both two pages, both hand-written and typeset by the same flow:
+Two, both hand-written and typeset by the same flow: a two-page applications
+note and a three-page optimization note.
 
 | | |
 |---|---|
@@ -66,7 +78,7 @@ which is the paper's classification and not a fact about the repository; it is c
 against the parsed rows both ways, so a new optimization cannot be silently missing from a
 note that claims to list them all. See [`generated/OPTIMIZATIONS.md`](generated/OPTIMIZATIONS.md).
 
-**Two pages is enforced, not intended.** `build_paper.py` counts the pages and exits
+**Each note's page budget is enforced.** `build_paper.py` counts the pages and exits
 non-zero over budget; it still writes the PDF, because seeing the overflow is how it gets
 fixed. If a re-measurement pushes it over, cut prose — the floats are the evidence.
 

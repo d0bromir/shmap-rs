@@ -3,6 +3,20 @@
 The reproducible benchmark system. See [`../VERSIONING.md`](../VERSIONING.md) for what each
 version means and for the rule a pull request has to satisfy.
 
+## Latest Native Results
+
+The [native adaptive host archive](results/native-778d519f001d/README.md) preserves
+240 measurements from a2 and galaxy at commit `778d519f001d`. It compares four
+shmap-rs modes on B01-B05 using Containment at 1/16/64 mapping workers, with three
+repeats on a2 and one on galaxy. No external mapper runs or suite promotion are
+part of this experiment. It shows gains on deep HiFi, but dense indexing and ONT
+regressions; see the archive before choosing an experimental configuration.
+
+`scripts/report_native.py` generates its README and full timing matrix from the
+immutable per-host JSON reports; `--check` verifies them. The raw profiles, timing
+files, stderr, and logs are committed alongside the reports. PAFs stay on the hosts.
+See [the runbook](RUNBOOK.md#native-adaptive-experiments) for rerunning the driver.
+
 ## Layout
 
 Three folders, by what the contents *are*: declarative inputs, code, and

@@ -17,20 +17,23 @@ authors:
     orcid: 'https://orcid.org/0000-0002-8119-3849'
 repository-code: https://github.com/d0bromir/shmap-rs
 license: MPL-2.0
-version: 1.4.1
+version: 1.6.0
+date-released: 2026-09-13
 abstract: >-
   A Rust port of shmap, a sketch-based long-read mapper that
   locates a read by k-mer set overlap rather than by
-  alignment. Mapping decisions match the C++ original; the
-  port is faster single-threaded, uses substantially less
-  memory, and adds threading.
+  alignment. The default mapper preserves the original
+  algorithm, with threading and memory optimizations.
+  Opt-in adaptive mapping adds positional sampling,
+  persistent indexing, batching, and native repeat rescue.
 
   The repository also carries the evidence: a versioned
-  benchmark suite whose every published figure is generated
-  from a committed result set and checked against it, run on
-  both x86_64 and aarch64, with concordance scored against
-  Winnowmap2 and every counter reproduced exactly across the
-  two architectures.
+  benchmark suite and separate native-only adaptive
+  experiments on x86_64 and aarch64. The latter preserve
+  240 measurements with matching normalized output across
+  hosts, documenting both deep-HiFi gains and dense-index
+  and ONT regressions. Adaptive MAPQ is unavailable, and
+  no tenfold improvement or general accuracy claim follows.
 keywords:
   - bioinformatics
   - sequence alignment

@@ -1012,7 +1012,7 @@ def render_provenance(c: MCtx, vals: list[tuple[Macro, str]]) -> str:
         "the `Macro` declaration that also produced the value, so this cannot describe a source",
         "the code does not read.",
         "",
-        "[`paper/manuscript.tex`](manuscript.tex) contains **no numerals in its prose**. Each one",
+        "[`paper/manuscript.tex`](../manuscript.tex) contains **no numerals in its prose**. Each one",
         "is a `\\shm…` macro defined in `macros.tex` from the result sets below, so a",
         "re-measurement rewrites the sentences rather than leaving them quietly wrong.",
         "`manuscript.py --lint` enforces that by reporting any bare numeral in running text.",
@@ -1054,7 +1054,7 @@ def render_provenance(c: MCtx, vals: list[tuple[Macro, str]]) -> str:
         "  `paper.py` and `crossarch.py` regenerate from the same result sets.",
         "- **Claims about the optimizations' individual effects.** Those were measured against",
         "  the build each change landed on and are deliberately not refreshed; they live in",
-        "  [`PORT_CHANGES.md`](../PORT_CHANGES.md) and the manuscript cites them as such.",
+        "  [`PORT_CHANGES.md`](../../PORT_CHANGES.md) and the manuscript cites them as such.",
         "",
     ]
     return "\n".join(out) + "\n"

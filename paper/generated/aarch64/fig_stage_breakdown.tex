@@ -4,7 +4,7 @@
 % commit:     18d0f83627b5
 % host:       galaxy
 % measured:   2026-09-12
-% inputs:     sha256:41e718b1bbefe8cb
+% inputs:     sha256:f9529abbd784055c
 % provenance: paper/generated/PROVENANCE.md#fig_stage_breakdown
 %
 \begin{figure}[tb]
@@ -24,20 +24,20 @@
   bar width=6pt,
   ymin=0,
   ymax=100,
-  xtick={},
-  xticklabels={},
+  xtick={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14},
+  xticklabels={{B01 Containment},{B01 Jaccard},{B01 bucket\_SH},{B02 Containment},{B02 Jaccard},{B02 bucket\_SH},{B03 Containment},{B03 Jaccard},{B03 bucket\_SH},{B04 Containment},{B04 Jaccard},{B04 bucket\_SH},{B05 Containment},{B05 Jaccard},{B05 bucket\_SH}},
   x tick label style={rotate=60,anchor=east,font=\tiny},
   legend style={font=\small}
 ]
-\addplot+[ybar,fill=blue!70!black,draw=none] coordinates {};
+\addplot+[ybar,fill=blue!70!black,draw=none] coordinates {(0,24.93) (1,17.68) (2,32.54) (3,29.45) (4,18.78) (5,34.33) (6,41.12) (7,30.77) (8,51.05) (9,40.77) (10,30.03) (11,51.18) (12,11.67) (13,9.07) (14,12.74)};
 \addlegendentry{match\_seeds}
-\addplot+[ybar,fill=red!70!black,draw=none] coordinates {};
+\addplot+[ybar,fill=red!70!black,draw=none] coordinates {(0,32.29) (1,52.11) (2,10.71) (3,22.71) (4,50.97) (5,10.06) (6,26.05) (7,44.61) (8,7.87) (9,26.62) (10,45.88) (11,7.78) (12,14.66) (13,34.10) (14,6.84)};
 \addlegendentry{match\_rest}
-\addplot+[ybar,fill=green!45!black,draw=none] coordinates {};
+\addplot+[ybar,fill=green!45!black,draw=none] coordinates {(0,21.01) (1,14.88) (2,28.32) (3,23.49) (4,15.03) (5,26.97) (6,15.07) (7,11.32) (8,18.89) (9,14.97) (10,11.11) (11,18.79) (12,34.95) (13,27.12) (14,38.57)};
 \addlegendentry{prepare}
-\addplot+[ybar,fill=orange!85!black,draw=none] coordinates {};
+\addplot+[ybar,fill=orange!85!black,draw=none] coordinates {(0,19.06) (1,13.39) (2,24.86) (3,21.26) (4,13.29) (5,25.07) (6,13.18) (7,9.85) (8,16.46) (9,13.12) (10,9.64) (11,16.56) (12,36.43) (13,27.95) (14,39.38)};
 \addlegendentry{sketching}
-\addplot+[ybar,fill=violet,draw=none] coordinates {};
+\addplot+[ybar,fill=violet,draw=none] coordinates {(0,2.43) (1,1.75) (2,3.20) (3,2.79) (4,1.75) (5,3.22) (6,4.27) (7,3.21) (8,5.33) (9,4.21) (10,3.11) (11,5.30) (12,1.81) (13,1.40) (14,1.97)};
 \addlegendentry{bucket\_merge}
 \end{axis}
 \end{tikzpicture}

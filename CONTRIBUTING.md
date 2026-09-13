@@ -140,6 +140,14 @@ not passed to the binary — do not add flags in a script.
 
 ## 5 Results and reporting
 
+Experimental mode comparisons are archived separately from the maintained gate.
+The [native host results](benchmarks/results/native-778d519f001d/README.md) keep
+their original measured commit and binary version even when published with a
+later release. Regenerate their summary using
+`python3 benchmarks/scripts/report_native.py` and verify it with `--check`.
+Do not use this reduced matrix as evidence of a full suite pass, substitute it
+for `current/`, or treat adaptive MAPQ 255 as confidence.
+
 `RESULTS.md` is the single place benchmark numbers live, and `README.md`'s headline figures are
 generated from the same result set. The regions between `<!-- BEGIN GENERATED -->` markers are
 produced by `benchmarks/scripts/report.py` — edit them and CI fails. The prose around them is written by

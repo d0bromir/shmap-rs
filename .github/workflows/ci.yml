@@ -185,6 +185,9 @@ jobs:
       - name: RESULTS.md matches the current result set
         run: python3 benchmarks/scripts/report.py --check --arch x86_64
 
+      - name: native experiment documentation matches its reports
+        run: python3 benchmarks/scripts/report_native.py --check
+
       # Same failure mode one step further out: a table in the paper draft that
       # no longer matches the measurement it claims to report. The artifacts are
       # a pure function of the result set, so this is a real equality check.

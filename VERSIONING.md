@@ -77,6 +77,12 @@ benchmarks/results/
 before a release bump carries the version it was built with, and the commit disambiguates. Looking
 for "the 1.3.0 numbers" should not require opening a manifest.
 
+Separate experiments need not share the suite layout: the
+[native host archive](benchmarks/results/native-778d519f001d/README.md) records
+commit `778d519f001d` and its measured binary version 1.5.0, even though those
+features are released in 1.6.0. Its reduced matrix is not a promoted baseline
+or a measurement of the version-bump commit. Never relabel such evidence.
+
 `profiles.tsv` is the readable form of the `-x` reports: one row per invocation, one column per
 stage, greppable and diffable in review. The tarball keeps full fidelity, but data committed to be
 read has to be readable without unpacking it first.

@@ -1,0 +1,125 @@
+native-only: 60 measurements; modes=['default', 'adaptive', 'dense', 'parsing'] threads=[1, 16, 64] repeats=1
+parsing uses two additional reader threads; other modes use the default reader; no cache reuse
+verified 6 datasets against the registry
+building 778d519f001d in /home/mpiuser/bench-work/778d519f001d
+starting B01_default_t1_r0
+finished B01_default_t1_r0: wall=42.79s mapping=35.882598 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_adaptive_t1_r0
+finished B01_adaptive_t1_r0: wall=28.05s mapping=19.372395 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_dense_t1_r0
+finished B01_dense_t1_r0: wall=461.67s mapping=56.671967 mapped=149194 fast=117874 invalid=0 deterministic=True
+starting B01_parsing_t1_r0
+finished B01_parsing_t1_r0: wall=28.06s mapping=19.275798 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_default_t16_r0
+finished B01_default_t16_r0: wall=4.40s mapping=2.240076 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_adaptive_t16_r0
+finished B01_adaptive_t16_r0: wall=5.03s mapping=1.25079 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_dense_t16_r0
+finished B01_dense_t16_r0: wall=344.52s mapping=1.389762 mapped=149194 fast=117874 invalid=0 deterministic=True
+starting B01_parsing_t16_r0
+finished B01_parsing_t16_r0: wall=5.24s mapping=1.255061 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_default_t64_r0
+finished B01_default_t64_r0: wall=3.42s mapping=1.345941 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_adaptive_t64_r0
+finished B01_adaptive_t64_r0: wall=5.24s mapping=1.163621 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_dense_t64_r0
+finished B01_dense_t64_r0: wall=290.25s mapping=1.232891 mapped=149194 fast=117874 invalid=0 deterministic=True
+starting B01_parsing_t64_r0
+finished B01_parsing_t64_r0: wall=4.85s mapping=0.878617 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B02_default_t1_r0
+finished B02_default_t1_r0: wall=34.79s mapping=27.880768 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_adaptive_t1_r0
+finished B02_adaptive_t1_r0: wall=21.03s mapping=12.412353 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_dense_t1_r0
+finished B02_dense_t1_r0: wall=295.61s mapping=12.625558 mapped=125000 fast=106669 invalid=0 deterministic=True
+starting B02_parsing_t1_r0
+finished B02_parsing_t1_r0: wall=21.05s mapping=12.373007 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_default_t16_r0
+finished B02_default_t16_r0: wall=3.81s mapping=1.746459 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_adaptive_t16_r0
+finished B02_adaptive_t16_r0: wall=4.63s mapping=0.947794 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_dense_t16_r0
+finished B02_dense_t16_r0: wall=272.14s mapping=1.04882 mapped=125000 fast=106669 invalid=0 deterministic=True
+starting B02_parsing_t16_r0
+finished B02_parsing_t16_r0: wall=4.83s mapping=0.828534 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_default_t64_r0
+finished B02_default_t64_r0: wall=3.21s mapping=1.173964 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_adaptive_t64_r0
+finished B02_adaptive_t64_r0: wall=4.84s mapping=1.004531 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_dense_t64_r0
+finished B02_dense_t64_r0: wall=269.70s mapping=1.009035 mapped=125000 fast=106669 invalid=0 deterministic=True
+starting B02_parsing_t64_r0
+finished B02_parsing_t64_r0: wall=4.64s mapping=0.71211 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B03_default_t1_r0
+finished B03_default_t1_r0: wall=48.42s mapping=41.43821 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_adaptive_t1_r0
+finished B03_adaptive_t1_r0: wall=32.47s mapping=23.694902 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_dense_t1_r0
+finished B03_dense_t1_r0: wall=297.12s mapping=24.532671 mapped=241988 fast=204161 invalid=0 deterministic=True
+starting B03_parsing_t1_r0
+finished B03_parsing_t1_r0: wall=32.47s mapping=23.822951 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_default_t16_r0
+finished B03_default_t16_r0: wall=4.61s mapping=2.568479 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_adaptive_t16_r0
+finished B03_adaptive_t16_r0: wall=5.44s mapping=1.527108 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_dense_t16_r0
+finished B03_dense_t16_r0: wall=269.67s mapping=1.609891 mapped=241988 fast=204161 invalid=0 deterministic=True
+starting B03_parsing_t16_r0
+finished B03_parsing_t16_r0: wall=5.44s mapping=1.546655 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_default_t64_r0
+finished B03_default_t64_r0: wall=4.22s mapping=2.074296 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_adaptive_t64_r0
+finished B03_adaptive_t64_r0: wall=5.26s mapping=1.197858 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_dense_t64_r0
+finished B03_dense_t64_r0: wall=267.14s mapping=1.254506 mapped=241988 fast=204161 invalid=0 deterministic=True
+starting B03_parsing_t64_r0
+finished B03_parsing_t64_r0: wall=4.45s mapping=0.80548 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B04_default_t1_r0
+finished B04_default_t1_r0: wall=415.12s mapping=408.174161 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_adaptive_t1_r0
+finished B04_adaptive_t1_r0: wall=250.58s mapping=241.970154 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_dense_t1_r0
+finished B04_dense_t1_r0: wall=525.21s mapping=250.428479 mapped=2419768 fast=2034893 invalid=0 deterministic=True
+starting B04_parsing_t1_r0
+finished B04_parsing_t1_r0: wall=252.79s mapping=243.980687 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_default_t16_r0
+finished B04_default_t16_r0: wall=28.06s mapping=26.033673 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_adaptive_t16_r0
+finished B04_adaptive_t16_r0: wall=19.25s mapping=15.46767 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_dense_t16_r0
+finished B04_dense_t16_r0: wall=285.70s mapping=16.144821 mapped=2419768 fast=2034893 invalid=0 deterministic=True
+starting B04_parsing_t16_r0
+finished B04_parsing_t16_r0: wall=19.46s mapping=15.62437 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_default_t64_r0
+finished B04_default_t64_r0: wall=21.68s mapping=19.595251 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_adaptive_t64_r0
+finished B04_adaptive_t64_r0: wall=15.68s mapping=11.829274 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_dense_t64_r0
+finished B04_dense_t64_r0: wall=278.58s mapping=11.782813 mapped=2419768 fast=2034893 invalid=0 deterministic=True
+starting B04_parsing_t64_r0
+finished B04_parsing_t64_r0: wall=11.47s mapping=7.638019 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B05_default_t1_r0
+finished B05_default_t1_r0: wall=20.78s mapping=13.811875 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_adaptive_t1_r0
+finished B05_adaptive_t1_r0: wall=23.24s mapping=14.703656 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_dense_t1_r0
+finished B05_dense_t1_r0: wall=288.71s mapping=15.2904 mapped=39632 fast=3208 invalid=0 deterministic=True
+starting B05_parsing_t1_r0
+finished B05_parsing_t1_r0: wall=23.65s mapping=14.892234 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_default_t16_r0
+finished B05_default_t16_r0: wall=3.04s mapping=0.975152 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_adaptive_t16_r0
+finished B05_adaptive_t16_r0: wall=4.83s mapping=0.975581 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_dense_t16_r0
+finished B05_dense_t16_r0: wall=269.28s mapping=1.00854 mapped=39632 fast=3208 invalid=0 deterministic=True
+starting B05_parsing_t16_r0
+finished B05_parsing_t16_r0: wall=4.84s mapping=0.975771 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_default_t64_r0
+finished B05_default_t64_r0: wall=2.82s mapping=0.819803 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_adaptive_t64_r0
+finished B05_adaptive_t64_r0: wall=4.43s mapping=0.743467 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_dense_t64_r0
+finished B05_dense_t64_r0: wall=268.92s mapping=0.818539 mapped=39632 fast=3208 invalid=0 deterministic=True
+starting B05_parsing_t64_r0
+finished B05_parsing_t64_r0: wall=4.44s mapping=0.544947 mapped=39632 fast=3202 invalid=0 deterministic=True
+complete: /home/mpiuser/bench-results/native-778d519f001d-galaxy/report.json

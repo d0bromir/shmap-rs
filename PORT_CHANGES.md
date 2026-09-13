@@ -12,6 +12,17 @@ rarest-first seeding, seed-heuristic pruning, single/multi-hit index separation,
 refinement all come from the paper and the C++ unchanged — but substantially redesigns the hot
 paths that algorithm runs through, and adds multithreading the C++ has none of.
 
+**Opt-in redesign in 1.6.0.** The default-path discussion below does not describe
+adaptive positional sampling, compact/persistent indexing, dense repeat rescue,
+or batched query parsing. Those features and their PAF semantics are documented
+in [the redesign guide](docs/long_read_redesign.md). The latest
+[native two-host comparison](benchmarks/results/native-778d519f001d/README.md)
+measures bundled modes against the same binary's default path, not individual
+optimization gains or a new comparison with C++. It records substantial dense
+indexing regressions as well as gains on deep HiFi; no 10x claim is supported.
+Default-path changes also include direct jumps across empty buckets and reuse
+of worker diagnostics. Golden/default output parity remains covered by tests.
+
 ## Current state, in one table
 
 Every optimization below, current design only. Each row's "Effect, measured" is the figure that

@@ -4,7 +4,7 @@
 # commit:     18d0f83627b5
 # host:       a2
 # measured:   2026-09-12
-# inputs:     sha256:51d37586d0e48420
+# inputs:     sha256:fd8e19c8bc8e2dfe
 # provenance: paper/generated/PROVENANCE.md#fig_time_vs_matches
 benchmark	bin	n_reads	matches_median	time_median_us	time_q1_us	time_q3_us
 B01	3	2655	139.0	112.59	107.44	119.24
