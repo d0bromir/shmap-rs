@@ -1,0 +1,546 @@
+native-only: 270 measurements; modes=['baseline-default', 'default', 'baseline-adaptive', 'adaptive', 'baseline-parsing', 'parsing'] threads=[1, 16, 64] repeats=3
+parsing uses two additional reader threads; other modes use the default reader; no cache reuse
+verified 6 datasets against the registry
+building 6e33e5c6634d in /home/mpiuser/bench-work/6e33e5c6634d-comparison/6e33e5c6634d
+building 2363d92eacea in /home/mpiuser/bench-work/6e33e5c6634d-comparison/2363d92eacea
+starting B01_baseline-default_t1_r0
+finished B01_baseline-default_t1_r0: wall=39.28s mapping=31.825964 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_default_t1_r0
+finished B01_default_t1_r0: wall=38.88s mapping=31.355145 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_baseline-adaptive_t1_r0
+finished B01_baseline-adaptive_t1_r0: wall=27.87s mapping=17.91318 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_adaptive_t1_r0
+finished B01_adaptive_t1_r0: wall=26.46s mapping=17.645235 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-parsing_t1_r0
+finished B01_baseline-parsing_t1_r0: wall=28.27s mapping=18.31535 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_parsing_t1_r0
+finished B01_parsing_t1_r0: wall=26.27s mapping=17.355097 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_default_t1_r1
+finished B01_default_t1_r1: wall=38.47s mapping=31.040879 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_baseline-adaptive_t1_r1
+finished B01_baseline-adaptive_t1_r1: wall=28.27s mapping=18.268898 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_adaptive_t1_r1
+finished B01_adaptive_t1_r1: wall=26.06s mapping=17.146488 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-parsing_t1_r1
+finished B01_baseline-parsing_t1_r1: wall=27.87s mapping=18.031892 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_parsing_t1_r1
+finished B01_parsing_t1_r1: wall=26.06s mapping=17.34949 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-default_t1_r1
+finished B01_baseline-default_t1_r1: wall=40.12s mapping=32.528373 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_baseline-adaptive_t1_r2
+finished B01_baseline-adaptive_t1_r2: wall=27.67s mapping=17.967127 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_adaptive_t1_r2
+finished B01_adaptive_t1_r2: wall=25.86s mapping=17.046127 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-parsing_t1_r2
+finished B01_baseline-parsing_t1_r2: wall=28.27s mapping=18.29401 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_parsing_t1_r2
+finished B01_parsing_t1_r2: wall=26.27s mapping=17.316747 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-default_t1_r2
+finished B01_baseline-default_t1_r2: wall=39.46s mapping=32.092986 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_default_t1_r2
+finished B01_default_t1_r2: wall=38.87s mapping=31.35997 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_baseline-default_t16_r0
+finished B01_baseline-default_t16_r0: wall=6.72s mapping=2.661754 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_default_t16_r0
+finished B01_default_t16_r0: wall=6.53s mapping=2.629915 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_baseline-adaptive_t16_r0
+finished B01_baseline-adaptive_t16_r0: wall=8.46s mapping=1.924449 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_adaptive_t16_r0
+finished B01_adaptive_t16_r0: wall=7.65s mapping=2.002096 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-parsing_t16_r0
+finished B01_baseline-parsing_t16_r0: wall=8.26s mapping=1.515779 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_parsing_t16_r0
+finished B01_parsing_t16_r0: wall=7.05s mapping=1.470946 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_default_t16_r1
+finished B01_default_t16_r1: wall=6.73s mapping=2.60757 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_baseline-adaptive_t16_r1
+finished B01_baseline-adaptive_t16_r1: wall=9.06s mapping=1.949149 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_adaptive_t16_r1
+finished B01_adaptive_t16_r1: wall=7.65s mapping=1.906977 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-parsing_t16_r1
+finished B01_baseline-parsing_t16_r1: wall=8.27s mapping=1.515865 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_parsing_t16_r1
+finished B01_parsing_t16_r1: wall=7.05s mapping=1.465619 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-default_t16_r1
+finished B01_baseline-default_t16_r1: wall=6.92s mapping=2.711543 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_baseline-adaptive_t16_r2
+finished B01_baseline-adaptive_t16_r2: wall=8.66s mapping=1.91355 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_adaptive_t16_r2
+finished B01_adaptive_t16_r2: wall=7.65s mapping=1.746222 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-parsing_t16_r2
+finished B01_baseline-parsing_t16_r2: wall=7.67s mapping=1.488897 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_parsing_t16_r2
+finished B01_parsing_t16_r2: wall=7.06s mapping=1.46212 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-default_t16_r2
+finished B01_baseline-default_t16_r2: wall=6.94s mapping=2.654187 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_default_t16_r2
+finished B01_default_t16_r2: wall=6.11s mapping=2.596439 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_baseline-default_t64_r0
+finished B01_baseline-default_t64_r0: wall=6.39s mapping=2.478373 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_default_t64_r0
+finished B01_default_t64_r0: wall=6.13s mapping=2.606337 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_baseline-adaptive_t64_r0
+finished B01_baseline-adaptive_t64_r0: wall=9.07s mapping=2.064117 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_adaptive_t64_r0
+finished B01_adaptive_t64_r0: wall=8.08s mapping=2.366198 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-parsing_t64_r0
+finished B01_baseline-parsing_t64_r0: wall=7.88s mapping=1.289708 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_parsing_t64_r0
+finished B01_parsing_t64_r0: wall=6.68s mapping=1.507467 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_default_t64_r1
+finished B01_default_t64_r1: wall=6.84s mapping=2.654752 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_baseline-adaptive_t64_r1
+finished B01_baseline-adaptive_t64_r1: wall=8.69s mapping=2.360882 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_adaptive_t64_r1
+finished B01_adaptive_t64_r1: wall=7.27s mapping=2.181439 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-parsing_t64_r1
+finished B01_baseline-parsing_t64_r1: wall=8.09s mapping=1.439506 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_parsing_t64_r1
+finished B01_parsing_t64_r1: wall=7.08s mapping=1.432563 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-default_t64_r1
+finished B01_baseline-default_t64_r1: wall=7.04s mapping=2.682113 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_baseline-adaptive_t64_r2
+finished B01_baseline-adaptive_t64_r2: wall=8.49s mapping=2.171076 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_adaptive_t64_r2
+finished B01_adaptive_t64_r2: wall=8.28s mapping=2.248394 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-parsing_t64_r2
+finished B01_baseline-parsing_t64_r2: wall=7.69s mapping=1.397071 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_parsing_t64_r2
+finished B01_parsing_t64_r2: wall=6.47s mapping=1.404118 mapped=149194 fast=116317 invalid=0 deterministic=True
+starting B01_baseline-default_t64_r2
+finished B01_baseline-default_t64_r2: wall=6.13s mapping=2.658411 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B01_default_t64_r2
+finished B01_default_t64_r2: wall=6.68s mapping=2.627146 mapped=149194 fast=0 invalid=0 deterministic=True
+starting B02_baseline-default_t1_r0
+finished B02_baseline-default_t1_r0: wall=33.09s mapping=25.675653 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_default_t1_r0
+finished B02_default_t1_r0: wall=32.07s mapping=24.512644 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_baseline-adaptive_t1_r0
+finished B02_baseline-adaptive_t1_r0: wall=21.86s mapping=12.071631 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_adaptive_t1_r0
+finished B02_adaptive_t1_r0: wall=20.86s mapping=11.866804 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-parsing_t1_r0
+finished B02_baseline-parsing_t1_r0: wall=22.06s mapping=12.286957 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_parsing_t1_r0
+finished B02_parsing_t1_r0: wall=20.45s mapping=11.587968 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_default_t1_r1
+finished B02_default_t1_r1: wall=32.26s mapping=24.741151 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_baseline-adaptive_t1_r1
+finished B02_baseline-adaptive_t1_r1: wall=22.06s mapping=12.060006 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_adaptive_t1_r1
+finished B02_adaptive_t1_r1: wall=20.86s mapping=11.864995 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-parsing_t1_r1
+finished B02_baseline-parsing_t1_r1: wall=22.06s mapping=12.252195 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_parsing_t1_r1
+finished B02_parsing_t1_r1: wall=20.45s mapping=11.503732 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-default_t1_r1
+finished B02_baseline-default_t1_r1: wall=33.07s mapping=25.538084 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_baseline-adaptive_t1_r2
+finished B02_baseline-adaptive_t1_r2: wall=22.06s mapping=12.159311 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_adaptive_t1_r2
+finished B02_adaptive_t1_r2: wall=20.25s mapping=11.345094 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-parsing_t1_r2
+finished B02_baseline-parsing_t1_r2: wall=22.06s mapping=12.257617 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_parsing_t1_r2
+finished B02_parsing_t1_r2: wall=20.26s mapping=11.525031 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-default_t1_r2
+finished B02_baseline-default_t1_r2: wall=33.29s mapping=25.745079 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_default_t1_r2
+finished B02_default_t1_r2: wall=32.05s mapping=24.69712 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_baseline-default_t16_r0
+finished B02_baseline-default_t16_r0: wall=6.28s mapping=2.156202 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_default_t16_r0
+finished B02_default_t16_r0: wall=6.11s mapping=2.081819 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_baseline-adaptive_t16_r0
+finished B02_baseline-adaptive_t16_r0: wall=8.25s mapping=1.538021 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_adaptive_t16_r0
+finished B02_adaptive_t16_r0: wall=7.45s mapping=1.564063 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-parsing_t16_r0
+finished B02_baseline-parsing_t16_r0: wall=7.46s mapping=1.148002 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_parsing_t16_r0
+finished B02_parsing_t16_r0: wall=7.05s mapping=1.062623 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_default_t16_r1
+finished B02_default_t16_r1: wall=5.89s mapping=2.133182 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_baseline-adaptive_t16_r1
+finished B02_baseline-adaptive_t16_r1: wall=8.65s mapping=1.57635 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_adaptive_t16_r1
+finished B02_adaptive_t16_r1: wall=7.45s mapping=1.604555 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-parsing_t16_r1
+finished B02_baseline-parsing_t16_r1: wall=7.05s mapping=1.063888 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_parsing_t16_r1
+finished B02_parsing_t16_r1: wall=6.44s mapping=1.006044 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-default_t16_r1
+finished B02_baseline-default_t16_r1: wall=6.30s mapping=2.154708 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_baseline-adaptive_t16_r2
+finished B02_baseline-adaptive_t16_r2: wall=8.85s mapping=1.655162 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_adaptive_t16_r2
+finished B02_adaptive_t16_r2: wall=7.65s mapping=1.66199 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-parsing_t16_r2
+finished B02_baseline-parsing_t16_r2: wall=7.65s mapping=1.130161 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_parsing_t16_r2
+finished B02_parsing_t16_r2: wall=6.65s mapping=1.07601 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-default_t16_r2
+finished B02_baseline-default_t16_r2: wall=6.30s mapping=2.11924 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_default_t16_r2
+finished B02_default_t16_r2: wall=5.70s mapping=2.100151 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_baseline-default_t64_r0
+finished B02_baseline-default_t64_r0: wall=6.39s mapping=2.163449 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_default_t64_r0
+finished B02_default_t64_r0: wall=6.22s mapping=2.241889 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_baseline-adaptive_t64_r0
+finished B02_baseline-adaptive_t64_r0: wall=8.08s mapping=1.848021 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_adaptive_t64_r0
+finished B02_adaptive_t64_r0: wall=7.07s mapping=1.844827 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-parsing_t64_r0
+finished B02_baseline-parsing_t64_r0: wall=7.88s mapping=1.161643 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_parsing_t64_r0
+finished B02_parsing_t64_r0: wall=6.67s mapping=1.158954 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_default_t64_r1
+finished B02_default_t64_r1: wall=6.68s mapping=2.270075 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_baseline-adaptive_t64_r1
+finished B02_baseline-adaptive_t64_r1: wall=8.68s mapping=1.866301 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_adaptive_t64_r1
+finished B02_adaptive_t64_r1: wall=7.07s mapping=1.888374 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-parsing_t64_r1
+finished B02_baseline-parsing_t64_r1: wall=7.87s mapping=1.182475 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_parsing_t64_r1
+finished B02_parsing_t64_r1: wall=6.68s mapping=1.140798 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-default_t64_r1
+finished B02_baseline-default_t64_r1: wall=6.04s mapping=2.128784 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_baseline-adaptive_t64_r2
+finished B02_baseline-adaptive_t64_r2: wall=8.08s mapping=1.839484 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_adaptive_t64_r2
+finished B02_adaptive_t64_r2: wall=7.46s mapping=1.793542 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-parsing_t64_r2
+finished B02_baseline-parsing_t64_r2: wall=8.08s mapping=1.172866 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_parsing_t64_r2
+finished B02_parsing_t64_r2: wall=7.48s mapping=1.248759 mapped=125000 fast=105203 invalid=0 deterministic=True
+starting B02_baseline-default_t64_r2
+finished B02_baseline-default_t64_r2: wall=5.72s mapping=2.225533 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B02_default_t64_r2
+finished B02_default_t64_r2: wall=6.03s mapping=2.168721 mapped=125000 fast=0 invalid=0 deterministic=True
+starting B03_baseline-default_t1_r0
+finished B03_baseline-default_t1_r0: wall=44.88s mapping=37.329505 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_default_t1_r0
+finished B03_default_t1_r0: wall=43.68s mapping=36.265194 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_baseline-adaptive_t1_r0
+finished B03_baseline-adaptive_t1_r0: wall=32.07s mapping=22.253386 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_adaptive_t1_r0
+finished B03_adaptive_t1_r0: wall=30.27s mapping=21.421633 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-parsing_t1_r0
+finished B03_baseline-parsing_t1_r0: wall=32.48s mapping=22.503623 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_parsing_t1_r0
+finished B03_parsing_t1_r0: wall=30.68s mapping=21.772822 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_default_t1_r1
+finished B03_default_t1_r1: wall=43.88s mapping=36.393614 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_baseline-adaptive_t1_r1
+finished B03_baseline-adaptive_t1_r1: wall=32.07s mapping=22.141802 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_adaptive_t1_r1
+finished B03_adaptive_t1_r1: wall=30.07s mapping=21.230421 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-parsing_t1_r1
+finished B03_baseline-parsing_t1_r1: wall=32.28s mapping=22.508425 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_parsing_t1_r1
+finished B03_parsing_t1_r1: wall=30.27s mapping=21.480983 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-default_t1_r1
+finished B03_baseline-default_t1_r1: wall=46.49s mapping=38.875742 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_baseline-adaptive_t1_r2
+finished B03_baseline-adaptive_t1_r2: wall=32.07s mapping=22.249367 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_adaptive_t1_r2
+finished B03_adaptive_t1_r2: wall=30.07s mapping=21.264984 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-parsing_t1_r2
+finished B03_baseline-parsing_t1_r2: wall=32.48s mapping=22.49001 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_parsing_t1_r2
+finished B03_parsing_t1_r2: wall=30.27s mapping=21.463042 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-default_t1_r2
+finished B03_baseline-default_t1_r2: wall=44.88s mapping=37.316726 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_default_t1_r2
+finished B03_default_t1_r2: wall=43.67s mapping=36.234514 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_baseline-default_t16_r0
+finished B03_baseline-default_t16_r0: wall=6.91s mapping=3.108416 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_default_t16_r0
+finished B03_default_t16_r0: wall=6.71s mapping=3.036532 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_baseline-adaptive_t16_r0
+finished B03_baseline-adaptive_t16_r0: wall=9.08s mapping=1.970099 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_adaptive_t16_r0
+finished B03_adaptive_t16_r0: wall=6.86s mapping=1.780606 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-parsing_t16_r0
+finished B03_baseline-parsing_t16_r0: wall=8.48s mapping=1.88157 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_parsing_t16_r0
+finished B03_parsing_t16_r0: wall=7.47s mapping=1.789578 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_default_t16_r1
+finished B03_default_t16_r1: wall=6.70s mapping=3.037759 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_baseline-adaptive_t16_r1
+finished B03_baseline-adaptive_t16_r1: wall=8.88s mapping=1.985871 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_adaptive_t16_r1
+finished B03_adaptive_t16_r1: wall=7.26s mapping=1.814584 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-parsing_t16_r1
+finished B03_baseline-parsing_t16_r1: wall=8.48s mapping=1.893214 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_parsing_t16_r1
+finished B03_parsing_t16_r1: wall=7.27s mapping=1.765518 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-default_t16_r1
+finished B03_baseline-default_t16_r1: wall=6.52s mapping=3.092882 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_baseline-adaptive_t16_r2
+finished B03_baseline-adaptive_t16_r2: wall=8.67s mapping=1.923516 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_adaptive_t16_r2
+finished B03_adaptive_t16_r2: wall=7.66s mapping=1.845146 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-parsing_t16_r2
+finished B03_baseline-parsing_t16_r2: wall=8.47s mapping=1.836442 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_parsing_t16_r2
+finished B03_parsing_t16_r2: wall=7.86s mapping=1.79049 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-default_t16_r2
+finished B03_baseline-default_t16_r2: wall=7.12s mapping=3.089163 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_default_t16_r2
+finished B03_default_t16_r2: wall=7.32s mapping=3.049099 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_baseline-default_t64_r0
+finished B03_baseline-default_t64_r0: wall=6.60s mapping=2.961393 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_default_t64_r0
+finished B03_default_t64_r0: wall=7.20s mapping=2.968827 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_baseline-adaptive_t64_r0
+finished B03_baseline-adaptive_t64_r0: wall=8.30s mapping=2.075692 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_adaptive_t64_r0
+finished B03_adaptive_t64_r0: wall=8.30s mapping=2.154625 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-parsing_t64_r0
+finished B03_baseline-parsing_t64_r0: wall=7.90s mapping=1.389694 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_parsing_t64_r0
+finished B03_parsing_t64_r0: wall=7.70s mapping=1.447378 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_default_t64_r1
+finished B03_default_t64_r1: wall=6.96s mapping=2.997623 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_baseline-adaptive_t64_r1
+finished B03_baseline-adaptive_t64_r1: wall=9.10s mapping=2.233335 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_adaptive_t64_r1
+finished B03_adaptive_t64_r1: wall=7.49s mapping=2.156331 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-parsing_t64_r1
+finished B03_baseline-parsing_t64_r1: wall=8.30s mapping=1.349577 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_parsing_t64_r1
+finished B03_parsing_t64_r1: wall=7.29s mapping=1.399735 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-default_t64_r1
+finished B03_baseline-default_t64_r1: wall=7.20s mapping=2.881511 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_baseline-adaptive_t64_r2
+finished B03_baseline-adaptive_t64_r2: wall=8.50s mapping=2.296596 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_adaptive_t64_r2
+finished B03_adaptive_t64_r2: wall=7.89s mapping=2.200805 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-parsing_t64_r2
+finished B03_baseline-parsing_t64_r2: wall=8.50s mapping=1.34134 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_parsing_t64_r2
+finished B03_parsing_t64_r2: wall=7.30s mapping=1.318171 mapped=241988 fast=201133 invalid=0 deterministic=True
+starting B03_baseline-default_t64_r2
+finished B03_baseline-default_t64_r2: wall=6.74s mapping=2.962148 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B03_default_t64_r2
+finished B03_default_t64_r2: wall=6.78s mapping=2.868876 mapped=241988 fast=0 invalid=0 deterministic=True
+starting B04_baseline-default_t1_r0
+finished B04_baseline-default_t1_r0: wall=379.04s mapping=371.712785 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_default_t1_r0
+finished B04_default_t1_r0: wall=368.86s mapping=361.596598 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_baseline-adaptive_t1_r0
+finished B04_baseline-adaptive_t1_r0: wall=234.73s mapping=224.92145 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_adaptive_t1_r0
+finished B04_adaptive_t1_r0: wall=224.73s mapping=215.974144 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-parsing_t1_r0
+finished B04_baseline-parsing_t1_r0: wall=239.32s mapping=229.576852 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_parsing_t1_r0
+finished B04_parsing_t1_r0: wall=228.53s mapping=219.741285 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_default_t1_r1
+finished B04_default_t1_r1: wall=371.10s mapping=363.748939 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_baseline-adaptive_t1_r1
+finished B04_baseline-adaptive_t1_r1: wall=235.74s mapping=225.854794 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_adaptive_t1_r1
+finished B04_adaptive_t1_r1: wall=224.12s mapping=215.285598 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-parsing_t1_r1
+finished B04_baseline-parsing_t1_r1: wall=240.15s mapping=230.201232 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_parsing_t1_r1
+finished B04_parsing_t1_r1: wall=227.13s mapping=218.32634 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-default_t1_r1
+finished B04_baseline-default_t1_r1: wall=381.51s mapping=374.138297 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_baseline-adaptive_t1_r2
+finished B04_baseline-adaptive_t1_r2: wall=235.35s mapping=225.512292 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_adaptive_t1_r2
+finished B04_adaptive_t1_r2: wall=224.73s mapping=215.837938 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-parsing_t1_r2
+finished B04_baseline-parsing_t1_r2: wall=238.51s mapping=228.718044 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_parsing_t1_r2
+finished B04_parsing_t1_r2: wall=226.73s mapping=217.91694 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-default_t1_r2
+finished B04_baseline-default_t1_r2: wall=380.71s mapping=373.297184 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_default_t1_r2
+finished B04_default_t1_r2: wall=368.69s mapping=361.221617 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_baseline-default_t16_r0
+finished B04_baseline-default_t16_r0: wall=32.99s mapping=29.512238 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_default_t16_r0
+finished B04_default_t16_r0: wall=32.58s mapping=28.922255 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_baseline-adaptive_t16_r0
+finished B04_baseline-adaptive_t16_r0: wall=25.91s mapping=18.852712 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_adaptive_t16_r0
+finished B04_adaptive_t16_r0: wall=24.09s mapping=18.328741 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-parsing_t16_r0
+finished B04_baseline-parsing_t16_r0: wall=24.51s mapping=17.45828 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_parsing_t16_r0
+finished B04_parsing_t16_r0: wall=22.69s mapping=16.684339 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_default_t16_r1
+finished B04_default_t16_r1: wall=32.76s mapping=29.021237 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_baseline-adaptive_t16_r1
+finished B04_baseline-adaptive_t16_r1: wall=24.50s mapping=17.986679 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_adaptive_t16_r1
+finished B04_adaptive_t16_r1: wall=24.49s mapping=18.741567 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-parsing_t16_r1
+finished B04_baseline-parsing_t16_r1: wall=24.51s mapping=17.518942 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_parsing_t16_r1
+finished B04_parsing_t16_r1: wall=22.09s mapping=16.874393 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-default_t16_r1
+finished B04_baseline-default_t16_r1: wall=33.57s mapping=29.786209 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_baseline-adaptive_t16_r2
+finished B04_baseline-adaptive_t16_r2: wall=25.71s mapping=19.040732 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_adaptive_t16_r2
+finished B04_adaptive_t16_r2: wall=24.69s mapping=18.773438 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-parsing_t16_r2
+finished B04_baseline-parsing_t16_r2: wall=24.32s mapping=17.58609 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_parsing_t16_r2
+finished B04_parsing_t16_r2: wall=22.70s mapping=16.664601 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-default_t16_r2
+finished B04_baseline-default_t16_r2: wall=34.61s mapping=30.451529 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_default_t16_r2
+finished B04_default_t16_r2: wall=33.22s mapping=29.580307 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_baseline-default_t64_r0
+finished B04_baseline-default_t64_r0: wall=31.68s mapping=27.267815 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_default_t64_r0
+finished B04_default_t64_r0: wall=33.45s mapping=29.393434 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_baseline-adaptive_t64_r0
+finished B04_baseline-adaptive_t64_r0: wall=28.95s mapping=22.276899 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_adaptive_t64_r0
+finished B04_adaptive_t64_r0: wall=28.73s mapping=22.696275 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-parsing_t64_r0
+finished B04_baseline-parsing_t64_r0: wall=20.14s mapping=12.540097 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_parsing_t64_r0
+finished B04_parsing_t64_r0: wall=18.11s mapping=12.462681 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_default_t64_r1
+finished B04_default_t64_r1: wall=32.23s mapping=28.158794 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_baseline-adaptive_t64_r1
+finished B04_baseline-adaptive_t64_r1: wall=28.75s mapping=21.718873 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_adaptive_t64_r1
+finished B04_adaptive_t64_r1: wall=27.74s mapping=21.728216 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-parsing_t64_r1
+finished B04_baseline-parsing_t64_r1: wall=19.52s mapping=12.687261 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_parsing_t64_r1
+finished B04_parsing_t64_r1: wall=18.93s mapping=12.954851 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-default_t64_r1
+finished B04_baseline-default_t64_r1: wall=32.25s mapping=28.566567 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_baseline-adaptive_t64_r2
+finished B04_baseline-adaptive_t64_r2: wall=27.78s mapping=21.088498 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_adaptive_t64_r2
+finished B04_adaptive_t64_r2: wall=28.36s mapping=22.126949 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-parsing_t64_r2
+finished B04_baseline-parsing_t64_r2: wall=19.53s mapping=12.531441 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_parsing_t64_r2
+finished B04_parsing_t64_r2: wall=18.73s mapping=12.715623 mapped=2419768 fast=2004263 invalid=0 deterministic=True
+starting B04_baseline-default_t64_r2
+finished B04_baseline-default_t64_r2: wall=33.22s mapping=28.923488 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B04_default_t64_r2
+finished B04_default_t64_r2: wall=33.01s mapping=29.144021 mapped=2419767 fast=0 invalid=0 deterministic=True
+starting B05_baseline-default_t1_r0
+finished B05_baseline-default_t1_r0: wall=19.65s mapping=12.407379 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_default_t1_r0
+finished B05_default_t1_r0: wall=19.92s mapping=12.618241 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_baseline-adaptive_t1_r0
+finished B05_baseline-adaptive_t1_r0: wall=23.06s mapping=12.926328 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_adaptive_t1_r0
+finished B05_adaptive_t1_r0: wall=22.26s mapping=12.803767 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-parsing_t1_r0
+finished B05_baseline-parsing_t1_r0: wall=22.66s mapping=13.009508 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_parsing_t1_r0
+finished B05_parsing_t1_r0: wall=21.66s mapping=13.157329 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_default_t1_r1
+finished B05_default_t1_r1: wall=20.09s mapping=12.735141 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_baseline-adaptive_t1_r1
+finished B05_baseline-adaptive_t1_r1: wall=22.86s mapping=12.805989 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_adaptive_t1_r1
+finished B05_adaptive_t1_r1: wall=22.05s mapping=12.83009 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-parsing_t1_r1
+finished B05_baseline-parsing_t1_r1: wall=22.66s mapping=13.027489 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_parsing_t1_r1
+finished B05_parsing_t1_r1: wall=21.86s mapping=12.919576 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-default_t1_r1
+finished B05_baseline-default_t1_r1: wall=20.06s mapping=12.498299 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_baseline-adaptive_t1_r2
+finished B05_baseline-adaptive_t1_r2: wall=22.46s mapping=12.841546 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_adaptive_t1_r2
+finished B05_adaptive_t1_r2: wall=21.66s mapping=12.739384 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-parsing_t1_r2
+finished B05_baseline-parsing_t1_r2: wall=23.26s mapping=13.129714 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_parsing_t1_r2
+finished B05_parsing_t1_r2: wall=23.27s mapping=14.099571 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-default_t1_r2
+finished B05_baseline-default_t1_r2: wall=20.28s mapping=12.645228 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_default_t1_r2
+finished B05_default_t1_r2: wall=19.46s mapping=12.18654 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_baseline-default_t16_r0
+finished B05_baseline-default_t16_r0: wall=4.90s mapping=1.388829 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_default_t16_r0
+finished B05_default_t16_r0: wall=5.48s mapping=1.30912 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_baseline-adaptive_t16_r0
+finished B05_baseline-adaptive_t16_r0: wall=8.25s mapping=1.145585 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_adaptive_t16_r0
+finished B05_adaptive_t16_r0: wall=6.25s mapping=1.215592 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-parsing_t16_r0
+finished B05_baseline-parsing_t16_r0: wall=8.06s mapping=1.116316 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_parsing_t16_r0
+finished B05_parsing_t16_r0: wall=6.86s mapping=1.141832 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_default_t16_r1
+finished B05_default_t16_r1: wall=5.29s mapping=1.425125 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_baseline-adaptive_t16_r1
+finished B05_baseline-adaptive_t16_r1: wall=8.25s mapping=1.331127 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_adaptive_t16_r1
+finished B05_adaptive_t16_r1: wall=6.85s mapping=1.126205 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-parsing_t16_r1
+finished B05_baseline-parsing_t16_r1: wall=7.67s mapping=1.119416 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_parsing_t16_r1
+finished B05_parsing_t16_r1: wall=6.85s mapping=1.134243 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-default_t16_r1
+finished B05_baseline-default_t16_r1: wall=5.28s mapping=1.364522 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_baseline-adaptive_t16_r2
+finished B05_baseline-adaptive_t16_r2: wall=8.27s mapping=1.181064 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_adaptive_t16_r2
+finished B05_adaptive_t16_r2: wall=7.04s mapping=1.147544 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-parsing_t16_r2
+finished B05_baseline-parsing_t16_r2: wall=7.67s mapping=1.121405 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_parsing_t16_r2
+finished B05_parsing_t16_r2: wall=7.45s mapping=1.116429 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-default_t16_r2
+finished B05_baseline-default_t16_r2: wall=5.67s mapping=1.45045 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_default_t16_r2
+finished B05_default_t16_r2: wall=5.30s mapping=1.477792 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_baseline-default_t64_r0
+finished B05_baseline-default_t64_r0: wall=5.57s mapping=1.428435 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_default_t64_r0
+finished B05_default_t64_r0: wall=5.31s mapping=1.476012 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_baseline-adaptive_t64_r0
+finished B05_baseline-adaptive_t64_r0: wall=7.67s mapping=1.156551 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_adaptive_t64_r0
+finished B05_adaptive_t64_r0: wall=6.87s mapping=1.299137 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-parsing_t64_r0
+finished B05_baseline-parsing_t64_r0: wall=8.28s mapping=0.907042 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_parsing_t64_r0
+finished B05_parsing_t64_r0: wall=7.08s mapping=0.922338 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_default_t64_r1
+finished B05_default_t64_r1: wall=6.12s mapping=1.579509 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_baseline-adaptive_t64_r1
+finished B05_baseline-adaptive_t64_r1: wall=8.08s mapping=1.167005 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_adaptive_t64_r1
+finished B05_adaptive_t64_r1: wall=7.45s mapping=1.516165 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-parsing_t64_r1
+finished B05_baseline-parsing_t64_r1: wall=7.28s mapping=0.775101 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_parsing_t64_r1
+finished B05_parsing_t64_r1: wall=6.26s mapping=0.792314 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-default_t64_r1
+finished B05_baseline-default_t64_r1: wall=5.96s mapping=1.445838 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_baseline-adaptive_t64_r2
+finished B05_baseline-adaptive_t64_r2: wall=8.28s mapping=1.091678 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_adaptive_t64_r2
+finished B05_adaptive_t64_r2: wall=7.27s mapping=1.289903 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-parsing_t64_r2
+finished B05_baseline-parsing_t64_r2: wall=7.47s mapping=0.773888 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_parsing_t64_r2
+finished B05_parsing_t64_r2: wall=7.47s mapping=0.881989 mapped=39632 fast=3202 invalid=0 deterministic=True
+starting B05_baseline-default_t64_r2
+finished B05_baseline-default_t64_r2: wall=5.76s mapping=1.531456 mapped=39608 fast=0 invalid=0 deterministic=True
+starting B05_default_t64_r2
+finished B05_default_t64_r2: wall=5.75s mapping=1.502672 mapped=39608 fast=0 invalid=0 deterministic=True
+complete: /home/mpiuser/bench-results/native-compare-6e33e5c/report.json

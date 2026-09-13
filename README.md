@@ -127,6 +127,11 @@ The [long-read optimization roadmap](docs/long_read_redesign.md#long-read-optimi
 separates released features, current exact optimizations, rejected experiments,
 and planned mapping-throughput work. Local loop gains are not host speedup claims.
 
+[Post-release validation on a2 and galaxy](benchmarks/results/native-compare-6e33e5c/README.md)
+passed all 540 native invocations with unchanged output. Adaptive/parser modes
+improved total time by 1.10x on a2 and 1.17-1.19x on galaxy across the matrix;
+mapping time remained approximately flat. The gain is primarily setup time.
+
 1. **Sketch** the reference and each read with FracMinHash, keeping k-mers whose hash falls below
    `r · u64::MAX`.
 2. **Seed** — look up each read k-mer in the index, rarest first.

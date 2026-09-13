@@ -129,6 +129,9 @@ jobs:
       - name: one_read_fasta isolates exactly the first record
         run: python3 benchmarks/scripts/test_run.py
 
+      - name: native revision comparisons enforce output and work parity
+        run: python3 benchmarks/scripts/test_native_hosts.py
+
       # A wrong chart looks as authoritative as a right one, so the
       # aggregation rule, the wedge maths and the partition guard are pinned.
       - name: profiling charts draw what they claim
@@ -193,6 +196,9 @@ jobs:
       # a pure function of the result set, so this is a real equality check.
       - name: paper artifacts match the current result set
         run: python3 benchmarks/scripts/paper.py --check --arch x86_64
+
+      - name: native optimization comparison matches archived evidence
+        run: python3 benchmarks/scripts/report_native_comparison.py --check
 
       # No --arch: this one is about every promoted architecture at once. With
       # only one promoted it passes without writing anything, so it is safe to

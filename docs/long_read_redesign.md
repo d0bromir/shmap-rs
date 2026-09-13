@@ -59,7 +59,7 @@ Not implemented or validated:
 Priority is **long-read mapping throughput**, especially B04 (2,425,341 real
 HiFi reads, 10x depth). Setup-only wins are tracked separately and must not be
 reported as mapping gains. The release measurements above remain immutable;
-the working-tree experiments below are not part of release 1.6.0's host results.
+the post-release experiments below are not part of release 1.6.0's host results.
 
 ### Implemented and Measured
 
@@ -69,9 +69,9 @@ the working-tree experiments below are not part of release 1.6.0's host results.
 | Batching and parallel FASTA query parsing | Released, opt-in | B04/64-worker parsing mode: 1.66x total on a2, 1.89x on galaxy; two extra reader workers; bundled-mode comparison |
 | Compact/checksummed persistent index | Released, optional | Cache reuse not measured in the host matrix; uncached conversion adds setup cost |
 | Dense regional repeat rescue and candidate-local scan | Released, experimental | Only four extra correct B02 placements; repeat-index build takes 178-395 seconds; not a speed recommendation |
-| Exact compact storage preallocation | Implemented after 1.6.0; host measurement pending | One-million-key local conversion median 0.318 to 0.268 seconds, 1.18x; seven alternating repeats, same test binary; not a mapping benchmark |
-| Eliminate sorting of ordered sampled anchors | Implemented after 1.6.0; end-to-end speed pending | Local 100,000-buffer benchmark: 19.68 to 16.39 ms, 1.20x; seven alternating repeats; includes buffer filling; not whole-read or WGS speedup |
-| Reuse sparse sample postings during candidate verification | Implemented after 1.6.0; provisional local evidence | Same-binary adaptive-attempt median 1.568 to 1.450 seconds, 1.08x; seven alternating CPU-pinned repeats; noisy, excludes original-mapper fallback and the CLI pipeline |
+| Exact compact storage preallocation | Implemented after 1.6.0; bundled host comparison complete | One-million-key local conversion median 0.318 to 0.268 seconds, 1.18x; seven alternating repeats, same test binary; not a mapping benchmark |
+| Eliminate sorting of ordered sampled anchors | Implemented after 1.6.0; no isolated host mapping gain established | Local 100,000-buffer benchmark: 19.68 to 16.39 ms, 1.20x; seven alternating repeats; includes buffer filling; not whole-read or WGS speedup |
+| Reuse sparse sample postings during candidate verification | Implemented after 1.6.0; host parity passed, mapping gain inconclusive | Same-binary adaptive-attempt median 1.568 to 1.450 seconds, 1.08x; seven alternating CPU-pinned repeats; noisy, excludes original-mapper fallback and the CLI pipeline |
 
 The anchor change preserves candidate discovery, work limits, evidence thresholds,
 nearest-hit choice, scoring, and ties. For reads of at least 4096 bases, all
@@ -111,7 +111,29 @@ PAF and adaptive counters remain identical to the pre-reuse build for plain and
 adaptive modes at one and four workers: 9,495 mapped, 8,976 correct, and 6,787
 adaptive fast placements. These single CLI runs establish parity only. Their
 local artifacts are in `target/long-read-posting-reuse/` (not committed; removed
-by `cargo clean`). Whole-genome throughput and memory acceptance remain pending.
+by `cargo clean`).
+
+### Completed Two-Host Validation
+
+The [archived comparison](../benchmarks/results/native-compare-6e33e5c/README.md)
+measured commit `6e33e5c` against release 1.6.0 on a2 and galaxy: 540 native-only
+invocations covering B01-B05, default/adaptive/parsing modes, 1/16/64 workers,
+and three repeats per revision and host. PAF hashes and adaptive counters match
+across revisions, repeats, worker counts, and architectures. B02 retains 125,000
+mapped reads and 123,977 truth-overlap-correct placements in every mode.
+
+Across the matrix, adaptive/parsing total-time speedups are 1.096x/1.102x on a2
+and 1.173x/1.193x on galaxy. Mapping-only ratios are 1.009x/1.013x and
+0.993x/1.010x respectively: no convincing general mapping gain. B04 parsing at
+64 workers improves total time from 19.53 to 18.73 seconds on a2 and 11.87 to
+10.47 seconds on galaxy; mapping changes from 12.54 to 12.72 and 7.74 to 7.64
+seconds. The practical benefit is primarily setup, not the targeted mapping
+throughput improvement. Individual configurations can regress.
+
+These are bundled, across-build comparisons, not attribution to one optimization.
+Full medians, CPU/RSS, commands, provenance, and raw diagnostics are archived;
+the maintained suite and original release results are unchanged. Dense rescue,
+short reads, cold caches, and the full maintained acceptance gate were not run.
 
 ### Next Priorities
 
@@ -122,8 +144,8 @@ by `cargo clean`). Whole-genome throughput and memory acceptance remain pending.
   these overlap hierarchically and are neither wall time nor process CPU time.
   Investigate reusable range-local evidence and avoiding repeated posting visits
   without discarding repeat copies or altering ambiguity decisions.
-2. **Reduce repeated adaptive candidate work.** Measure the implemented sample
-  posting reuse on whole-genome reads; assess a position-aware seed-pair index
+2. **Reduce repeated adaptive candidate work.** The first whole-genome posting
+  reuse comparison did not establish a general mapping gain; assess a position-aware seed-pair index
   only with bounded memory and complete
   native fallback. Keep thresholds unchanged for exact optimizations; any
   heuristic change needs separate simulated and repeat-rich accuracy gates.
@@ -168,8 +190,9 @@ used the first permitted CPU.
 
 These benchmarks are ignored during normal tests and use the test binary's
 allocator. The CLI uses mimalloc, so allocation timings are not CLI guarantees.
-None of these experiments establishes a new host speedup or approaches the 10x
-goal on its own. The next acceptance decision must be based on long-read mapping.
+None of these local benchmarks establishes a host speedup on its own. The bundled
+host result above improves total time but does not approach the 10x goal or
+establish a general mapping gain. Further work must target long-read mapping.
 
 ## Usage
 
