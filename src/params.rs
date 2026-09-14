@@ -158,11 +158,11 @@ pub struct Params {
     #[arg(long, requires = "index_cache")]
     pub verify_index_reference: bool,
 
-    /// Experimental HiFi positional sampling; unresolved reads use the original mapper, fast records have MAPQ 255
+    /// Retired: fixed-window adaptive placement failed accuracy qualification
     #[arg(long)]
     pub adaptive: bool,
 
-    /// Build a separate dense repeat index and compare unresolved positional candidates
+    /// Retired with adaptive placement; retained only for an explicit error
     #[arg(long, requires = "adaptive")]
     pub adaptive_dense: bool,
 
@@ -237,18 +237,9 @@ impl Params {
         if !(1..=256).contains(&self.read_batch_size) {
             bail!("--read-batch-size must be between 1 and 256");
         }
-        if self.adaptive
-            && (self.metric != Metric::Containment
-                || self.abs_pos
-                || self.no_bucket_pruning
-                || self.one_sweep
-                || self.rarity_weight != 0.0
-                || self.rarity_tiebreak != 0.0
-                || self.max_matches.is_some()
-                || self.verbose >= 2)
-        {
+        if self.adaptive || self.adaptive_dense {
             bail!(
-                "--adaptive requires plain Containment without pruning overrides, rarity scoring, frequency filtering, or verbose ground-truth analysis"
+                "adaptive placement was retired after failing accuracy qualification; remove --adaptive and --adaptive-dense to use the original mapper"
             );
         }
         if self.k <= 0 {

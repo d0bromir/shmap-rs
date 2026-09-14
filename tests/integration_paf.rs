@@ -94,8 +94,6 @@ fn compact_and_cached_indexes_preserve_paf() {
     };
     let expected = run(&[]);
     assert_eq!(run(&["--compact-index"]), expected);
-    assert_eq!(run(&["--adaptive"]), expected);
-    assert_eq!(run(&["--adaptive", "--adaptive-dense"]), expected);
     assert_eq!(run(&["--read-batch-size", "2"]), expected);
     assert_eq!(run(&["--read-batch-size", "2", "--reader-threads", "4"]), expected);
     assert_eq!(run(&["--index-cache", cache.to_str().unwrap()]), expected);
@@ -112,7 +110,7 @@ fn compact_and_cached_indexes_preserve_paf() {
 }
 
 #[test]
-fn adaptive_cli_maps_long_reads_deterministically() {
+fn retired_adaptive_cli_rejects_long_reads_without_output() {
     let directory = tempfile::tempdir().unwrap();
     let reference = directory.path().join("ref.fa");
     let reads = directory.path().join("reads.fa");
@@ -139,44 +137,42 @@ fn adaptive_cli_maps_long_reads_deterministically() {
         .map(|number| format!(">forward{number}\n{forward}\n>reverse{number}\n{reverse}\n"))
         .collect();
     std::fs::write(&reads, records).unwrap();
-    let run = |threads: &str| {
+    let run = |threads: &str, dense: bool| {
         let mut command = Command::cargo_bin("shmap").unwrap();
+        command.args([
+            "-s",
+            reference.to_str().unwrap(),
+            "-p",
+            reads.to_str().unwrap(),
+            "-k",
+            "25",
+            "-r",
+            "0.05",
+            "-t",
+            "0.4",
+            "--adaptive",
+            "--compact-index",
+            "--read-batch-size",
+            "16",
+            "-@",
+            threads,
+        ]);
+        if dense {
+            command.arg("--adaptive-dense");
+        }
         command
-            .args([
-                "-s",
-                reference.to_str().unwrap(),
-                "-p",
-                reads.to_str().unwrap(),
-                "-k",
-                "25",
-                "-r",
-                "0.05",
-                "-t",
-                "0.4",
-                "--adaptive",
-                "--compact-index",
-                "--read-batch-size",
-                "16",
-                "-@",
-                threads,
-            ])
             .assert()
-            .success()
+            .failure()
+            .stderr(predicates::str::contains(
+                "retired after failing accuracy qualification",
+            ))
             .get_output()
             .stdout
             .clone()
     };
-    let output = run("1");
-    assert_eq!(run("4"), output);
-    let output = String::from_utf8(output).unwrap();
-    assert_eq!(output.lines().count(), 66);
-    for (line, strand) in output.lines().zip(["+", "-"].into_iter().cycle()) {
-        let fields: Vec<_> = line.split('\t').collect();
-        assert_eq!(
-            (fields[4], fields[7], fields[8], fields[11]),
-            (strand, "5000", "17000", "255")
-        );
-        assert!(line.contains("am:Z:adaptive-v1"));
-        assert!(!line.contains("J:f:"));
+    for threads in ["1", "4"] {
+        for dense in [false, true] {
+            assert!(run(threads, dense).is_empty());
+        }
     }
 }

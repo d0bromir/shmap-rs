@@ -70,6 +70,8 @@
 //! every call, so a panic mid-read can't leave anything for the *next* read
 //! on that worker to inherit.
 
+#[cfg(test)]
+#[allow(dead_code)]
 mod adaptive;
 mod pruning;
 mod scoring;
@@ -350,7 +352,6 @@ fn per_read_stats_row(query_id: &str, counters: &Counters, timers: &Timers) -> S
 /// combinations — see [`crate::mapper::create_mapper`].
 pub struct SHMapper<'idx, const NBP: bool, const OS: bool, const AP: bool> {
     tidx: &'idx crate::index::SketchIndex,
-    adaptive: adaptive::Adaptive<'idx>,
     /// Per-read-cycle local counters, merged into the `Handler`'s run-wide
     /// counters after each read (matching the C++'s own local `C` member,
     /// merged via `H->C += C`).
@@ -378,7 +379,6 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
         timers.init(PER_READ_TIMERS);
         SHMapper {
             tidx,
-            adaptive: adaptive::Adaptive::default(),
             counters,
             timers,
             rarity: Vec::new(),
@@ -395,6 +395,9 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
     /// reader/workers/collector pipeline described in the module doc
     /// comment, with `params.threads.max(1)` worker threads.
     pub fn map_reads(&mut self, handler: &mut Handler, p_file: &str, profiler: &Profiler) -> anyhow::Result<()> {
+        if handler.params.adaptive || handler.params.adaptive_dense {
+            anyhow::bail!("adaptive placement was retired after failing accuracy qualification");
+        }
         // "mapped_reads" is pre-registered here (not just "reads") because
         // the collector reads it unconditionally on every completed job
         // (`handler.counters.count("mapped_reads")` below, for the progress
@@ -860,44 +863,6 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP, 
 
         self.timers.start("query_mapping");
 
-        if params.adaptive {
-            self.timers.start("adaptive");
-            let mut placement = self.adaptive.locate(self.tidx, sketcher, p_seq, params.theta);
-            if placement.is_none() && params.adaptive_dense {
-                self.timers.start("adaptive_dense");
-                placement = self.adaptive.resolve_repeats(self.tidx, p_seq, params.theta);
-                self.timers.stop("adaptive_dense");
-            }
-            self.timers.stop("adaptive");
-            self.counters.inc("adaptive_bases", self.adaptive.bases as i64);
-            self.counters.inc("adaptive_hits", self.adaptive.hits as i64);
-            self.counters.inc("adaptive_candidates", self.adaptive.checked as i64);
-            if let Some(placement) = placement {
-                self.counters.inc1("adaptive_fast");
-                if placement.dense {
-                    self.counters.inc1("adaptive_dense");
-                }
-                self.counters.inc1("mapped_reads");
-                self.counters.inc1("mappings");
-                self.counters.inc1("mapq_unavailable");
-                self.counters.inc("read_len", p_seq.len() as i64);
-                self.counters.inc("kmers_sketched", placement.sampled as i64);
-                self.counters.inc("kmers", placement.sampled as i64);
-                self.counters
-                    .inc("matches_in_reported_mappings", placement.matches as i64);
-                self.timers.stop("query_mapping");
-                self.timers.start("output");
-                let stdout = placement.paf(self.tidx, query_id, p_seq.len(), sketcher.k);
-                self.timers.stop("output");
-                return Ok(ReadOutput {
-                    stdout,
-                    unmapped_line: None,
-                    paul_row: None,
-                });
-            }
-            self.counters.inc1("adaptive_rescue");
-        }
-
         self.timers.start("sketching");
         let p = sketcher.sketch(p_seq, &mut self.counters);
         let m: QPos = p.len() as QPos;
@@ -1250,6 +1215,29 @@ mod integration_tests {
         write!(f, "{content}").unwrap();
         f.flush().unwrap();
         f
+    }
+
+    #[test]
+    fn retired_adaptive_library_call_fails_before_io() {
+        for dense in [false, true] {
+            let mut params = Params::try_parse_from(["shmap", "-s", "missing-ref", "-p", "missing-reads"]).unwrap();
+            params.adaptive = !dense;
+            params.adaptive_dense = dense;
+            let mut handler = Handler::new(params).unwrap();
+            handler
+                .counters
+                .init(&["sketched_seqs", "sketched_len", "sketched_kmers"]);
+            let index = SketchIndex::new();
+            let mut mapper = SHMapper::<false, false, false>::new(&index);
+            let error = mapper
+                .map_reads(&mut handler, "missing-reads", &Profiler::new(false))
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("retired after failing accuracy qualification")
+            );
+        }
     }
 
     fn run_variant<const NBP: bool, const OS: bool, const AP: bool>(ref_fa: &str, reads_fa: &str) {
