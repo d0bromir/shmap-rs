@@ -6,6 +6,11 @@ contains a number a person typed.
 
 ## Experimental Results Scope
 
+The fixed-window adaptive architecture has been retired after failing truth-based
+qualification. Its charts and supplementary timings remain historical evidence,
+not an endorsed mode. The original mapper's paper results are unchanged; reaching
+Winnowmap-level accuracy remains a separate, unfulfilled target.
+
 The [post-release revision validation](../benchmarks/results/native-compare-6e33e5c/README.md)
 adds 540 native measurements with exact output/work parity on both hosts. It
 shows primarily setup-time savings, not a general mapping gain. Its

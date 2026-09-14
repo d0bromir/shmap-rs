@@ -1,0 +1,1810 @@
+{
+  "scope": "synthetic stress screening; not a production MAPQ approval",
+  "binary_sha256": "7871b8021c7f7bcfd2f5282bbec16bc99415fef59f6732be63edc3a85aaff7ce",
+  "script_sha256": "6d5e33ab4d48a26b6c9488f4ae68822036b451e367aba5527bb92d2003252a37",
+  "simulator_sha256": "7fce9c3bec239695dd9c503a2295c98a091b99515cd0916b3b1166c796128a02",
+  "source_commit": "442928c9fabe063f321b1d57ade3650fefa589e2",
+  "model_sha256": "09836e54abd1cb816e05c9a6843bfd9d19559bdb5ebb2895bc99f4ddca4e835e",
+  "categories": [
+    "unique_hifi",
+    "near_repeat_hifi",
+    "identical_repeat",
+    "unique_ont3",
+    "unique_ont6",
+    "repeat_ont3",
+    "indel_rich",
+    "chimera",
+    "absent_reference",
+    "unsampled_difference",
+    "sample_preserving_mosaic"
+  ],
+  "per_category": 200,
+  "record_sha256": {
+    "calibration": "cf449546031027f82dac4444866a7572e954670a01553bf8f6ed426bee7390d4",
+    "heldout": "7c21c7b545f689315d153e3aae1efa968f95c3e5e5f499bdf411f16c782c9dca"
+  },
+  "evidence": {
+    "calibration-101-default": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/calibration-101/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/calibration-101/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4"
+      ],
+      "paf_sha256": "9e7893d508d395ee2fdde4ff0fc8530ebf2c617b7c5479c1b90956c43ddf25eb"
+    },
+    "calibration-101-adaptive": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/calibration-101/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/calibration-101/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4",
+        "--adaptive",
+        "--compact-index",
+        "--read-batch-size",
+        "64"
+      ],
+      "paf_sha256": "db43da40e1cbff28e0c295af1a1004061e7845501a64042e4016c992e582988e"
+    },
+    "calibration-211-default": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/calibration-211/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/calibration-211/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4"
+      ],
+      "paf_sha256": "a42a8b8c76993fbbd52ff1fcf73c6199b0a1746f5357b2f7380ba5d7be826503"
+    },
+    "calibration-211-adaptive": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/calibration-211/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/calibration-211/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4",
+        "--adaptive",
+        "--compact-index",
+        "--read-batch-size",
+        "64"
+      ],
+      "paf_sha256": "04191b52e53712a656ea490544fc4a74a0c87bb3bafc2b1d79b0815c159f9d76"
+    },
+    "calibration-307-default": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/calibration-307/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/calibration-307/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4"
+      ],
+      "paf_sha256": "b082b9604376922409b1c5108c90af104ab25ac8a80c344e13877331b17271f7"
+    },
+    "calibration-307-adaptive": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/calibration-307/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/calibration-307/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4",
+        "--adaptive",
+        "--compact-index",
+        "--read-batch-size",
+        "64"
+      ],
+      "paf_sha256": "84714e69159476e05f8d2b5d60d74ed5afbce3192bc2c8049bb2078fc456c883"
+    },
+    "heldout-401-default": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/heldout-401/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/heldout-401/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4"
+      ],
+      "paf_sha256": "398f8539c1538eef397486835df48da135f0fa8897fe9eade8646e0b82213645"
+    },
+    "heldout-401-adaptive": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/heldout-401/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/heldout-401/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4",
+        "--adaptive",
+        "--compact-index",
+        "--read-batch-size",
+        "64"
+      ],
+      "paf_sha256": "2cc0bfc5c863d155b3dd8f833cdcc962d6b96a8288df86da7a02a5c531002332"
+    },
+    "heldout-503-default": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/heldout-503/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/heldout-503/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4"
+      ],
+      "paf_sha256": "f442d2d4dbdb58089336e8c4b97fa4777baebd1e54abe0e96918c8d9ea081326"
+    },
+    "heldout-503-adaptive": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/heldout-503/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/heldout-503/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4",
+        "--adaptive",
+        "--compact-index",
+        "--read-batch-size",
+        "64"
+      ],
+      "paf_sha256": "fc840cfa63a5863345e65935fd5bf02946d1e5fabc9adaafd99b533d7540948b"
+    },
+    "heldout-601-default": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/heldout-601/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/heldout-601/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4"
+      ],
+      "paf_sha256": "b59b2aba6638ebbee5c1c7cfcb2a2bad4fbba2736ebc0eebd655699986de01ac"
+    },
+    "heldout-601-adaptive": {
+      "command": [
+        "/home/dobro/shmap-rs/target/release/shmap",
+        "-s",
+        "target/adaptive-mapq-validation-final/heldout-601/reference.fa",
+        "-p",
+        "target/adaptive-mapq-validation-final/heldout-601/reads.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-@",
+        "4",
+        "--adaptive",
+        "--compact-index",
+        "--read-batch-size",
+        "64"
+      ],
+      "paf_sha256": "47679588ba98ad9b98e73d2e7a2798fa2272c2dcedaa8871d756eb5ecb7d1b4d"
+    }
+  },
+  "splits": {
+    "calibration": {
+      "summary": [
+        {
+          "seed": 101,
+          "modes": {
+            "default": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 175,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 183,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 86,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 174,
+                "correct_locus": 111,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 182,
+                "correct_locus": 113,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 147,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 195,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              }
+            },
+            "adaptive": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 199,
+                "adaptive": 175,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 184,
+                "adaptive": 11,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 86,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 174,
+                "correct_locus": 114,
+                "adaptive": 7,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 182,
+                "correct_locus": 113,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 165,
+                "adaptive": 52,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 195,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 198,
+                "adaptive_errors": 198,
+                "ambiguous": 0
+              }
+            }
+          },
+          "reference_sha256": "39f969632efbcfe00fc0684b6b27a21ad51a3d12fbb00dbf9a4eee806c95ff64",
+          "reads_sha256": "f65a541f823bcdfbba06a6907c5715236fb1b2997d4a4f36e5d78c6d6382921c"
+        },
+        {
+          "seed": 211,
+          "modes": {
+            "default": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 179,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 160,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 81,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 186,
+                "correct_locus": 117,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 169,
+                "correct_locus": 84,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 199,
+                "correct_locus": 136,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 197,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              }
+            },
+            "adaptive": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 173,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 161,
+                "adaptive": 4,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 81,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 186,
+                "correct_locus": 124,
+                "adaptive": 12,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 169,
+                "correct_locus": 84,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 199,
+                "correct_locus": 152,
+                "adaptive": 51,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 197,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 196,
+                "adaptive_errors": 196,
+                "ambiguous": 0
+              }
+            }
+          },
+          "reference_sha256": "10f14fc3a205e259f825eb07fec35bf1b392d7129283eb5893aa17bc1375efc3",
+          "reads_sha256": "65aece9c0e452a07448c98ca4db9cd9effdf9209aed1449c8d12220bb818e460"
+        },
+        {
+          "seed": 307,
+          "modes": {
+            "default": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 184,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 166,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 91,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 187,
+                "correct_locus": 125,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 183,
+                "correct_locus": 107,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 140,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 198,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              }
+            },
+            "adaptive": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 198,
+                "adaptive": 168,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 166,
+                "adaptive": 4,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 91,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 187,
+                "correct_locus": 129,
+                "adaptive": 14,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 183,
+                "correct_locus": 107,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 148,
+                "adaptive": 48,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 198,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 200,
+                "adaptive_errors": 200,
+                "ambiguous": 0
+              }
+            }
+          },
+          "reference_sha256": "cb7883d93d057635dba7846d69c388009ef5d6d174426bd8a867c5cb5f77fe96",
+          "reads_sha256": "53567623796613f5cf9618c15b8e676009ca5f0e9d186856bd99e17a006d2fcc"
+        }
+      ],
+      "adaptive_records": 1313
+    },
+    "heldout": {
+      "summary": [
+        {
+          "seed": 401,
+          "modes": {
+            "default": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 181,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 170,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 86,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 176,
+                "correct_locus": 104,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 175,
+                "correct_locus": 101,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 197,
+                "correct_locus": 140,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              }
+            },
+            "adaptive": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 199,
+                "adaptive": 165,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 171,
+                "adaptive": 3,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 86,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 176,
+                "correct_locus": 108,
+                "adaptive": 12,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 175,
+                "correct_locus": 101,
+                "adaptive": 1,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 197,
+                "correct_locus": 161,
+                "adaptive": 58,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 198,
+                "adaptive_errors": 198,
+                "ambiguous": 0
+              }
+            }
+          },
+          "reference_sha256": "1b015b49362ecf9538426dca51eff8989b4827c05853890c3c753929bebe4095",
+          "reads_sha256": "ee32149f340fb19ee96a10b24a82194bc3e5e4dd67f2511a8c3add9061dd7696"
+        },
+        {
+          "seed": 503,
+          "modes": {
+            "default": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 179,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 164,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 83,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 182,
+                "correct_locus": 114,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 174,
+                "correct_locus": 104,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 199,
+                "correct_locus": 141,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 194,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              }
+            },
+            "adaptive": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 199,
+                "adaptive": 164,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 165,
+                "adaptive": 3,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 83,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 182,
+                "correct_locus": 119,
+                "adaptive": 9,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 174,
+                "correct_locus": 104,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 199,
+                "correct_locus": 157,
+                "adaptive": 47,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 194,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 195,
+                "adaptive_errors": 195,
+                "ambiguous": 0
+              }
+            }
+          },
+          "reference_sha256": "0732fc047f46a3e264699bb26da0ef3e1c94dc50feddf8969a35134e2fe17006",
+          "reads_sha256": "3b448ad9a5a59f692c2b1c88123890962b8e9d54692fcdef04c9854ee8525b24"
+        },
+        {
+          "seed": 601,
+          "modes": {
+            "default": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 179,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 170,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 97,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 170,
+                "correct_locus": 123,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 1,
+                "correct_locus": 1,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 176,
+                "correct_locus": 92,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 139,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              }
+            },
+            "adaptive": {
+              "unique_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 198,
+                "adaptive": 160,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "near_repeat_hifi": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 171,
+                "adaptive": 3,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "identical_repeat": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 97,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 200
+              },
+              "unique_ont3": {
+                "reads": 200,
+                "mapped": 170,
+                "correct_locus": 126,
+                "adaptive": 10,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unique_ont6": {
+                "reads": 200,
+                "mapped": 1,
+                "correct_locus": 1,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "repeat_ont3": {
+                "reads": 200,
+                "mapped": 176,
+                "correct_locus": 92,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "indel_rich": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 154,
+                "adaptive": 47,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "chimera": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "absent_reference": {
+                "reads": 200,
+                "mapped": 0,
+                "correct_locus": 0,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "unsampled_difference": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 200,
+                "adaptive": 0,
+                "adaptive_errors": 0,
+                "ambiguous": 0
+              },
+              "sample_preserving_mosaic": {
+                "reads": 200,
+                "mapped": 200,
+                "correct_locus": 0,
+                "adaptive": 198,
+                "adaptive_errors": 198,
+                "ambiguous": 0
+              }
+            }
+          },
+          "reference_sha256": "1c269979139e9c0b9df4fd5badde6145fd0275b43c7e0ad3fc894bf31d06efc0",
+          "reads_sha256": "595f5f169d8bc2ac9d24d6cb2214093651b59d8e33df9f3d102d3a55019d12fe"
+        }
+      ],
+      "adaptive_records": 1273,
+      "validation": {
+        "tests": [
+          {
+            "category": "all",
+            "threshold": 10,
+            "count": 597,
+            "errors": 0,
+            "error_upper": 0.010960017812297503,
+            "target_error": 0.1,
+            "status": "pass"
+          },
+          {
+            "category": "all",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "all",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          },
+          {
+            "category": "unique_hifi",
+            "threshold": 10,
+            "count": 406,
+            "errors": 0,
+            "error_upper": 0.01607445677426416,
+            "target_error": 0.1,
+            "status": "pass"
+          },
+          {
+            "category": "unique_hifi",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "unique_hifi",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          },
+          {
+            "category": "near_repeat_hifi",
+            "threshold": 10,
+            "count": 8,
+            "errors": 0,
+            "error_upper": 0.5606269266920823,
+            "target_error": 0.1,
+            "status": "not-demonstrated"
+          },
+          {
+            "category": "near_repeat_hifi",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "near_repeat_hifi",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          },
+          {
+            "category": "identical_repeat",
+            "threshold": 10,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.1,
+            "status": "unsupported"
+          },
+          {
+            "category": "identical_repeat",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "identical_repeat",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          },
+          {
+            "category": "unique_ont3",
+            "threshold": 10,
+            "count": 31,
+            "errors": 0,
+            "error_upper": 0.19122450528927398,
+            "target_error": 0.1,
+            "status": "not-demonstrated"
+          },
+          {
+            "category": "unique_ont3",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "unique_ont3",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          },
+          {
+            "category": "unique_ont6",
+            "threshold": 10,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.1,
+            "status": "unsupported"
+          },
+          {
+            "category": "unique_ont6",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "unique_ont6",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          },
+          {
+            "category": "repeat_ont3",
+            "threshold": 10,
+            "count": 1,
+            "errors": 0,
+            "error_upper": 0.9986111111111111,
+            "target_error": 0.1,
+            "status": "not-demonstrated"
+          },
+          {
+            "category": "repeat_ont3",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "repeat_ont3",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          },
+          {
+            "category": "indel_rich",
+            "threshold": 10,
+            "count": 151,
+            "errors": 0,
+            "error_upper": 0.04263561275626449,
+            "target_error": 0.1,
+            "status": "pass"
+          },
+          {
+            "category": "indel_rich",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "indel_rich",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          },
+          {
+            "category": "chimera",
+            "threshold": 10,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.1,
+            "status": "unsupported"
+          },
+          {
+            "category": "chimera",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "chimera",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          },
+          {
+            "category": "absent_reference",
+            "threshold": 10,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.1,
+            "status": "unsupported"
+          },
+          {
+            "category": "absent_reference",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "absent_reference",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          },
+          {
+            "category": "unsampled_difference",
+            "threshold": 10,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.1,
+            "status": "unsupported"
+          },
+          {
+            "category": "unsampled_difference",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "unsampled_difference",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          },
+          {
+            "category": "sample_preserving_mosaic",
+            "threshold": 10,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.1,
+            "status": "unsupported"
+          },
+          {
+            "category": "sample_preserving_mosaic",
+            "threshold": 20,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.01,
+            "status": "unsupported"
+          },
+          {
+            "category": "sample_preserving_mosaic",
+            "threshold": 30,
+            "count": 0,
+            "errors": 0,
+            "error_upper": 1.0,
+            "target_error": 0.001,
+            "status": "unsupported"
+          }
+        ],
+        "scores": {
+          "0": {
+            "count": 667,
+            "errors": 591
+          },
+          "2": {
+            "count": 9,
+            "errors": 0
+          },
+          "11": {
+            "count": 224,
+            "errors": 0
+          },
+          "13": {
+            "count": 239,
+            "errors": 0
+          },
+          "14": {
+            "count": 134,
+            "errors": 0
+          }
+        },
+        "production_approved": false,
+        "reason": "Synthetic screening alone cannot establish real-reference/platform calibration.",
+        "uncertainty": "Bonferroni-adjusted exact binomial bounds; correlated reads can invalidate independence assumptions."
+      }
+    }
+  },
+  "production_mapq_changed": false,
+  "limitations": [
+    "Independent reference seeds, but reads within each reference overlap and are correlated.",
+    "Uniform substitution/indel simulation is not platform-calibrated.",
+    "No human repeat annotations, cross-individual truth, or real-read validation.",
+    "Exact-copy origin is unidentifiable and is not credited as confident unique placement."
+  ]
+}

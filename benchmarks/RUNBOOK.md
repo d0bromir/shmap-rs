@@ -63,6 +63,12 @@ before spending a machine.
 
 ## Native Adaptive Experiments
 
+**Historical reproduction only:** the current binary rejects adaptive modes
+after truth-based qualification exposed incorrect full-read placements. Run
+these experiments only from the archived measured revisions. Do not interpret
+their parity checks or timing improvements as accuracy approval. New optimization
+work follows the [accuracy-first gates](../docs/long_read_redesign.md#accuracy-first-direction).
+
 The first completed [two-host result set](results/native-778d519f001d/README.md)
 contains 180 a2 and 60 galaxy invocations from commit `778d519f001d`.
 Regenerate its documentation with `python3 benchmarks/scripts/report_native.py`;

@@ -1,5 +1,22 @@
 # shmap-rs results
 
+## Adaptive Confidence Qualification
+
+**The failed adaptive placement architecture is now retired.** Current CLI and
+library mapping reject both adaptive flags. Historical charts below remain
+unaltered evidence, not recommendations. Exact output-preserving optimizations
+remain; accuracy cannot be exchanged for speed. See the
+[Winnowmap-target accuracy roadmap](docs/long_read_redesign.md#accuracy-first-direction).
+
+The [13,200-read synthetic study](benchmarks/results/adaptive-mapq-442928c/README.md)
+used independent-reference calibration and held-out splits to test an offline MAPQ
+model. It did not justify removing the experimental label: 591/600 adversarial
+held-out mosaics were accepted by the adaptive fast path, and repeat/noisy MAPQ-10
+strata lacked sufficient support. The frozen model assigns these mosaic errors
+MAPQ 0, but this simulated mixture does not establish real-platform calibration.
+No confidence model was deployed; production adaptive output is disabled. These stress-test counts are not estimates of
+real-read error prevalence and do not replace the historical WGS accuracy tables.
+
 ## Latest Native Experiment
 
 The [latest two-host validation](benchmarks/results/native-compare-6e33e5c/README.md)

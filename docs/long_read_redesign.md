@@ -1,10 +1,22 @@
-# Long-read redesign prototype
+# Long-read redesign: retired prototype and accuracy-first roadmap
 
 ## Status
 
-This is an experimental implementation of part of the proposed redesign, not a
-completed or validated 10x replacement. The original mapping algorithm remains
-the default. Native-only whole-genome measurements on a2 and galaxy completed
+**Retired on 2026-09-14 after failing truth-based accuracy qualification.**
+Fixed-window sampled evidence is no longer an accepted production architecture.
+Both adaptive flags fail explicitly, including library mapping calls that bypass
+CLI validation. The sampled-placement implementation is compiled only for tests;
+there is no production switch to re-enable it. Historical reproduction requires
+the measured revision, not the current binary.
+
+Exact compact preallocation, persistent indexes, batching, and parallel parsing
+remain available. Adaptive-only posting reuse and anchor-ordering code remain
+test-only historical probes, not claimed production speedups. Dense rescue is
+retired with the architecture it depended on.
+
+The original mapping algorithm remains the default, but is not assumed to meet
+the accuracy target. The following measurements describe the retired prototype.
+Native-only whole-genome measurements on a2 and galaxy completed
 on 2026-09-12/13 at commit `778d519f001d`: 240 invocations, all passing the
 driver's structural and determinism checks, with normalized PAF hashes matching
 across architectures. These are experimental mode comparisons, not the full
@@ -22,7 +34,7 @@ Mapping and rescue are implemented in shmap itself. No external mapper is a
 dependency, feature, subprocess, or fallback. The proposed external-mapper
 integration was abandoned and its dependency removed before integration.
 
-Implemented:
+Implemented in the historical prototype (not all retained in production):
 
 - Direct bucket jumps instead of advancing through every empty bucket.
 - Optional compact index: inline singleton hits and contiguous repeated-hit postings.
@@ -55,6 +67,56 @@ Not implemented or validated:
 - Cross-individual accuracy, cold-cache performance, or 10x acceleration.
 
 ## Long-Read Optimization Roadmap
+
+### Accuracy-First Direction
+
+Accuracy is a hard constraint, not a quantity to trade for throughput. Winnowmap
+accuracy is the long-term target, to be measured rather than inferred from read
+counts or concordance. No external mapper is embedded, called as a fallback, or
+added as a runtime dependency.
+
+1. **Establish the original mapper's accuracy baseline.** Use strict locus/strand
+  truth and endpoint errors alongside mapped coverage. Report repeat-rich,
+  noisy/indel-rich, chimeric, and cross-individual cases separately. Existing
+  default-mapper mosaic errors must remain visible.
+2. **Optimize exact work first.** Preserve candidate alternatives, scoring, ties,
+  and ambiguity decisions. Require normalized PAF parity on the supported
+  variants and threads, plus truth non-regression. Keep setup savings separate
+  from mapping throughput. Reject a speedup that introduces placement errors.
+3. **Replace, do not extend, fixed-window confidence.** Any new native architecture
+  must account for evidence throughout the read and competing repeat loci, with
+  validated split/chimeric handling. Full-read consistency/refinement and robust
+  repeat-aware candidate verification require evidence before deployment; simply
+  adding another fixed sample or changing MAPQ is not an accepted fix.
+4. **Measure against Winnowmap on held-out truth.** Use the same references,
+  datasets, error regimes, and correctness criteria for both implementations.
+  Assess correct-placement recall and false confident placement at matched
+  coverage, with uncertainty and per-stratum results. Concordance is secondary,
+  not ground truth. A separately authorized benchmark may run Winnowmap as a
+  comparator; the algorithm remains native shmap.
+5. **Calibrate confidence last.** Freeze the mapping algorithm, fit on independent
+  reference families, and evaluate on untouched genomes/platforms. Insufficient
+  support or zero accepted reads is not a pass. Qualification precedes numeric
+  MAPQ and any removal of accuracy warnings.
+
+The historical plans and measurements below are retained as evidence, not approval
+to revive the retired architecture. No Winnowmap-equivalent accuracy or 10x
+speedup has been achieved.
+
+### Confidence Qualification
+
+The [adaptive MAPQ study](../benchmarks/results/adaptive-mapq-442928c/README.md)
+adds strict truth-based calibration and held-out validation over 13,200 synthetic
+reads on six reference seeds. It **failed to justify promotion**: the fixed-window
+fast path accepted 591/600 held-out mosaics whose sampled windows match but whose
+intervening sequence comes from another locus. A frozen offline MAPQ model assigns
+those errors score 0, but repeat/noisy strata remain insufficiently supported and
+the simulated class mixture is not a calibrated real-read distribution.
+
+Numeric MAPQ is not enabled. The failed architecture has been retired rather than
+promoted. A replacement requires independent/full-read consistency evidence and
+held-out reference/platform validation with sufficient per-stratum support.
+Determinism and output parity alone cannot satisfy these confidence gates.
 
 Priority is **long-read mapping throughput**, especially B04 (2,425,341 real
 HiFi reads, 10x depth). Setup-only wins are tracked separately and must not be
@@ -142,7 +204,7 @@ rerun; its August/September timings are explicitly dated. This is contextual
 performance evidence, not proof of adaptive output equivalence or of improvement
 over the previous Rust revision.
 
-### Next Priorities
+### Historical Priorities (Superseded)
 
 1. **Reduce exact fallback seeding/refinement work on long reads.** B04 parsing
   profiles report 2,004,263 adaptive placements and 421,078 original-mapper
@@ -201,14 +263,22 @@ None of these local benchmarks establishes a host speedup on its own. The bundle
 host result above improves total time but does not approach the 10x goal or
 establish a general mapping gain. Further work must target long-read mapping.
 
-## Usage
+## Current Usage
 
 ```sh
 cargo build --release
 target/release/shmap -s reference.fa -p reads.fa \
   -k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3 \
-  --adaptive --compact-index --read-batch-size 64 -@ 4 > mappings.paf
+  --compact-index --read-batch-size 64 -@ 4 > mappings.paf
 ```
+
+This uses the original mapping decisions. It is not a claim of Winnowmap-level
+accuracy. Both retired adaptive flags produce an error, not a silent fallback.
+
+## Historical Adaptive Interface
+
+The description below applies only to old measured revisions. Do not pass these
+flags to the current binary; archived PAF and MAPQ semantics remain unchanged.
 
 `--adaptive` requires plain Containment without frequency filtering, rarity
 scoring, pruning overrides, absolute-position mode, or verbose truth analysis.

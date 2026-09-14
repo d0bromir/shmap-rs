@@ -5,6 +5,12 @@ version means and for the rule a pull request has to satisfy.
 
 ## Latest Native Results
 
+**Adaptive placement is retired following failed truth qualification.** Its
+historical timing results below are not an available-mode recommendation.
+Current binaries reject both adaptive flags; use the exact measured revision
+only to reproduce the archives. The ongoing direction is
+[accuracy first, with Winnowmap as the target](../docs/long_read_redesign.md#accuracy-first-direction).
+
 The [latest revision comparison](results/native-compare-6e33e5c/README.md) records
 540 invocations comparing `6e33e5c` with release 1.6.0 on both hosts. Output and
 adaptive counters are unchanged; adaptive/parser total time improves about 1.10x
