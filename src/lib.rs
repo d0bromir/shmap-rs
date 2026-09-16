@@ -5,6 +5,7 @@
 pub mod analyse_simulated;
 pub mod buckets;
 pub mod handler;
+pub mod hash;
 pub mod index;
 pub mod io;
 pub mod mapper;

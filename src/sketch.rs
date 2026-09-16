@@ -2,6 +2,7 @@
 //!
 //! Port of the sketching half of `shmap/src/sketch.h`.
 
+use crate::hash::{KmerHasher, NtRollingHash};
 use crate::types::{Hash, Kmer, RPos};
 use crate::utils::Counters;
 
@@ -29,80 +30,28 @@ impl RefSegment {
 
 /// Rolling FracMinHash k-mer sketcher.
 ///
-/// Builds a forward and reverse-complement rolling hash per k-mer window
-/// using two 256-entry lookup tables, and keeps only k-mers whose
-/// (canonical) hash falls at or below the `h_frac` threshold.
-pub struct FracMinHash {
-    lut_fw: [Hash; 256],
-    lut_rc: [Hash; 256],
-    /// Per-base contributions with the fixed rotates the rolling update
-    /// applies to the *outgoing*/*incoming* base baked in, so the hot loop
-    /// does a plain table load instead of a load+rotate each. Since these
-    /// rotate amounts (`k`, `1`, `k-1`) are the same for every base, this
-    /// removes 3 of the 5 per-base rotates over the whole reference — see
-    /// [`FracMinHash::sketch_into`]. `lut_fw_k[c] = lut_fw[c].rotate_left(k)`,
-    /// `lut_rc_r1[c] = lut_rc[c].rotate_right(1)`,
-    /// `lut_rc_k1[c] = lut_rc[c].rotate_left(k-1)`.
-    ///
-    /// Interleaving each base's forward/reverse pair into one `[Hash; 2]`
-    /// table, to halve the per-base load count, was tried and measured
-    /// ~6% *slower* — the 16-byte load goes through a vector register and
-    /// has to be split again before the scalar xors.
-    lut_fw_k: [Hash; 256],
-    lut_rc_r1: [Hash; 256],
-    lut_rc_k1: [Hash; 256],
+/// Computes a forward and reverse-complement rolling hash per k-mer window
+/// via `H` (see [`KmerHasher`]; [`NtRollingHash`] — an ntHash-style
+/// rotate/XOR hash — by default), and keeps only k-mers whose canonical hash
+/// falls at or below the `h_frac` threshold.
+pub struct FracMinHash<H: KmerHasher = NtRollingHash> {
+    hasher: H,
     pub k: i32,
     pub h_frac: f64,
 }
 
-impl FracMinHash {
+impl FracMinHash<NtRollingHash> {
     pub fn new(k: i32, h_frac: f64) -> Self {
-        // https://gist.github.com/Daniel-Liu-c0deb0t/7078ebca04569068f15507aa856be6e8
-        const A: Hash = 0x3c8b_fbb3_95c6_0474;
-        const C: Hash = 0x3193_c185_62a0_2b4c;
-        const G: Hash = 0x2032_3ed0_8257_2324;
-        const TN: Hash = 0x2955_49f5_4be2_4456;
+        FracMinHash::with_hasher(k, h_frac)
+    }
+}
 
-        // The C++ leaves every other LUT entry as uninitialized stack
-        // memory (`hash_t LUT_fw[256]` is a raw array member, never
-        // value-initialized before `initialize_LUT()` fills in exactly 8
-        // slots) — reading it for any non-ACGT byte (N, ambiguity codes,
-        // ...) is undefined behavior there. Zero-initializing here instead
-        // makes unknown bases deterministically contribute a hash of 0,
-        // which is well-defined and doesn't change behavior for any ACGT
-        // (or ACGT-only test) input.
-        let mut lut_fw = [0u64; 256];
-        let mut lut_rc = [0u64; 256];
-
-        for &(lower, upper, v) in &[(b'a', b'A', A), (b'c', b'C', C), (b'g', b'G', G), (b't', b'T', TN)] {
-            lut_fw[lower as usize] = v;
-            lut_fw[upper as usize] = v;
-        }
-        for &(lower, upper, complement) in &[
-            (b'a', b'A', b'T'),
-            (b'c', b'C', b'G'),
-            (b'g', b'G', b'C'),
-            (b't', b'T', b'A'),
-        ] {
-            lut_rc[lower as usize] = lut_fw[complement as usize];
-            lut_rc[upper as usize] = lut_fw[complement as usize];
-        }
-
-        let mut lut_fw_k = [0u64; 256];
-        let mut lut_rc_r1 = [0u64; 256];
-        let mut lut_rc_k1 = [0u64; 256];
-        for c in 0..256 {
-            lut_fw_k[c] = lut_fw[c].rotate_left(k as u32);
-            lut_rc_r1[c] = lut_rc[c].rotate_right(1);
-            lut_rc_k1[c] = lut_rc[c].rotate_left((k - 1) as u32);
-        }
-
+impl<H: KmerHasher> FracMinHash<H> {
+    /// Builds a sketcher using a specific [`KmerHasher`] implementation,
+    /// for testing/comparing alternatives to the default [`NtRollingHash`].
+    pub fn with_hasher(k: i32, h_frac: f64) -> Self {
         FracMinHash {
-            lut_fw,
-            lut_rc,
-            lut_fw_k,
-            lut_rc_r1,
-            lut_rc_k1,
+            hasher: H::new(k),
             k,
             h_frac,
         }
@@ -176,13 +125,7 @@ impl FracMinHash {
         let ks = k as usize;
         let h_thres = self.h_thres();
 
-        let mut h_fw: Hash = 0;
-        let mut h_rc: Hash = 0;
-        for (i, &c) in s[..ks].iter().enumerate() {
-            let c = c as usize;
-            h_fw ^= self.lut_fw[c].rotate_left((ks - i - 1) as u32);
-            h_rc ^= self.lut_rc[c].rotate_left(i as u32);
-        }
+        let (mut h_fw, mut h_rc) = self.hasher.first(&s[..ks]);
 
         // `r` is the right end of the window currently held in `h_fw`/`h_rc`.
         // The first window is `s[..k]`, and each iteration rolls in one base.
@@ -194,16 +137,11 @@ impl FracMinHash {
         // on every base of the reference, and the mid-loop `r >= s.len()`
         // break kept LLVM from treating it as a counted loop at all.
         let mut r: RPos = k - 1 + offset;
-        emit(&mut buf, r, h_fw, h_rc, h_thres);
+        emit(&mut buf, r, &self.hasher, h_fw, h_rc, h_thres);
         for (&in_c, &out_c) in s[ks..].iter().zip(s.iter()) {
-            // Identical arithmetic to the pre-baked form (see the LUT doc
-            // comment) — the three fixed rotates on LUT values are now
-            // precomputed, leaving only the two accumulator rotates here.
-            let (in_c, out_c) = (in_c as usize, out_c as usize);
-            h_fw = h_fw.rotate_left(1) ^ self.lut_fw_k[out_c] ^ self.lut_fw[in_c];
-            h_rc = h_rc.rotate_right(1) ^ self.lut_rc_r1[out_c] ^ self.lut_rc_k1[in_c];
+            (h_fw, h_rc) = self.hasher.roll(h_fw, h_rc, out_c, in_c);
             r += 1;
-            emit(&mut buf, r, h_fw, h_rc, h_thres);
+            emit(&mut buf, r, &self.hasher, h_fw, h_rc, h_thres);
         }
 
         buf
@@ -212,31 +150,46 @@ impl FracMinHash {
 
 /// Selects the k-mer ending at `r` if its canonical hash passes `h_thres`.
 #[inline(always)]
-fn emit(kmers: &mut SketchT, r: RPos, h_fw: Hash, h_rc: Hash, h_thres: Hash) {
-    let h = h_rc ^ h_fw;
+fn emit<H: KmerHasher>(kmers: &mut SketchT, r: RPos, hasher: &H, h_fw: Hash, h_rc: Hash, h_thres: Hash) {
+    let (h, strand) = hasher.canonical(h_fw, h_rc);
     if h <= h_thres {
-        kmers.push(Kmer::new(r, h, h_fw > h_rc));
+        kmers.push(Kmer::new(r, h, strand));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hash::Splitmix64Hash;
 
-    #[test]
-    fn sketching_a_sequence_shorter_than_k_is_empty() {
-        let sketcher = FracMinHash::new(4, 1.0);
+    // The three properties below are checked against both `NtRollingHash`
+    // (the default `FracMinHash::new` uses) and `Splitmix64Hash` (a second,
+    // structurally different `KmerHasher`, plugged in via `with_hasher`) —
+    // proving they hold generically, for the trait, not just for one
+    // implementation's happenstance arithmetic.
+
+    fn sketching_a_sequence_shorter_than_k_is_empty<H: KmerHasher>() {
+        let sketcher = FracMinHash::<H>::with_hasher(4, 1.0);
         let mut c = Counters::new();
         assert_eq!(sketcher.sketch(b"ACC", &mut c).len(), 0);
+    }
+
+    #[test]
+    fn nt_rolling_hash_sketching_a_sequence_shorter_than_k_is_empty() {
+        sketching_a_sequence_shorter_than_k_is_empty::<NtRollingHash>();
+    }
+
+    #[test]
+    fn splitmix64_hash_sketching_a_sequence_shorter_than_k_is_empty() {
+        sketching_a_sequence_shorter_than_k_is_empty::<Splitmix64Hash>();
     }
 
     /// The property `build_index`'s chunked sketching depends on: splitting a
     /// sequence into overlapping slices and sketching each at its offset
     /// reproduces the whole-sequence sketch exactly, for any split points.
-    #[test]
-    fn chunked_sketching_concatenates_to_the_whole_sequence_sketch() {
+    fn chunked_sketching_concatenates_to_the_whole_sequence_sketch<H: KmerHasher>() {
         let k = 7;
-        let sketcher = FracMinHash::new(k, 0.5);
+        let sketcher = FracMinHash::<H>::with_hasher(k, 0.5);
         let mut rng: u64 = 0x1234_5678_9abc_def0;
         let seq: Vec<u8> = (0..5000)
             .map(|_| {
@@ -271,9 +224,18 @@ mod tests {
     }
 
     #[test]
-    fn sketching_is_symmetric_under_reverse_complement() {
+    fn nt_rolling_hash_chunked_sketching_concatenates_to_the_whole_sequence_sketch() {
+        chunked_sketching_concatenates_to_the_whole_sequence_sketch::<NtRollingHash>();
+    }
+
+    #[test]
+    fn splitmix64_hash_chunked_sketching_concatenates_to_the_whole_sequence_sketch() {
+        chunked_sketching_concatenates_to_the_whole_sequence_sketch::<Splitmix64Hash>();
+    }
+
+    fn sketching_is_symmetric_under_reverse_complement<H: KmerHasher>() {
         let k = 4;
-        let sketcher = FracMinHash::new(k, 1.0);
+        let sketcher = FracMinHash::<H>::with_hasher(k, 1.0);
         let mut c = Counters::new();
 
         let s = b"ACGGT";
@@ -294,5 +256,15 @@ mod tests {
                 assert_eq!(sk_s[i].h, sk_s_rc[i].h);
             }
         }
+    }
+
+    #[test]
+    fn nt_rolling_hash_sketching_is_symmetric_under_reverse_complement() {
+        sketching_is_symmetric_under_reverse_complement::<NtRollingHash>();
+    }
+
+    #[test]
+    fn splitmix64_hash_sketching_is_symmetric_under_reverse_complement() {
+        sketching_is_symmetric_under_reverse_complement::<Splitmix64Hash>();
     }
 }
