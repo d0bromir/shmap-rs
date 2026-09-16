@@ -23,6 +23,10 @@ nthash = "0.5.1"
 predicates = "3.1.4"
 tempfile = "3.27.0"
 
+[[example]]
+name = "repeat_factored_probe"
+path = "profiling/repeat_factored_probe.rs"
+
 # The hot loops (`sketch`, `populate_h2pos`, bucket merging) sit behind
 # cross-crate calls into `needletail`/`rustc-hash` and behind generic
 # boundaries the default 16 codegen units keep the optimizer from seeing

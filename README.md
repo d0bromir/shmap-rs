@@ -143,13 +143,19 @@ mapping time remained approximately flat. The gain is primarily setup time.
 
 ### Compared With C++ shmap
 
-![Rust versus historical C++ shmap timings](benchmarks/results/native-compare-6e33e5c/versus-cpp.svg)
+The [supported-only report](benchmarks/results/supported-e71ca0f/README.md)
+excludes all rejected optimizations. Fresh default-mode spot checks at `e71ca0f`,
+one mapping worker, versus historical same-host C++:
 
-Same-host whole-run medians, Containment, one mapping worker. Latest Rust
-(`6e33e5c`) is compared with **archived August/September 2026 C++ timings**, not
-a new head-to-head run. The adaptive bars describe a **retired architecture**, not
-an available or recommended mode. They are retained as historical evidence.
-See [data, dates, and limits](benchmarks/results/native-compare-6e33e5c/README.md#historical-c-comparison).
+| Dataset | a2 Total Speedup | galaxy Total Speedup |
+| --- | ---: | ---: |
+| B02 simulated 24 kb | 2.46x | 2.34x |
+| B04 real HiFi 10x depth | 2.34x | 2.16x |
+
+Rust was rerun; C++ was not. These are single runs, not a new full-suite gate.
+Current normalized PAF matches archived default output on both hosts. The report
+also includes the older five-dataset default-only medians and the bottleneck
+analysis. The 10x speedup target remains unmet.
 
 ### Mapping Steps
 
@@ -187,7 +193,7 @@ C++ and why; [RESULTS.md](RESULTS.md) is what it measures. Everything else suppo
 
 ## Correctness
 
-`cargo test` runs 75 tests plus three ignored manual benchmarks; run it in
+`cargo test` runs 77 tests plus three ignored manual benchmarks; run it in
 **both** profiles, since debug activates the `debug_assert`s
 that guard the parallel index build and reader. Beyond that, changes are checked by byte-identical
 PAF against the previous build on the whole human genome, by thread-count invariance, and by

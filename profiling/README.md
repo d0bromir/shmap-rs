@@ -10,6 +10,28 @@ than left to rot into a second, contradictory set of numbers.
 
 What survived is what a re-run cannot give back.
 
+## Repeat-Factored Shadow Search
+
+`repeat_factored_probe.rs` is a standalone Cargo example, not a mapper mode.
+It interns exact reference-sketch blocks, computes conservative bucket-group
+bounds, and compares every qualifying leaf result with an exhaustive run of the
+production Containment scorer. It emits TSV, never placements, and fails on
+underestimated rejected bounds or changed qualifying results.
+
+```sh
+cargo test --example repeat_factored_probe
+cargo build --release --locked --example repeat_factored_probe
+target/release/examples/repeat_factored_probe \
+	--reference reference.fa --reads reads.fa --limit 16 \
+	--partition content --block-size 16 --bounds dense > shadow.tsv
+```
+
+The [first whole-reference screen](../benchmarks/results/repeat-factored-shadow-e71ca0f/README.md)
+passed its audits but found modest repeat factoring, substantial memory/setup
+cost, and slower sparse-prefix construction. The exhaustive oracle is not the
+current mapper baseline: its timing ratio must not be reported as mapping
+speedup. No production integration is approved.
+
 ## Native Adaptive Profiles
 
 The [latest native host archive](../benchmarks/results/native-778d519f001d/README.md)

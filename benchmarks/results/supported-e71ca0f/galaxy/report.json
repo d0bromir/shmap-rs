@@ -1,0 +1,203 @@
+{
+  "scope": "native-only WGS ablation, not the maintained suite gate",
+  "commit": "e71ca0f548e02e05f6db7d67a7f7297657e3b538",
+  "host": "galaxy",
+  "arch": "aarch64",
+  "driver_sha256": "7a4dd71d055e470800fc4b8ea390036b59bc7f3fa659038274d871c07cdd30dc",
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "suite_version": "1.2",
+  "dataset_version": 3,
+  "binary_sha256": "7590fcb8e9beb6b56135c44706c83192cd956ccfe9bbffbeced5b75085e2ed8d",
+  "baseline_commit": null,
+  "binaries": {
+    "candidate": {
+      "commit": "e71ca0f548e02e05f6db7d67a7f7297657e3b538",
+      "sha256": "7590fcb8e9beb6b56135c44706c83192cd956ccfe9bbffbeced5b75085e2ed8d"
+    }
+  },
+  "repeats": 1,
+  "threads": [
+    1
+  ],
+  "modes": {
+    "default": []
+  },
+  "comparison": "modes versus default",
+  "accuracy": "IoU > 0.1 on true segment AND strand; endpoints_1kb requires both endpoints; MAPQ 255 is unavailable",
+  "datasets": {
+    "REF-HS1": {
+      "kind": "reference",
+      "host": "a2",
+      "path": "/home/mpiuser/_paper_work/hs1.fa",
+      "rel": "_paper_work/hs1.fa",
+      "bytes": "3179638084",
+      "records": "25",
+      "bases": "3117292070"
+    },
+    "D4-HIFI10X": {
+      "kind": "reads-real",
+      "host": "a2",
+      "path": "/home/mpiuser/hifi_real/hifi_10x.fa",
+      "rel": "hifi_real/hifi_10x.fa",
+      "bytes": "31219607763",
+      "records": "2425341",
+      "bases": "31132446551"
+    },
+    "D2-SIM24K": {
+      "kind": "reads-sim",
+      "host": "a2",
+      "path": "/home/mpiuser/wgs24k/reads_24kbp_1x.fa",
+      "rel": "wgs24k/reads_24kbp_1x.fa",
+      "bytes": "3004619179",
+      "records": "125000",
+      "bases": "3000000000"
+    }
+  },
+  "status": "complete",
+  "rows": [
+    {
+      "benchmark": "B02",
+      "mode": "default",
+      "threads": 1,
+      "repeat": 0,
+      "revision": "candidate",
+      "commit": "e71ca0f548e02e05f6db7d67a7f7297657e3b538",
+      "adaptive_counters": {
+        "adaptive_bases": 0,
+        "adaptive_candidates": 0,
+        "adaptive_dense": 0,
+        "adaptive_fast": 0,
+        "adaptive_hits": 0,
+        "adaptive_rescue": 0
+      },
+      "wall_s": 37.22,
+      "cpu_s": 53.4,
+      "peak_rss_kb": 2448936.0,
+      "mapping_s": 28.698709,
+      "indexing_s": 8.226572,
+      "repeat_indexing_s": 0,
+      "command": [
+        "/usr/bin/time",
+        "-f",
+        "%e\t%U\t%S\t%M",
+        "-o",
+        "/home/mpiuser/bench-results/supported-e71ca0f-20260914/raw/B02_default_t1_r0.time",
+        "/home/mpiuser/bench-work/e71ca0f548e0/target/release/shmap",
+        "-s",
+        "/home/mpiuser/_paper_work/hs1.fa",
+        "-p",
+        "/home/mpiuser/wgs24k/reads_24kbp_1x.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-m",
+        "Containment",
+        "-@",
+        "1",
+        "-x",
+        "--profile-log",
+        "/home/mpiuser/bench-results/supported-e71ca0f-20260914/raw/B02_default_t1_r0.json"
+      ],
+      "mapped": 125000,
+      "invalid": 0,
+      "fast": 0,
+      "dense": 0,
+      "mapq_unavailable": 0,
+      "truth_mapped": 125000,
+      "truth_overlap_correct": 123977,
+      "endpoints_1kb": 97676,
+      "wrong_mapq60": 0,
+      "paf_without_timing_sha256": "10f92c466906541adbbacf3d5260da60ec352fb218fbaf34ece3f1aedab9ef6f",
+      "deterministic": true,
+      "work_parity": true
+    },
+    {
+      "benchmark": "B04",
+      "mode": "default",
+      "threads": 1,
+      "repeat": 0,
+      "revision": "candidate",
+      "commit": "e71ca0f548e02e05f6db7d67a7f7297657e3b538",
+      "adaptive_counters": {
+        "adaptive_bases": 0,
+        "adaptive_candidates": 0,
+        "adaptive_dense": 0,
+        "adaptive_fast": 0,
+        "adaptive_hits": 0,
+        "adaptive_rescue": 0
+      },
+      "wall_s": 418.32,
+      "cpu_s": 524.47,
+      "peak_rss_kb": 2523060.0,
+      "mapping_s": 410.778048,
+      "indexing_s": 7.161865,
+      "repeat_indexing_s": 0,
+      "command": [
+        "/usr/bin/time",
+        "-f",
+        "%e\t%U\t%S\t%M",
+        "-o",
+        "/home/mpiuser/bench-results/supported-e71ca0f-20260914/raw/B04_default_t1_r0.time",
+        "/home/mpiuser/bench-work/e71ca0f548e0/target/release/shmap",
+        "-s",
+        "/home/mpiuser/_paper_work/hs1.fa",
+        "-p",
+        "/home/mpiuser/hifi_real/hifi_10x.fa",
+        "-k",
+        "25",
+        "-r",
+        "0.01",
+        "-t",
+        "0.4",
+        "-d",
+        "0.075",
+        "-o",
+        "0.3",
+        "-m",
+        "Containment",
+        "-@",
+        "1",
+        "-x",
+        "--profile-log",
+        "/home/mpiuser/bench-results/supported-e71ca0f-20260914/raw/B04_default_t1_r0.json"
+      ],
+      "mapped": 2419767,
+      "invalid": 0,
+      "fast": 0,
+      "dense": 0,
+      "mapq_unavailable": 0,
+      "truth_mapped": 0,
+      "truth_overlap_correct": 0,
+      "endpoints_1kb": 0,
+      "wrong_mapq60": 0,
+      "paf_without_timing_sha256": "96ad9e99d9131104dd6a77805a8cf98608eab5b87fae570314061b8594c3327e",
+      "deterministic": true,
+      "work_parity": true
+    }
+  ],
+  "summary": [
+    {
+      "benchmark": "B02",
+      "threads": 1,
+      "mode": "default",
+      "wall_s": 37.22,
+      "mapping_s": 28.698709,
+      "speedup": 1.0
+    },
+    {
+      "benchmark": "B04",
+      "threads": 1,
+      "mode": "default",
+      "wall_s": 418.32,
+      "mapping_s": 410.778048,
+      "speedup": 1.0
+    }
+  ]
+}

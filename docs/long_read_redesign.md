@@ -103,6 +103,116 @@ The historical plans and measurements below are retained as evidence, not approv
 to revive the retired architecture. No Winnowmap-equivalent accuracy or 10x
 speedup has been achieved.
 
+### Lossless Coarse-to-Fine Search
+
+The [supported-only current report](../benchmarks/results/supported-e71ca0f/README.md)
+measures `e71ca0f` without adaptive modes. B04 needs another 4.27x on a2 and
+4.63x on galaxy to reach 10x total over the historical C++ baseline. The current
+workload expands 4.70 billion seed hits into 606.69 million seeded buckets;
+12.46 million buckets reach refinement. This motivates changing the unit of
+candidate search, not accepting mappings from less evidence.
+
+**Production proposal, not enabled or proven faster:** retain the whole-read
+FracMinHash and replace eager genome-wide bucket materialization with a hierarchy
+of reference intervals and conservative multiset-overlap bounds. Restrict the
+first implementation to default unweighted Containment and sketch-position
+buckets; other metrics/overrides retain the original algorithm.
+
+1. **Index occurrence summaries for repeated hashes.** Alongside exact postings,
+  store counts by contiguous reference-sketch block, only where useful for
+  repeated seeds. Parent counts aggregate children, and counts that saturate
+  must saturate upward for bounding, never downward. Singletons stay inline.
+  Include build time, cache format changes, extra memory and NUMA bandwidth in
+  every end-to-end comparison. Worst-case metadata can be O(reference hits),
+  so a directory that costs more than the visits it saves is not acceptable.
+2. **Compute conservative region bounds using every query seed.** Let `m` be the
+  complete query-sketch size, `q(h)` its multiplicity, and `c_I(h)` the number
+  of exact reference occurrences in a containing interval `I`. Then
+  `U(I) = sum_h min(q(h), c_I(h)) / m` bounds every unweighted Containment
+  window wholly inside `I`. Quantized summaries may overestimate `c_I`, not
+  underestimate it. Query absences contribute zero; repeats are not blacklisted.
+  Evaluate high-impact contributions first and use remaining query mass for
+  conservative early termination; never require O(query seeds * all blocks)
+  blindly when ordinary posting traversal is cheaper.
+3. **Make boundaries and thresholds part of the proof.** A group of bucket
+  starts must use an expanded interval containing every full two-half-length
+  bucket it owns, clipped only at its segment boundary. A block without this
+  halo loses cross-boundary placements. Initially skip only when `U` is strictly
+  below a fixed conservative acceptance floor for both best and second-best;
+  preserve equality and current floating-point comparisons. Validate that floor
+  against the actual `theta`/`min_diff` call path, not an assumed MAPQ formula.
+  Do not introduce an incumbent-dependent bound until tie and second-best
+  semantics have a separate proof.
+4. **Descend only where bounds cannot reject.** At leaves, reconstruct the same
+  original seed contributions, multiplicity clamp, strands and coordinates;
+  then preserve the existing candidate sort, pruning and scoring order. Regions
+  with weak bounds use the original posting traversal. This is a cost-based
+  fallback to exact work, never a top-K or hit-budget cutoff. All admitted
+  repeat alternatives remain discoverable.
+5. **Share exact evidence, then improve throughput.** First investigate merging
+  overlapping candidate intervals so each reference/query membership is resolved
+  once and reused across windows. Preserve entering/leaving order, coordinate
+  ties and second-best overlap exclusions. Merely adding a small per-window
+  lookup cache was already screened without a total-time benefit. Separately
+  benchmark batch lookup of immutable seed metadata and parser/worker scheduling;
+  these must not change hash selection, bucket geometry or map coverage.
+
+The proof obligation is candidate completeness, not just output parity on an easy
+corpus. Begin in a diagnostic shadow mode: compute bounds but prune nothing, and
+compare them with exhaustive window scores and every current reported candidate.
+Test boundaries, all-identical references, dispersed repeats, both strands, long
+indels, absent reads and adversarial mosaics. Track bound tightness, metadata bytes,
+posting visits, seeded buckets, refined windows, wall time and peak RSS. Proceed
+to pruning only after zero bound violations and repeat-rich truth non-regression;
+promote only after same-binary ablations and repeated native host validation.
+
+**This preserves existing accuracy; it does not repair it.** The separate
+Winnowmap-target architecture needs full-read collinear evidence, alternative-locus
+comparison and base-level verification over the read, with explicit split/chimera
+handling. Sketch bounds cannot certify unsampled bases. Verification should be
+restricted to proven candidate regions for cost control, but exhausting a budget
+must not silently discard alternatives or increase confidence. This is a larger
+algorithm change requiring independent truth validation, not an optimization flag
+to enable before its behavior is established.
+
+### End-to-End Budget
+
+For a2 B04 the current total is 380.11 s; the 10x target is 89.065 s. Current
+sketching alone consumes about 55 s, preparation 56 s, and indexing 7.5 s.
+Even free refinement cannot reach the target. The hierarchy must substantially
+reduce seed/bucket work and refinement, while read scanning and seed preparation
+also improve. An illustrative engineering budget is 8 s setup, 15 s input/output
+and pipeline overhead, 20 s sketching, 12 s seed preparation, and 30 s combined
+candidate search/refinement: 85 s total. These are **targets, not forecasts**;
+profile intervals currently overlap and cannot simply be summed into this budget.
+Prior SIMD/prefetch/packing probes were negative, so renewed work needs evidence
+of a changed workload or implementation, not the same unmeasured suggestion.
+
+The first two exact probes in this iteration (posting endpoint checks and a
+refinement lookup ring) passed parity but failed to show a total-time gain and
+were removed. No new production optimization is claimed.
+
+A test-only bound prototype now compares expanded-region multiset counts with
+the production exhaustive Containment scorer. Across 2,652 fixture regions it
+rejects 1,769 at threshold 0.4 and retains 883, without underestimating a score;
+1,149 tested windows would exceed the bound if its halo were omitted. The test
+covers duplicate/absent seeds, periodic and clustered repeats, block boundaries,
+and histogram restoration. These are synthetic fixture counts, not WGS pruning
+rates. No production pruning is enabled.
+
+The [standalone repeat-factored shadow executable](../profiling/repeat_factored_probe.rs)
+now implements exact fixed/content-defined block interning, multiplicity summaries,
+and dense/sparse bounds for a binary hierarchy of bucket starts. Every query is
+also scored exhaustively with the production Containment scorer. It uses a looser
+sum of per-block bounds rather than the tighter per-interval multiset bound above.
+The [whole-reference screen](../benchmarks/results/repeat-factored-shadow-e71ca0f/README.md)
+audited the first 16 B04 reads on hs1 with no bound/result mismatches, but only
+3.21% token sharing, about 11 s extra index construction, and 4.2 GiB process RSS.
+Same-binary ablation found sparse query-prefix construction about twice as slow
+as dense. Neither layout is approved for production. Before further integration,
+candidate search must beat the existing rarest-first seeder, not just exhaustive
+scoring, and must preserve its candidate-order and second-best semantics.
+
 ### Confidence Qualification
 
 The [adaptive MAPQ study](../benchmarks/results/adaptive-mapq-442928c/README.md)
