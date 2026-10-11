@@ -17,15 +17,15 @@ authors:
     orcid: 'https://orcid.org/0000-0002-8119-3849'
 repository-code: https://github.com/d0bromir/shmap-rs
 license: MPL-2.0
-version: 1.6.0
-date-released: 2026-09-13
+version: 2.0.0
+date-released: 2026-10-11
 abstract: >-
   A Rust port of shmap, a sketch-based long-read mapper that
   locates a read by k-mer set overlap rather than by
   alignment. The default mapper preserves the original
-  algorithm, with threading and memory optimizations.
-  Opt-in adaptive mapping adds positional sampling,
-  persistent indexing, batching, and native repeat rescue.
+  algorithm, with threading and memory optimizations,
+  optional compact and persistent indexes, batched
+  dispatch, and parallel query parsing.
 
   The repository also carries the evidence: a versioned
   benchmark suite and separate native-only adaptive

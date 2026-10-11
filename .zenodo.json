@@ -1,6 +1,6 @@
 {
-  "title": "shmap-rs 1.6.0: native adaptive long-read mapping experiments",
-  "description": "<p>A Rust port of shmap, a sketch-based long-read mapper. The original mapper remains the default. This release adds opt-in native adaptive sampling, compact and persistent indexes, regional dense repeat rescue, batched dispatch, and parallel query parsing. No external mapper is integrated.</p><p>The archived native-only experiment at commit 778d519f001d predates the release version bump: 180 measurements on a2 and 60 on galaxy, with matching normalized PAF output across hosts. On 10x HiFi at 64 mapping workers plus two parser workers, adaptive parsing improves whole-run time by 1.66x and 1.89x respectively. Dense indexing and ONT regress; no tenfold gain is demonstrated. Adaptive MAPQ 255 is unavailable, not confidence. The experiment is separate from the maintained suite gate, and its original binary version and measurements are preserved.</p>",
+  "title": "shmap-rs 2.0.0: a Rust port of the shmap long-read mapper",
+  "description": "<p>A Rust port of shmap, a sketch-based long-read mapper. The original mapper is the only mapping algorithm. This release retires the experimental adaptive placement path (<code>--adaptive</code>, <code>--adaptive-dense</code>) after it failed truth-based accuracy qualification, keeps compact and persistent indexes, batched dispatch and parallel query parsing, and reorganizes the documentation. Default-mode output is unchanged.</p><p>The retired path's measurements and the qualification study are preserved as archives. Reaching Winnowmap-level accuracy remains an open target.</p>",
   "upload_type": "software",
   "license": "MPL-2.0",
   "access_right": "open",

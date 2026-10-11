@@ -3,7 +3,7 @@
 A Rust port of [`shmap`](https://github.com/pesho-ivanov/shmap) — a sketch-based long-read mapper
 that finds where a read belongs by k-mer set overlap rather than by alignment.
 
-**Version 1.6.0** ([release](https://github.com/d0bromir/shmap-rs/releases/tag/1.6.0)). The original mapper is the default and the only supported mode: the experimental adaptive placement path was **retired** after failing accuracy qualification (see [Status](#status)).
+**Version 2.0.0** ([release](https://github.com/d0bromir/shmap-rs/releases/tag/2.0.0)). The original mapper is the default and the only supported mode: the experimental adaptive placement path was **retired** after failing accuracy qualification (see [Status](#status)).
 
 ### Where to find things
 
