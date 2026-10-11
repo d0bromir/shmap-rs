@@ -1,0 +1,30 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 5M of event 'cycles:P'
+# Event count (approx.): 173792768782911
+#
+# Overhead  Symbol                                                                                                                                                               IPC   [IPC Coverage]
+# ........  ...................................................................................................................................................................  ....................
+#
+    28.22%  [.] shmap::shmap::scoring::<impl shmap::shmap::SHMapper<_,_,_>>::match_rest                                                                                          -      -            
+    26.07%  [.] shmap::shmap::SHMapper$LT$_$C$_$C$_$GT$::map_reads::_$u7b$$u7b$closure$u7d$$u7d$::_$u7b$$u7b$closure$u7d$$u7d$::hc3979e7f0f6afb0f                                -      -            
+     7.67%  [.] core::slice::sort::unstable::quicksort::quicksort                                                                                                                -      -            
+     5.74%  [.] core::slice::sort::unstable::quicksort::quicksort                                                                                                                -      -            
+     3.97%  [.] shmap::buckets::Buckets<_>::merge_entries                                                                                                                        -      -            
+     3.96%  [.] core::slice::sort::unstable::quicksort::quicksort                                                                                                                -      -            
+     3.00%  [.] shmap::buckets::Buckets<_>::get_sorted_buckets                                                                                                                   -      -            
+     2.52%  [.] _mi_page_malloc_zero                                                                                                                                             -      -            
+     2.00%  [.] shmap::shmap::SHMapper<_,_,_>::map_reads                                                                                                                         -      -            
+     1.69%  [.] <core::hash::sip::Hasher<S> as core::hash::Hasher>::write                                                                                                        -      -            
+     1.01%  [.] core::slice::sort::shared::smallsort::sort8_stable                                                                                                               -      -            
+     0.95%  [.] mi_free                                                                                                                                                          -      -            
+     0.54%  [.] _mi_page_free_collect                                                                                                                                            -      -            
+     0.53%  [.] core::hash::BuildHasher::hash_one                                                                                                                                -      -            
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

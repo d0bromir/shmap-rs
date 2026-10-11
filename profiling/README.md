@@ -18,6 +18,7 @@ What survived is what a re-run cannot give back.
 | `validate_paf.py` | structural, score and ground-truth PAF invariants | checking any output; blocks merges |
 | `adjudicate_disagreements.py` | attributes shmap-rs/other-mapper disagreements using truth | accuracy comparisons |
 | `selective_density.py` | two-pass selective-density driver | the sampling-rate experiments |
+| `flamegraph_suite.sh`, `flamegraph_summary.py` | perf flame graphs for B01-B09 on a host; per-function self time from the SVGs | finding where time goes ([results](../benchmarks/results/flamegraphs-2.0.0-x86_64/README.md)) |
 | `*_probe.rs` | standalone probes behind rejected optimizations | before re-proposing one |
 | `datasets/` | how each read set was made | provenance of `datasets.tsv` |
 | `other-mappers/` | stored third-party measurements | historical comparison only |
@@ -35,6 +36,22 @@ commit being measured, rather than whatever was current when someone last edited
 python3 benchmarks/scripts/run.py --commit <sha>                       # the maintained runner
 target/release/shmap -s ref.fa -p reads.fa -x --profile-log run.json    # one-off
 ```
+
+**Flame graphs** (sampling, for finding where time goes, not for judging a change):
+
+```sh
+cargo install flamegraph        # once; needs `perf` (Linux: linux-tools-$(uname -r))
+CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --release --bin shmap -o flame.svg -- \
+    -s ref.fa -p reads.fa -@ 1 > /dev/null
+```
+
+Debug info is enabled through the environment so `Cargo.toml` and the shipped build are untouched.
+On WSL2 the distro's `perf` does not match the kernel; symlink the generic one first
+(`ln -s /usr/lib/linux-tools/*-generic/perf ~/.local/bin/perf`). `kernel.perf_event_paranoid`
+of 2 is enough for user-space samples. Output defaults to `flamegraph.svg` and `perf.data` in the
+working directory (both gitignored).
+
+Use `-@ 1`: samples from many workers blur the stage structure the `-x` report already gives you.
 
 **A perf claim needs one binary and a runtime switch, not two builds.** `lto = "fat"` re-lays-out
 the whole program on every build, which inflates a change's apparent size 3-6x and invents

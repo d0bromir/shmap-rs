@@ -25,6 +25,7 @@ tables and a `--check` that CI runs.
 | [`native-778d519f001d/`](native-778d519f001d/README.md) | 240 invocations comparing default / adaptive / dense / parsing modes | adaptive modes since **retired**; dense regressed everywhere |
 | [`adaptive-mapq-442928c/`](adaptive-mapq-442928c/README.md) | 13 200-read truth study of an offline MAPQ model | **not approved**; adaptive path retired |
 | [`repeat-factored-shadow-e71ca0f/`](repeat-factored-shadow-e71ca0f/README.md) | whole-reference screen of a repeat-factored bucket search | **rejected**: little repeat sharing, 4.2 GB RSS, no speedup |
+| [`flamegraphs-2.0.0-x86_64/`](flamegraphs-2.0.0-x86_64/README.md) | perf flame graphs for B01-B09 at 2.0.0 on a2: where time goes per function | diagnostic; galaxy not yet profiled |
 
 Why the retired adaptive path is still here, and what replaces it:
 [`docs/ROADMAP.md`](../../docs/ROADMAP.md).

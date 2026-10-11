@@ -1,0 +1,9 @@
+commit 19e55af711fa599e79fb07d98b099be8a1b8a030
+2026-10-11T18:31:10Z
+Linux 6.8.0-100-generic x86_64
+64
+ 18:31:10 up 229 days, 23:27,  4 users,  load average: 1.67, 0.86, 0.33
+perf version 6.8.12
+flamegraph 0.6.14
+1
+shmap 2.0.0

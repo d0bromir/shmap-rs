@@ -1,0 +1,34 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 5K of event 'cycles:P'
+# Event count (approx.): 168914293822
+#
+# Overhead  Symbol                                                                                                                                                               IPC   [IPC Coverage]
+# ........  ...................................................................................................................................................................  ....................
+#
+    21.20%  [.] shmap::shmap::scoring::<impl shmap::shmap::SHMapper<_,_,_>>::match_rest                                                                                          -      -            
+    20.34%  [.] shmap::shmap::SHMapper$LT$_$C$_$C$_$GT$::map_reads::_$u7b$$u7b$closure$u7d$$u7d$::_$u7b$$u7b$closure$u7d$$u7d$::hc3979e7f0f6afb0f                                -      -            
+    20.20%  [.] shmap::sketch::FracMinHash<H>::sketch_slice_into                                                                                                                 -      -            
+     5.67%  [.] shmap::index::SketchIndex::insert_hit                                                                                                                            -      -            
+     3.24%  [k] 0xffffffff8efcfc07                                                                                                                                               -      -            
+     2.74%  [k] 0xffffffff8efd02da                                                                                                                                               -      -            
+     1.59%  [.] core::slice::sort::stable::quicksort::quicksort                                                                                                                  -      -            
+     1.33%  [.] <core::hash::sip::Hasher<S> as core::hash::Hasher>::write                                                                                                        -      -            
+     1.15%  [.] core::slice::sort::stable::quicksort::quicksort                                                                                                                  -      -            
+     0.94%  [.] memchr::arch::x86_64::avx2::memchr::Two::find_raw_avx2                                                                                                           -      -            
+     0.91%  [.] hashbrown::raw::RawTable<T,A>::reserve_rehash                                                                                                                    -      -            
+     0.78%  [.] mi_free                                                                                                                                                          -      -            
+     0.72%  [.] _mi_page_malloc_zero                                                                                                                                             -      -            
+     0.70%  [.] hashbrown::raw::RawTable<T,A>::reserve_rehash                                                                                                                    -      -            
+     0.62%  [.] memchr::arch::x86_64::avx2::memchr::One::find_raw_avx2                                                                                                           -      -            
+     0.60%  [.] core::slice::sort::unstable::quicksort::quicksort                                                                                                                -      -            
+     0.52%  [.] shmap::index::SketchIndex::finalize_shard                                                                                                                        -      -            
+     0.52%  [.] shmap::shmap::SHMapper<_,_,_>::map_reads                                                                                                                         -      -            
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
