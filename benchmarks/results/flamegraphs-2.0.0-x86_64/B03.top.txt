@@ -1,0 +1,40 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 5K of event 'cycles:P'
+# Event count (approx.): 191103494150
+#
+# Overhead  Symbol                                                                                                                                                               IPC   [IPC Coverage]
+# ........  ...................................................................................................................................................................  ....................
+#
+    21.00%  [.] shmap::shmap::SHMapper$LT$_$C$_$C$_$GT$::map_reads::_$u7b$$u7b$closure$u7d$$u7d$::_$u7b$$u7b$closure$u7d$$u7d$::hc3979e7f0f6afb0f                                -      -            
+    19.28%  [.] shmap::shmap::scoring::<impl shmap::shmap::SHMapper<_,_,_>>::match_rest                                                                                          -      -            
+    16.54%  [.] shmap::sketch::FracMinHash<H>::sketch_slice_into                                                                                                                 -      -            
+     5.09%  [.] shmap::index::SketchIndex::insert_hit                                                                                                                            -      -            
+     3.58%  [k] 0xffffffff8efcfc07                                                                                                                                               -      -            
+     2.37%  [k] 0xffffffff8efd02da                                                                                                                                               -      -            
+     2.25%  [.] <core::hash::sip::Hasher<S> as core::hash::Hasher>::write                                                                                                        -      -            
+     1.79%  [.] _mi_page_malloc_zero                                                                                                                                             -      -            
+     1.33%  [.] core::slice::sort::unstable::quicksort::quicksort                                                                                                                -      -            
+     1.29%  [.] core::slice::sort::unstable::quicksort::quicksort                                                                                                                -      -            
+     1.13%  [.] core::slice::sort::stable::quicksort::quicksort                                                                                                                  -      -            
+     0.92%  [.] core::slice::sort::stable::quicksort::quicksort                                                                                                                  -      -            
+     0.90%  [.] mi_free                                                                                                                                                          -      -            
+     0.75%  [.] core::hash::BuildHasher::hash_one                                                                                                                                -      -            
+     0.74%  [.] memchr::arch::x86_64::avx2::memchr::Two::find_raw_avx2                                                                                                           -      -            
+     0.72%  [.] hashbrown::raw::RawTable<T,A>::reserve_rehash                                                                                                                    -      -            
+     0.69%  [.] shmap::index::SketchIndex::finalize_shard                                                                                                                        -      -            
+     0.65%  [.] hashbrown::raw::RawTable<T,A>::reserve_rehash                                                                                                                    -      -            
+     0.60%  [.] shmap::shmap::SHMapper<_,_,_>::map_reads                                                                                                                         -      -            
+     0.55%  [.] 0x0000000000198d23                                                                                                                                               -      -            
+     0.55%  [.] core::fmt::float::float_to_decimal_common_exact                                                                                                                  -      -            
+     0.52%  [.] needletail::parser::fasta::Reader<R>::find                                                                                                                       -      -            
+     0.51%  [.] memchr::arch::x86_64::avx2::memchr::One::find_raw_avx2                                                                                                           -      -            
+     0.51%  [.] shmap::buckets::Buckets<_>::merge_entries                                                                                                                        -      -            
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

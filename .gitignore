@@ -10,3 +10,8 @@ __pycache__/
 .claude/
 benchmarks/data/files
 release-notes.md
+
+# cargo-flamegraph / perf output
+perf.data
+perf.data.old
+flamegraph.svg

@@ -1,0 +1,37 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 45K of event 'cycles:P'
+# Event count (approx.): 1439303679063
+#
+# Overhead  Symbol                                                                                                                                                               IPC   [IPC Coverage]
+# ........  ...................................................................................................................................................................  ....................
+#
+    21.38%  [.] shmap::shmap::SHMapper$LT$_$C$_$C$_$GT$::map_reads::_$u7b$$u7b$closure$u7d$$u7d$::_$u7b$$u7b$closure$u7d$$u7d$::hc3979e7f0f6afb0f                                -      -            
+    19.75%  [.] shmap::shmap::scoring::<impl shmap::shmap::SHMapper<_,_,_>>::match_rest                                                                                          -      -            
+     8.27%  [.] shmap::sketch::FracMinHash<H>::sketch_slice_into                                                                                                                 -      -            
+     7.20%  [.] shmap::shmap::SHMapper$LT$_$C$_$C$_$GT$::map_reads::_$u7b$$u7b$closure$u7d$$u7d$::_$u7b$$u7b$closure$u7d$$u7d$::hc3979e7f0f6afb0f                                -      -            
+     6.71%  [.] shmap::shmap::scoring::<impl shmap::shmap::SHMapper<_,_,_>>::match_rest                                                                                          -      -            
+     4.12%  [.] shmap::sketch::FracMinHash<H>::sketch_slice_into                                                                                                                 -      -            
+     2.08%  [.] <core::hash::sip::Hasher<S> as core::hash::Hasher>::write                                                                                                        -      -            
+     1.40%  [.] _mi_page_malloc_zero                                                                                                                                             -      -            
+     1.21%  [.] core::slice::sort::unstable::quicksort::quicksort                                                                                                                -      -            
+     1.16%  [.] core::slice::sort::stable::quicksort::quicksort                                                                                                                  -      -            
+     1.16%  [.] core::slice::sort::unstable::quicksort::quicksort                                                                                                                -      -            
+     0.90%  [.] core::slice::sort::stable::quicksort::quicksort                                                                                                                  -      -            
+     0.84%  [k] 0xffffffff8efd02da                                                                                                                                               -      -            
+     0.72%  [.] hashbrown::raw::RawTable<T,A>::reserve_rehash                                                                                                                    -      -            
+     0.72%  [.] core::hash::BuildHasher::hash_one                                                                                                                                -      -            
+     0.65%  [.] shmap::index::SketchIndex::insert_hit                                                                                                                            -      -            
+     0.65%  [.] mi_free                                                                                                                                                          -      -            
+     0.64%  [.] shmap::shmap::SHMapper<_,_,_>::map_reads                                                                                                                         -      -            
+     0.63%  [.] <core::hash::sip::Hasher<S> as core::hash::Hasher>::write                                                                                                        -      -            
+     0.57%  [k] 0xffffffff8efcfc07                                                                                                                                               -      -            
+     0.55%  [.] shmap::buckets::Buckets<_>::merge_entries                                                                                                                        -      -            
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
