@@ -1,42 +1,24 @@
 # benchmarks/
 
-The reproducible benchmark system. See [`../VERSIONING.md`](../VERSIONING.md) for what each
+The reproducible benchmark system. See [`../docs/VERSIONING.md`](../docs/VERSIONING.md) for what each
 version means and for the rule a pull request has to satisfy.
 
-## Latest Native Results
+## Start here
 
-**Adaptive placement is retired following failed truth qualification.** Its
-historical timing results below are not an available-mode recommendation.
-Current binaries reject both adaptive flags; use the exact measured revision
-only to reproduce the archives. The ongoing direction is
-[accuracy first, with Winnowmap as the target](../docs/long_read_redesign.md#accuracy-first-direction).
+| you want to | do / read |
+|---|---|
+| see the results | [`../RESULTS.md`](../RESULTS.md); every result set, with status, is indexed in [`results/README.md`](results/README.md) |
+| run the suite on a host | [`RUNBOOK.md`](RUNBOOK.md), then `scripts/run.py` |
+| judge a PR against the baseline | `scripts/compare.py` — rules in [`../docs/VERSIONING.md`](../docs/VERSIONING.md) |
+| add a benchmark or dataset | [`data/README.md`](data/README.md), [`../CONTRIBUTING.md`](../CONTRIBUTING.md) §4 |
+| regenerate generated docs | `scripts/report.py`, `charts.py`, `paper.py` (each has `--check`; CI runs them) |
+| check the docs' links | `python3 scripts/check_doc_links.py` |
 
-The [latest revision comparison](results/native-compare-6e33e5c/README.md) records
-540 invocations comparing `6e33e5c` with release 1.6.0 on both hosts. Output and
-adaptive counters are unchanged; adaptive/parser total time improves about 1.10x
-on a2 and 1.17-1.19x on galaxy, while mapping time is roughly flat. This is
-primarily a setup improvement, not a general mapping-throughput gain.
-
-Its [C++ comparison chart](results/native-compare-6e33e5c/versus-cpp.svg) uses
-archived same-host C++ medians and latest Rust medians at one mapping worker.
-C++ was not rerun. Dates and original commands are retained in the chart's TSV;
-historical ratios are not contemporaneous performance or accuracy validation.
-Regenerate all comparison artifacts with `scripts/report_native_comparison.py`;
-`--check` verifies chart/data consistency and parameter compatibility in CI.
-
-### Earlier Adaptive Mode Matrix
-
-The [native adaptive host archive](results/native-778d519f001d/README.md) preserves
-240 measurements from a2 and galaxy at commit `778d519f001d`. It compares four
-shmap-rs modes on B01-B05 using Containment at 1/16/64 mapping workers, with three
-repeats on a2 and one on galaxy. No external mapper runs or suite promotion are
-part of this experiment. It shows gains on deep HiFi, but dense indexing and ONT
-regressions; see the archive before choosing an experimental configuration.
-
-`scripts/report_native.py` generates its README and full timing matrix from the
-immutable per-host JSON reports; `--check` verifies them. The raw profiles, timing
-files, stderr, and logs are committed alongside the reports. PAFs stay on the hosts.
-See [the runbook](RUNBOOK.md#native-adaptive-experiments) for rerunning the driver.
+Experiments outside the suite (native mode comparisons, the retired adaptive path) live beside
+the suite results and are regenerated with `scripts/report_native.py` and
+`scripts/report_native_comparison.py`; `--check` verifies them in CI. Adaptive placement is
+**retired** and current binaries reject its flags — see
+[`../docs/ROADMAP.md`](../docs/ROADMAP.md#accuracy-first-direction).
 
 ## Layout
 

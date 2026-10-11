@@ -14,25 +14,6 @@ were generated is not a footnote.
 | `sweep_error_rates.py` | the degradation sweep: accuracy against error rate and error *type* |
 | `accuracy_at_operating_points.py` | accuracy on reads matched to each benchmark's length and *measured* error rate — the proxy behind [`../RESULTS.md`](../RESULTS.md) §7 |
 
----
-
-## Adaptive MAPQ Qualification
-
-The retired experiment fitted an offline confidence model from fixed evidence
-bins and evaluated it on independently generated held-out references. It covered
-repeats, noisy/indel-rich reads, absent-reference reads, chimeras, and adversarial
-mosaics, retaining fallback and unmapped counts in the results.
-
-The [first 13,200-read study](../benchmarks/results/adaptive-mapq-442928c/README.md)
-did **not** qualify adaptive MAPQ: 591/600 held-out sample-preserving mosaics were
-accepted by the fast path, while repeat/noisy confidence strata lacked support.
-The frozen offline model gives those errors MAPQ 0, but its synthetic calibration
-does not generalize by assumption. The adaptive architecture is now retired;
-current binaries reject its flags. Only the report and documentation are
-published, not the experimental generator, model implementation, or tests.
-Recorded source hashes identify the original run but do not make it reproducible
-from this checkout alone.
-
 ## What the published datasets actually contain
 
 `D2-SIM24K` is the accuracy dataset. Its documented description was "0.5% substitution noise", and
@@ -108,3 +89,20 @@ Simulated sets used in results should be registered in `../benchmarks/data/datas
 input, with the exact command in the provenance column. Regenerating with different parameters
 means a **new id**, never editing a row — historical results have to keep resolving to what they
 actually measured.
+
+## Retired experiment: adaptive MAPQ qualification
+
+The retired experiment fitted an offline confidence model from fixed evidence
+bins and evaluated it on independently generated held-out references. It covered
+repeats, noisy/indel-rich reads, absent-reference reads, chimeras, and adversarial
+mosaics, retaining fallback and unmapped counts in the results.
+
+The [first 13,200-read study](../benchmarks/results/adaptive-mapq-442928c/README.md)
+did **not** qualify adaptive MAPQ: 591/600 held-out sample-preserving mosaics were
+accepted by the fast path, while repeat/noisy confidence strata lacked support.
+The frozen offline model gives those errors MAPQ 0, but its synthetic calibration
+does not generalize by assumption. The adaptive architecture is now retired;
+current binaries reject its flags. Only the report and documentation are
+published, not the experimental generator, model implementation, or tests.
+Recorded source hashes identify the original run but do not make it reproducible
+from this checkout alone.

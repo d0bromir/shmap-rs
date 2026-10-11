@@ -107,6 +107,11 @@ jobs:
       - name: test (debug)
         run: cargo test
 
+      # Docs move; links do not follow on their own. This fails on a relative
+      # link or #anchor in any Markdown file that points at nothing.
+      - name: documentation links resolve
+        run: python3 benchmarks/scripts/check_doc_links.py
+
       # Every benchmark path, and the architecture a run files itself under,
       # derive from layout.py. A wrong arch() would compare ARM numbers to
       # x86 ones and produce no error at all.

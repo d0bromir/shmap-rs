@@ -15,7 +15,7 @@ paths that algorithm runs through, and adds multithreading the C++ has none of.
 **Opt-in redesign in 1.6.0.** The default-path discussion below does not describe
 adaptive positional sampling, compact/persistent indexing, dense repeat rescue,
 or batched query parsing. Those features and their PAF semantics are documented
-in [the redesign guide](docs/long_read_redesign.md). The latest
+in [the redesign guide](docs/ROADMAP.md). The latest
 [native two-host comparison](benchmarks/results/native-778d519f001d/README.md)
 measures bundled modes against the same binary's default path, not individual
 optimization gains or a new comparison with C++. It records substantial dense

@@ -1,55 +1,6 @@
 # shmap-rs results
 
-## Adaptive Confidence Qualification
-
-**The failed adaptive placement architecture is now retired.** Current CLI and
-library mapping reject both adaptive flags. Historical charts below remain
-unaltered evidence, not recommendations. Exact output-preserving optimizations
-remain; accuracy cannot be exchanged for speed. See the
-[Winnowmap-target accuracy roadmap](docs/long_read_redesign.md#accuracy-first-direction).
-
-The [13,200-read synthetic study](benchmarks/results/adaptive-mapq-442928c/README.md)
-used independent-reference calibration and held-out splits to test an offline MAPQ
-model. It did not justify removing the experimental label: 591/600 adversarial
-held-out mosaics were accepted by the adaptive fast path, and repeat/noisy MAPQ-10
-strata lacked sufficient support. The frozen model assigns these mosaic errors
-MAPQ 0, but this simulated mixture does not establish real-platform calibration.
-No confidence model was deployed; production adaptive output is disabled. These stress-test counts are not estimates of
-real-read error prevalence and do not replace the historical WGS accuracy tables.
-
-## Latest Native Experiment
-
-The [latest two-host validation](benchmarks/results/native-compare-6e33e5c/README.md)
-compares `6e33e5c` with release 1.6.0: **540 native invocations passed**, with
-normalized output and adaptive work counters unchanged across revisions and hosts.
-Adaptive/parser total-time speedups are 1.096x/1.102x on a2 and 1.173x/1.193x
-on galaxy; mapping-only ratios are 1.009x/1.013x and 0.993x/1.010x. Gains are
-primarily setup time, not a general long-read mapping speedup. These are geometric
-means over B01-B05 and 1/16/64 workers, using three-run medians.
-
-### Latest Rust Versus Historical C++
-
-![Latest Rust versus historical C++ shmap, one mapping worker](benchmarks/results/native-compare-6e33e5c/versus-cpp.svg)
-
-[Chart data and original commands](benchmarks/results/native-compare-6e33e5c/versus-cpp.tsv).
-Whole-run time includes indexing; both implementations use Containment and one
-mapping worker. C++ was **not rerun**: B01/B03/B04 were measured in August 2026,
-and B02/B05 on September 12. These same-host historical ratios are subject to
-drift, not a fresh head-to-head accuracy or parity test. Adaptive mode changes
-mapping semantics and reports unavailable MAPQ; default Rust is the compatibility
-mode. Do not confuse speed over C++ with speed over the previous Rust revision.
-
-### Earlier Mode Comparison
-
-The [2026-09-12/13 native host results](benchmarks/results/native-778d519f001d/README.md)
-compare default, adaptive, dense, and parsing modes at commit `778d519f001d`:
-240 invocations across a2 and galaxy, all passing the driver's validation and
-determinism checks, with normalized outputs matching across architectures.
-On B04 at 64 mapping workers, adaptive parsing improves whole-run time by 1.66x
-on a2 and 1.89x on galaxy, with two extra parser workers. Dense rescue regresses
-in every measured case; ONT and smaller multithreaded workloads also regress.
-The full matrix, simulated placement counts, and caveats are in that separate
-archive. It is not a full suite gate, an old-release comparison, or a 10x result.
+**The single source for every benchmark number in this repo.** Headline: shmap-rs is 2-3x faster than the C++ `shmap` single-threaded, up to ~18x with threads, in ~7x less memory at `-@1` — see [§1 Summary](#1-summary). Experimental and retired-mode results (adaptive placement, native mode comparisons) are **not** part of the maintained numbers; they are collected in [§12](#12-experiment-archives-retired-and-native-only-runs).
 
 The generated sections below describe the maintained historical suite, not the
 experimental modes or the 1.6.0 release commit. Its raw profile provenance is
@@ -99,7 +50,8 @@ Contents, in fixed order:
 [8 Concordance with other mappers](#8-concordance-with-other-mappers) ·
 [9 Error tolerance](#9-error-tolerance) ·
 [10 Limitations](#10-limitations) ·
-[11 What to try next](#11-what-to-try-next)
+[11 What to try next](#11-what-to-try-next) ·
+[12 Experiment archives](#12-experiment-archives-retired-and-native-only-runs)
 
 **Charts.** The same profiling tables drawn as pie charts, regenerated with every result set and
 checked in CI. Open
@@ -1349,7 +1301,7 @@ spends everything else mapping.
 ### Why it was slow, which is the same reason it is inaccurate
 
 `match_seeds` **was 92%** of mapping time when this section was first written. Buckets are sized to
-the read's sketch (§[8 in the algorithm docs](docs/sections/08_bucketing.tex)), so the number of
+the read's sketch (§[8 in the algorithm docs](docs/algorithm/sections/08_bucketing.tex)), so the number of
 candidate buckets in the genome scaled as *1/read length*: a 150 bp read made the genome-wide bucket
 space roughly 200x larger than a 24 kb read does. Per-read costs that amortise away over 24 000
 bases dominated over 150.
@@ -1425,7 +1377,7 @@ and the reported end is that minus one, so `qend = read_length - k - 1`, which i
 The cause turned out to be a dropped return value rather than the arithmetic. `Buckets::set_halflen`
 already returns `false` when the sketch is below `MIN_HALFLEN`, its doc comment already says the
 caller should treat that as too small to map, and
-§[11 of the algorithm docs](docs/sections/11_end_to_end.tex) already specifies
+§[11 of the algorithm docs](docs/algorithm/sections/11_end_to_end.tex) already specifies
 `if buckets.halflen < MIN_HALFLEN: goto unmapped`. The caller ignored all three. Such reads now
 emit an unmapped record.
 
@@ -1760,12 +1712,12 @@ in [`profiling/`](profiling/) and the branches are named where one exists.
 - **On short reads, `refine` is now the bottleneck, not `match_seeds`.** After the whole-genome
   floor (`SHORT_READ_HALFLEN` 2048, below), a B06 subset breaks down `refine` 40% / `match_seeds`
   31% / `bucket_merge` 18% — the floor moved the cost. `refine`'s `collect_anchors` re-walks each
-  seed's index hit list over the now-4 kb-wide bucket. The open idea: narrow that walk to the
-  bucket's own `content.r_min..r_max ± m` (~450 bp for a real 150 bp mapping, ~9x tighter than the
-  bucket). This was a measured wash at `halflen` 256 (matches spread across the whole narrow
-  bucket) and is listed under "Ruled out" below with that caveat; it is worth re-measuring at 2048
-  where the bucket is 8x wider than the matched span. It needs the same `seed_heuristic_pass`
-  exhaustion argument the ruled-out note spells out.
+  seed's index hit list over the now-4 kb-wide bucket. Narrowing that walk to the bucket's own
+  `content.r_min..r_max ± m` was a measured wash at `halflen` 256 (matches spread across the whole
+  narrow bucket already) and was re-measured at 2048 on the theory that an 8x-wider bucket would
+  leave more room to narrow — **still a wash** (below): matches spread proportionally to the wider
+  bucket too, so `r_min`/`r_max` stays close to `[begin, end)` at either width. Closed; see
+  "Ruled out".
 - **Indexing is close to its floor and has no dominant phase.** Sharding and the two-pass reader took
   `index_initializing` 8.4 s → 1.1-1.8 s and `index_reading` 4.4 s → 1.5-1.7 s; the total bottoms
   out near 2.9-3.4 s against ~9.4 s before. Reading and the shard fill are each ~1.5 s, both within
@@ -1912,6 +1864,20 @@ The safe bound exists; it just isn't tighter than what it replaces for this work
 adds a binary search and a correctness argument future changes to `seed_heuristic_pass` would need
 to keep honoring, for a measured wash.
 
+**Re-measured after the floor moved to `SHORT_READ_HALFLEN` 2048 — still a wash.** The theory this
+time was that an 8x-wider bucket (~4 kb vs. ~450 bp of real match) would leave real room for
+`r_min`/`r_max` to narrow, unlike the 512-wide case above. Re-implemented (same bound, translated
+from `r` to `tpos` via a binary search on `segm.kmers` since `collect_anchors` works in sketch-index
+units), passed all 69 tests including golden PAF, and byte-diffed identical (modulo the per-read
+`t:f:` timing tag) against the unpatched binary on 20k simulated 150 bp reads against both hs1 and
+chr21. Timing on chr21 (10 interleaved repeats each, to cancel a session-long host slowdown that
+moved both binaries' `mapping` time from ~1.0 s to ~1.3 s in lockstep): mean `refine` 0.0879 s
+unpatched vs. 0.0872 s patched, paired per-repeat difference with no consistent sign — indistinguishable.
+Same root cause as before, confirmed directly this time: matches spread across whichever fraction of
+the bucket the repeat structure happens to occupy, proportionally to bucket width, so widening the
+floor doesn't create the slack the theory needed. Not re-merged, same complexity-for-nothing
+reasoning as above. Closes the "open idea" in §11.
+
 ### Ruled out, with the measurement
 
 | idea | verdict | headline figure |
@@ -1925,7 +1891,7 @@ to keep honoring, for a measured wash.
 | Dead/duplicated per-read work (`q14`, `q15`) | measured, ~4%, not taken | 1.041x on `query_mapping`, ~1.7% of wall |
 | `-C target-cpu=native` (Q16, `q16-target-cpu-native`) | measured, large regression | 0.917x on a2 (BLOCK), 0.988x on galaxy; worst at `-@1`, not `-@64` |
 | Raising `--max-dense-slots` to keep short reads dense (Q17) | measured, no speedup | 22-24 s either way, 20k reads `-@1`; 78.5 s vs 82.1 s, 300k reads `-@8` |
-| Narrowing the `match_rest`/`refine` sweep via exhausted-bucket content (Q19) | provably safe, no speedup | refine 9.2-9.5 s vs 8.8-9.8 s, three interleaved repeats each, 20k reads `-@1` |
+| Narrowing the `match_rest`/`refine` sweep via exhausted-bucket content (Q19) | provably safe, no speedup at `halflen` 256 or 2048 | refine 9.2-9.5 s vs 8.8-9.8 s at 256; 0.0879 s vs 0.0872 s (10 reps, chr21) re-tested at 2048 |
 
 **NUMA index replication.** §3 measures per-read CPU cost rising continuously with thread count —
 +4-45% by 16 threads, +39-138% by 32, +76-240% by 64 — on every benchmark. `numactl` experiments
@@ -2128,4 +2094,61 @@ different, and nothing here measures it.
 -o 0.3` and calls these the paper parameters; the draft's settings section gives `r = 0.05, t = 0.5,
 o = 0.7, d = 0.15`. Since §8's headline finding is that accuracy is bounded by the sampling rate,
 which set is authoritative changes what every table here is a measurement *of*. Worth settling with
-the author before any of the above is run (P1 in [QUESTIONS.md](QUESTIONS.md)).
+the author before any of the above is run (P1 in [docs/QUESTIONS.md](docs/QUESTIONS.md)).
+
+---
+
+## 12 Experiment archives: retired and native-only runs
+
+Kept here so the numbers above stay free of them. None of these is a maintained-suite result; each links to its own archive, which carries the provenance and limitations. The full list of archives, with status, is in [`benchmarks/results/README.md`](benchmarks/results/README.md).
+
+### Adaptive Confidence Qualification
+
+**The failed adaptive placement architecture is now retired.** Current CLI and
+library mapping reject both adaptive flags. Historical charts in this file remain
+unaltered evidence, not recommendations. Exact output-preserving optimizations
+remain; accuracy cannot be exchanged for speed. See the
+[Winnowmap-target accuracy roadmap](docs/ROADMAP.md#accuracy-first-direction).
+
+The [13,200-read synthetic study](benchmarks/results/adaptive-mapq-442928c/README.md)
+used independent-reference calibration and held-out splits to test an offline MAPQ
+model. It did not justify removing the experimental label: 591/600 adversarial
+held-out mosaics were accepted by the adaptive fast path, and repeat/noisy MAPQ-10
+strata lacked sufficient support. The frozen model assigns these mosaic errors
+MAPQ 0, but this simulated mixture does not establish real-platform calibration.
+No confidence model was deployed; production adaptive output is disabled. These stress-test counts are not estimates of
+real-read error prevalence and do not replace the historical WGS accuracy tables.
+
+### Latest Native Experiment
+
+The [latest two-host validation](benchmarks/results/native-compare-6e33e5c/README.md)
+compares `6e33e5c` with release 1.6.0: **540 native invocations passed**, with
+normalized output and adaptive work counters unchanged across revisions and hosts.
+Adaptive/parser total-time speedups are 1.096x/1.102x on a2 and 1.173x/1.193x
+on galaxy; mapping-only ratios are 1.009x/1.013x and 0.993x/1.010x. Gains are
+primarily setup time, not a general long-read mapping speedup. These are geometric
+means over B01-B05 and 1/16/64 workers, using three-run medians.
+
+#### Latest Rust Versus Historical C++
+
+![Latest Rust versus historical C++ shmap, one mapping worker](benchmarks/results/native-compare-6e33e5c/versus-cpp.svg)
+
+[Chart data and original commands](benchmarks/results/native-compare-6e33e5c/versus-cpp.tsv).
+Whole-run time includes indexing; both implementations use Containment and one
+mapping worker. C++ was **not rerun**: B01/B03/B04 were measured in August 2026,
+and B02/B05 on September 12. These same-host historical ratios are subject to
+drift, not a fresh head-to-head accuracy or parity test. Adaptive mode changes
+mapping semantics and reports unavailable MAPQ; default Rust is the compatibility
+mode. Do not confuse speed over C++ with speed over the previous Rust revision.
+
+### Earlier mode comparison
+
+The [2026-09-12/13 native host results](benchmarks/results/native-778d519f001d/README.md)
+compare default, adaptive, dense, and parsing modes at commit `778d519f001d`:
+240 invocations across a2 and galaxy, all passing the driver's validation and
+determinism checks, with normalized outputs matching across architectures.
+On B04 at 64 mapping workers, adaptive parsing improves whole-run time by 1.66x
+on a2 and 1.89x on galaxy, with two extra parser workers. Dense rescue regresses
+in every measured case; ONT and smaller multithreaded workloads also regress.
+The full matrix, simulated placement counts, and caveats are in that separate
+archive. It is not a full suite gate, an old-release comparison, or a 10x result.

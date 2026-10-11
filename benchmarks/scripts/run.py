@@ -2,7 +2,7 @@
 """Run the shmap-rs benchmark suite on the benchmark host.
 
 Executes on `a2`, never on a maintainer's laptop and never as a GitHub
-self-hosted runner — see ../SECURITY.md for why.
+self-hosted runner — see ../../SECURITY.md for why.
 
   run.py --commit <sha>      measure a commit already trusted (e.g. main)
   run.py --pr <n>            measure a pull request, subject to authorization

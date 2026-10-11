@@ -3,7 +3,7 @@
 # Consumed by run.py. Nothing here is duplicated in a script: if a parameter is
 # not in this file, it is not passed to the binary.
 #
-# See ../VERSIONING.md for what the versions mean. In short:
+# See ../../docs/VERSIONING.md for what the versions mean. In short:
 #   suite_version MAJOR bump  -> results across the boundary are NOT comparable
 #   suite_version MINOR bump  -> a benchmark was added; old rows stay comparable
 
@@ -34,7 +34,7 @@ dataset_version = 3
 # not change between our commits, and re-running it per PR would burn hours
 # reproducing a number we already have.
 #
-# Measured cost, from the times in ../RESULTS.md:
+# Measured cost, from the times in ../../RESULTS.md:
 #
 #   PR run, C++ cached          ~78 min   105 invocations   (shmap-rs only)
 #   C++ re-measure, 3x median  ~187 min    45 invocations   (only when rebuilt)
@@ -353,7 +353,7 @@ repeats = 1
 note = "GIAB HG008 normal duodenal tissue (pancreatic tumor/normal pair), NovaSeq 6000, PCR-free, 2x150, sequenced 2023-12 through 2024-03. Matched ~1x depth to B06 so the comparison varies platform and sample, not depth."
 
 # ---------------------------------------------------------------------------
-# Checks — every one of these blocks a merge if it fails. See ../VERSIONING.md.
+# Checks — every one of these blocks a merge if it fails. See ../../docs/VERSIONING.md.
 # ---------------------------------------------------------------------------
 
 [checks.thread_determinism]

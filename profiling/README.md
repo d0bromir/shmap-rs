@@ -10,44 +10,18 @@ than left to rot into a second, contradictory set of numbers.
 
 What survived is what a re-run cannot give back.
 
-## Repeat-Factored Shadow Search
 
-`repeat_factored_probe.rs` is a standalone Cargo example, not a mapper mode.
-It interns exact reference-sketch blocks, computes conservative bucket-group
-bounds, and compares every qualifying leaf result with an exhaustive run of the
-production Containment scorer. It emits TSV, never placements, and fails on
-underestimated rejected bounds or changed qualifying results.
+## What is here
 
-```sh
-cargo test --example repeat_factored_probe
-cargo build --release --locked --example repeat_factored_probe
-target/release/examples/repeat_factored_probe \
-	--reference reference.fa --reads reads.fa --limit 16 \
-	--partition content --block-size 16 --bounds dense > shadow.tsv
-```
-
-The [first whole-reference screen](../benchmarks/results/repeat-factored-shadow-e71ca0f/README.md)
-passed its audits but found modest repeat factoring, substantial memory/setup
-cost, and slower sparse-prefix construction. The exhaustive oracle is not the
-current mapper baseline: its timing ratio must not be reported as mapping
-speedup. No production integration is approved.
-
-## Native Adaptive Profiles
-
-The [latest native host archive](../benchmarks/results/native-778d519f001d/README.md)
-contains all 240 profiles plus timing/stderr files from the completed a2/galaxy
-mode comparison. Dense repeat-index construction dominates its wall time; mapping
-improvements alone must not be presented as whole-run speedups. `index_compact`
-and `repeat_indexing` are additional setup stages, not free work.
-
-Stage intervals accumulated across workers are summed elapsed time, not measured
-CPU time. The native driver separately records process user+system CPU via
-`/usr/bin/time`. Its PAF assessment accepts MAPQ 255 as unavailable and checks
-half-open coordinates; the legacy `validate_paf.py` assumes MAPQ at most 60 and
-must not be used unchanged to judge adaptive records. See
-`benchmarks/scripts/benchmark_native_hosts.py` for the experimental checks.
-
----
+| path | what | when you want it |
+|---|---|---|
+| `validate_paf.py` | structural, score and ground-truth PAF invariants | checking any output; blocks merges |
+| `adjudicate_disagreements.py` | attributes shmap-rs/other-mapper disagreements using truth | accuracy comparisons |
+| `selective_density.py` | two-pass selective-density driver | the sampling-rate experiments |
+| `*_probe.rs` | standalone probes behind rejected optimizations | before re-proposing one |
+| `datasets/` | how each read set was made | provenance of `datasets.tsv` |
+| `other-mappers/` | stored third-party measurements | historical comparison only |
+| `archive/coverage-ladder/` | the 1x-100x coverage run | the depth-scaling claim |
 
 ## Instrumenting a run
 
@@ -86,7 +60,7 @@ All of them measured negative; the verdicts and figures are in
 
 | file | used by |
 |---|---|
-| `validate_paf.py` | every benchmark run (`suite.toml` → `checks.validate_paf`), and blocking per [`../VERSIONING.md`](../VERSIONING.md) |
+| `validate_paf.py` | every benchmark run (`suite.toml` → `checks.validate_paf`), and blocking per [`../docs/VERSIONING.md`](../docs/VERSIONING.md) |
 | `adjudicate_disagreements.py` | scores shmap-rs against another mapper *where ground truth exists*, so a disagreement can be attributed instead of guessed at |
 | `selective_density.py` | drives the selective-density two-pass of [`../RESULTS.md`](../RESULTS.md) §8 using the stock binary — regions from the first pass's mapq, a dense second pass over those regions only |
 
@@ -101,6 +75,47 @@ python3 profiling/selective_density.py mini-ref ref.fa dense.bed mini.fa
 python3 profiling/selective_density.py select pass1.paf reads.fa ambiguous.fa
 python3 profiling/selective_density.py merge pass1.paf pass2.paf merged.paf
 ```
+
+## Experiment notes
+
+Status of the larger experiments these tools were built for; full results live in [`../benchmarks/results/`](../benchmarks/results/README.md).
+
+### Repeat-factored shadow search (rejected)
+
+`repeat_factored_probe.rs` is a standalone Cargo example, not a mapper mode.
+It interns exact reference-sketch blocks, computes conservative bucket-group
+bounds, and compares every qualifying leaf result with an exhaustive run of the
+production Containment scorer. It emits TSV, never placements, and fails on
+underestimated rejected bounds or changed qualifying results.
+
+```sh
+cargo test --example repeat_factored_probe
+cargo build --release --locked --example repeat_factored_probe
+target/release/examples/repeat_factored_probe \
+	--reference reference.fa --reads reads.fa --limit 16 \
+	--partition content --block-size 16 --bounds dense > shadow.tsv
+```
+
+The [first whole-reference screen](../benchmarks/results/repeat-factored-shadow-e71ca0f/README.md)
+passed its audits but found modest repeat factoring, substantial memory/setup
+cost, and slower sparse-prefix construction. The exhaustive oracle is not the
+current mapper baseline: its timing ratio must not be reported as mapping
+speedup. No production integration is approved.
+
+### Native adaptive profiles (retired mode)
+
+The [latest native host archive](../benchmarks/results/native-778d519f001d/README.md)
+contains all 240 profiles plus timing/stderr files from the completed a2/galaxy
+mode comparison. Dense repeat-index construction dominates its wall time; mapping
+improvements alone must not be presented as whole-run speedups. `index_compact`
+and `repeat_indexing` are additional setup stages, not free work.
+
+Stage intervals accumulated across workers are summed elapsed time, not measured
+CPU time. The native driver separately records process user+system CPU via
+`/usr/bin/time`. Its PAF assessment accepts MAPQ 255 as unavailable and checks
+half-open coordinates; the legacy `validate_paf.py` assumes MAPQ at most 60 and
+must not be used unchanged to judge adaptive records. See
+`benchmarks/scripts/benchmark_native_hosts.py` for the experimental checks.
 
 ## other-mappers/ — stored measurements, kept because re-running is prohibitive
 

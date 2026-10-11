@@ -12,7 +12,7 @@ Exit codes are the verdict, so this can gate a merge directly:
   2  BLOCK    an accuracy regression, a failed blocking check, or an unusable run
   3  ERROR    the two sets are not comparable at all (different suite MAJOR, host, ...)
 
-The rules implemented here are the table in ../VERSIONING.md; the numbers come
+The rules implemented here are the table in ../../docs/VERSIONING.md; the numbers come
 from `[thresholds]` in suite.toml. Nothing is hard-coded in this file.
 
 Speed never outranks accuracy: a candidate that is faster everywhere and maps
@@ -597,7 +597,7 @@ def render(base: dict, cand: dict, res: dict, thr: dict) -> str:
         L += ["## Notes", ""] + [f"- {n}" for n in res["notes"]] + [""]
 
     L += ["---", "",
-          f"Rules: [VERSIONING.md](https://github.com/d0bromir/shmap-rs/blob/main/VERSIONING.md). Thresholds from "
+          f"Rules: [VERSIONING.md](https://github.com/d0bromir/shmap-rs/blob/main/docs/VERSIONING.md). Thresholds from "
           f"{'`hosts.toml` for `' + res['threshold_host'] + '`' if res.get('threshold_host') else '`suite.toml`'}: "
           f"wall review >{thr['wall_regression_review']*100:.0f}%, "
           f"block >{thr['wall_regression_block']*100:.0f}%; any drop in mapped reads, "

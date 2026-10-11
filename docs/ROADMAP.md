@@ -1,5 +1,20 @@
 # Long-read redesign: retired prototype and accuracy-first roadmap
 
+**At a glance.** The adaptive long-read prototype was retired on 2026-09-14 after failing
+truth-based accuracy qualification; the original mapper is the only production algorithm. What is
+next is **accuracy first, with Winnowmap2 as the target**, then speed under an accuracy gate.
+
+| if you want… | read |
+|---|---|
+| what is retired and what still ships | [Status](#status) |
+| where the work is going | [Accuracy-first direction](#accuracy-first-direction), [Lossless coarse-to-fine search](#lossless-coarse-to-fine-search), [End-to-end budget](#end-to-end-budget) |
+| what has been measured | [Implemented and measured](#implemented-and-measured), [Completed two-host validation](#completed-two-host-validation), [Rejected local experiment](#rejected-local-experiment) |
+| how the flags behaved (historical) | [Current usage](#current-usage), [Historical adaptive interface](#historical-adaptive-interface) |
+| what remains | [Remaining gates](#remaining-gates) |
+
+The raw evidence for everything here is indexed in
+[`../benchmarks/results/README.md`](../benchmarks/results/README.md).
+
 ## Status
 
 **Retired on 2026-09-14 after failing truth-based accuracy qualification.**

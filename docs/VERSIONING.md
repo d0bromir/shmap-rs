@@ -25,7 +25,7 @@ when all four are stated. This document defines them and the rule a pull request
 **Output-affecting fixes are PATCH, not MAJOR**, even though the bytes change — the previous output
 was wrong. Say so explicitly in the release notes and name the affected records, as `8bc38f1` does.
 
-The release process is in [`CONTRIBUTING.md`](CONTRIBUTING.md). In short: bump `Cargo.toml`, commit,
+The release process is in [`CONTRIBUTING.md`](../CONTRIBUTING.md). In short: bump `Cargo.toml`, commit,
 annotate a tag with the release notes, push tag, `gh release create --verify-tag`.
 
 ## 2 Benchmark suite version
@@ -78,7 +78,7 @@ before a release bump carries the version it was built with, and the commit disa
 for "the 1.3.0 numbers" should not require opening a manifest.
 
 Separate experiments need not share the suite layout: the
-[native host archive](benchmarks/results/native-778d519f001d/README.md) records
+[native host archive](../benchmarks/results/native-778d519f001d/README.md) records
 commit `778d519f001d` and its measured binary version 1.5.0, even though those
 features are released in 1.6.0. Its reduced matrix is not a promoted baseline
 or a measurement of the version-bump commit. Never relabel such evidence.
