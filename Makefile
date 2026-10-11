@@ -167,6 +167,10 @@ promote:
 	@test -n "$(RESULT_SET)" || { echo "usage: make promote RESULT_SET=<dir> [ARGS=--commit]"; exit 2; }
 	python3 benchmarks/scripts/promote.py $(RESULT_SET) $(ARGS)
 
+# Fail if a relative link or #anchor in any Markdown file points at nothing.
+doc-check:
+	python3 benchmarks/scripts/check_doc_links.py
+
 remake: clean all
 
 clean:

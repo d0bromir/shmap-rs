@@ -55,7 +55,7 @@ of quietly benchmarking a different file.
 
 ## Changing these files
 
-`suite.toml` and `datasets.tsv` are versioned: see [`../../VERSIONING.md`](../../VERSIONING.md).
+`suite.toml` and `datasets.tsv` are versioned: see [`../../docs/VERSIONING.md`](../../docs/VERSIONING.md).
 `datasets.tsv` is append-only — a regenerated file gets a **new id**, never a
 redefinition, so historical results keep pointing at what they actually
 measured. Run [`../scripts/validate_suite.py`](../scripts/validate_suite.py)

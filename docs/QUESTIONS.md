@@ -3,16 +3,16 @@
 The running log of what was asked, what was done about it, and what the benchmark said. One
 question at a time; one branch and one PR each, so a verdict is attributable to a single change.
 
-Process is in [CONTRIBUTING.md §0](CONTRIBUTING.md). **This file is the index.** Each entry states
+Process is in [CONTRIBUTING.md §0](../CONTRIBUTING.md). **This file is the index.** Each entry states
 the question, the answer in a few lines, and where the evidence lives — the reasoning and the
-numbers belong in [RESULTS.md](RESULTS.md) or [PORT_CHANGES.md](PORT_CHANGES.md), not here.
+numbers belong in [RESULTS.md](../RESULTS.md) or [PORT_CHANGES.md](../PORT_CHANGES.md), not here.
 
 ## Native Long-Read Redesign Follow-up
 
 **2026-09-13:** a separate request to pursue a native 10x redesign led to the
-opt-in implementation in [docs/long_read_redesign.md](docs/long_read_redesign.md),
+opt-in implementation in [docs/ROADMAP.md](ROADMAP.md),
 not a revival of the rejected threshold experiment Q12. The
-[completed a2/galaxy measurements](benchmarks/results/native-778d519f001d/README.md)
+[completed a2/galaxy measurements](../benchmarks/results/native-778d519f001d/README.md)
 show useful deep-HiFi gains but do not meet the 10x target. Dense indexing and
 ONT regressions prevent a general speed recommendation. No external mapper was
 integrated or executed by this experiment; confidence calibration, general
@@ -47,7 +47,7 @@ the PR column means the work was measured and settled on its branch without one 
 and that was a doc comment citing a section that no longer existed. That is the intended shape:
 each was a real hypothesis, probed or built before being accepted or rejected, and a measured
 negative is the outcome that keeps it from being retried. The probes are in
-[`profiling/`](profiling/) and the verdicts in [RESULTS.md §11](RESULTS.md#11-what-to-try-next).
+[`profiling/`](../profiling/) and the verdicts in [RESULTS.md §11](../RESULTS.md#11-what-to-try-next).
 
 **Q12–Q15 were dropped for a different reason than Q5**, and the distinction is the useful part.
 Q5 net-regressed. These four were *exact and positive* — Q12 measured a full-suite ACCEPT — and
@@ -64,7 +64,7 @@ a few percent does not clear it. A change can be correct, measured, and not wort
 
 **Answer: keep `sketch.rs`, unchanged.** The premise is right — our hash *is* ntHash, verified
 window by window against the `nthash` crate at k = 15, 21, 25, 31
-([`tests/nthash_equivalence.rs`](tests/nthash_equivalence.rs)). But no library exposes what this
+([`tests/nthash_equivalence.rs`](../tests/nthash_equivalence.rs)). But no library exposes what this
 code needs: we canonicalise as `h_fw ^ h_rc` and take the strand from `h_fw > h_rc`, so both hashes
 are needed per window; `nthash` keeps them private and yields only `min(h_fw, h_rc)`, and `seq-hash`
 implements a different function entirely. Substituting `min` for `xor` changes which k-mers are
@@ -76,11 +76,11 @@ k = 25, matched so both select the same k-mers into a pre-reserved buffer).
 that matters. A hash-only probe suggested 1.33x; adding real k-mer emission — verified bit-for-bit
 identical to `sketch_slice_into` — measured **0.79–0.87x** at the chunk size that dominates. What
 survives is the diagnosis: the loop is **load-bound**, six L1 loads per base, which is why extra
-lanes make it slower. See [RESULTS.md §11](RESULTS.md#11-what-to-try-next), where Q10 later
+lanes make it slower. See [RESULTS.md §11](../RESULTS.md#11-what-to-try-next), where Q10 later
 confirmed the same conclusion from the opposite direction.
 
 **Addendum (PR #10) — AVX-512 downclocking.** Checked directly rather than assumed
-([`profiling/downclock_probe.rs`](profiling/downclock_probe.rs)). At Q1's own test conditions — one
+([`profiling/downclock_probe.rs`](../profiling/downclock_probe.rs)). At Q1's own test conditions — one
 core busy — scalar and AVX-512 both hold 3900 MHz, so Q1's comparison was not confounded. With all
 64 cores busy, scalar sustains 2800 MHz while AVX-512 drops to ~2300–2460 MHz: a **14–18%
 package-wide** cut that only appears at production scale. That reinforces the conclusion rather
@@ -116,7 +116,7 @@ project gates on.
 significance-ordered account of what changed against the C++ and the paper, with data structures
 and reasoning.
 
-**Answer:** [`PORT_CHANGES.md`](PORT_CHANGES.md), which exists because of this question. Every C++
+**Answer:** [`PORT_CHANGES.md`](../PORT_CHANGES.md), which exists because of this question. Every C++
 snippet in it is fetched verbatim from upstream at the pinned commit `63f1103` with exact line
 numbers, rather than paraphrased from a port-time doc comment — and that fetch corrected the record
 twice: `RefSegment::seq`'s comment claims it is "empty if only mapping and no alignment", but
@@ -138,7 +138,7 @@ new optimization adds a row, not just a prose subsection.
 the shared reference index, starting as soon as a second worker joins and accelerating sharply once
 `-@` needs a second of this host's four sockets. `rayon` would not fix it — its default pool has no
 NUMA awareness, and work-stealing risks making locality worse. Diagnosis in
-[RESULTS.md §3](RESULTS.md#3-thread-scaling) and [§11](RESULTS.md#11-what-to-try-next).
+[RESULTS.md §3](../RESULTS.md#3-thread-scaling) and [§11](../RESULTS.md#11-what-to-try-next).
 
 Diagnosed in order: the pipeline was ruled out first from counters already in the codebase
 (`collector_busy` flat across every thread count, `query_reading` not growing); the real signal is
@@ -157,7 +157,7 @@ unchanged by the correction — only the shape of the curve.
 **Corroborated by hardware, 2026-08-09.** `galaxy` (1 NUMA node) runs the same commit and produces
 bit-identical counters, scaling monotonically to 11.7x at `-@64` where a2 peaks at 6.0x on `-@16`
 and then declines. The diagnosis no longer rests only on the machine that has the problem. Detail in
-[`benchmarks/results/suite-1.0/aarch64/ARCH.md`](benchmarks/results/suite-1.0/aarch64/ARCH.md).
+[`benchmarks/results/suite-1.0/aarch64/ARCH.md`](../benchmarks/results/suite-1.0/aarch64/ARCH.md).
 
 ## Q5 — Build the NUMA-aware index replication Q4 scoped but didn't ship
 
@@ -171,7 +171,7 @@ including the final one that achieves genuinely correct placement by bypassing m
 `mmap(2)` (B04 `-@64`: 44.5 s replicated against 33.7 s unreplicated). Output stayed byte-identical
 throughout; the objection is economic, not correctness. The five attempts and the two mechanisms
 that defeated the middle three — `numa_balancing = 1` and mimalloc's arena reuse — are in
-[RESULTS.md §11](RESULTS.md#11-what-to-try-next).
+[RESULTS.md §11](../RESULTS.md#11-what-to-try-next).
 
 **Outcome.** PR #12 closed unmerged; `src/numa.rs`, `src/numa_storage.rs`, `--no-numa` and the
 `libc`/`core_affinity` dependencies are all reverted off `main`, so the crate keeps having no
@@ -193,7 +193,7 @@ rather than reading a multi-GB reads file, and is unit-tested in CI because it i
 wrong. Verified by hand on B01: index-only 32.65 s, full 107.72 s, derived mapping 75.07 s, with the
 index-only PAF carrying exactly one line.
 
-Results in [RESULTS.md §3b](RESULTS.md#3b-index-vs-mapping), which now shows both implementations
+Results in [RESULTS.md §3b](../RESULTS.md#3b-index-vs-mapping), which now shows both implementations
 rather than the subject alone.
 
 ## Q7 — Optimize the refinement step (it differs for Containment/Jaccard)
@@ -206,7 +206,7 @@ rather than the subject alone.
 not that refining is more expensive under Jaccard; per-bucket cost is essentially metric-symmetric
 (2.62x time against a 2.70x bucket-count ratio). The whole gap is that Jaccard's pruning lets more
 buckets through, and `hseed` is provably the tightest bound obtainable from the counts pruning
-tracks. Full mathematical account in [RESULTS.md §11](RESULTS.md#11-what-to-try-next).
+tracks. Full mathematical account in [RESULTS.md §11](../RESULTS.md#11-what-to-try-next).
 
 Also ruled out: a constant-factor speedup of `best_fixed_length` itself. Its metric dispatch runs
 once per outer-loop position, not per k-mer swept, so it is not a meaningful cost either way.
@@ -219,7 +219,7 @@ once per outer-loop position, not per k-mer swept, so it is not a meaningful cos
 paper's own parameters rather than reusing k=15 figures: `match_rest`/`refine` is 31.3% of mapping
 and `match_seeds` 21.1%, and both are memory-latency-bound and pointer-chasing-heavy. One modest
 candidate (the per-read k-mer sort) is identified and not pursued. No `src/` change; detail in
-[RESULTS.md §11](RESULTS.md#11-what-to-try-next).
+[RESULTS.md §11](../RESULTS.md#11-what-to-try-next).
 
 ## Q9 — Software prefetching for the pruning lookups
 
@@ -227,10 +227,10 @@ candidate (the per-read k-mer sort) is identified and not pursued. No `src/` cha
 
 **Answer: probed, measured negative.** Following Q8's finding that the loops are latency-bound, the
 textbook remedy was tested at real scale before touching any code
-([`profiling/prefetch_probe.rs`](profiling/prefetch_probe.rs)): plain lookahead is 0.64–0.69x and
+([`profiling/prefetch_probe.rs`](../profiling/prefetch_probe.rs)): plain lookahead is 0.64–0.69x and
 explicit `_mm_prefetch` at best breaks even. Out-of-order execution already overlaps the independent
 loads. The probe answered the question before any real code needed to change. Detail in
-[RESULTS.md §11](RESULTS.md#11-what-to-try-next).
+[RESULTS.md §11](../RESULTS.md#11-what-to-try-next).
 
 ## Q10 — 2-bit-packed sequence encoding for sketching
 
@@ -245,22 +245,22 @@ even unrolled (1.013 → 1.131 ns/base). A second probe settled why: three indep
 only 1.11x, so the loop is not dependency-bound but **load-port-bound at 6 loads/base** — and the
 four *LUT* loads are the real cost, so packing was aimed at the wrong half. That independently
 confirms Q1's premise from the opposite direction. Detail in
-[RESULTS.md §11](RESULTS.md#11-what-to-try-next).
+[RESULTS.md §11](../RESULTS.md#11-what-to-try-next).
 
 ## Q11 — Visualize the profiling data as charts
 
 **Asked** 2026-08-09 · `q11-profiling-charts` · PR #22 · **merged** 2026-08-09
 
-**Answer:** [`benchmarks/scripts/charts.py`](benchmarks/scripts/charts.py) draws `profiles.tsv` as
+**Answer:** [`benchmarks/scripts/charts.py`](../benchmarks/scripts/charts.py) draws `profiles.tsv` as
 pie charts — hand-written SVG, so it adds no dependency, diffs in review like the tables do, and
 `--check` can detect a stale one byte-for-byte. It reads the *table*, never the raw JSON, so every
 wedge traces to a row a reader can look up, and each chart footers the exact row it came from.
 Browse them via `chart-index.html` in either architecture's `current/`, linked from the top of
-[RESULTS.md](RESULTS.md).
+[RESULTS.md](../RESULTS.md).
 
 **Outcome.** No `src/` change — this only reads artifacts the benchmark already writes, and the
 charts were generated from the existing result set with no re-run, as asked.
-[`test_charts.py`](benchmarks/scripts/test_charts.py) pins the aggregation rule, wedge geometry, the
+[`test_charts.py`](../benchmarks/scripts/test_charts.py) pins the aggregation rule, wedge geometry, the
 partition guard and end-to-end rendering (30 assertions), wired into CI; `promote.py` carries
 `chart-*` so a promoted result set stays viewable.
 
@@ -303,6 +303,48 @@ survive it**; and the finding that **the sweep's tie-break is order-dependent**,
 buckets overlap by design and both can cover a locus with the same intersection. Landing that
 material on `main` is separate work and is not done.
 
+**Re-implemented fresh against current `main` (436c97a), 2026-09-21 — the original judgment
+holds.** Asked to look for a long-read optimization, then explicitly asked whether the gain
+justified the complexity given it looked like "only" ~10%: the closed branch was 97 commits stale
+(a raw rebase pulled in unrelated repo drift across 256 files), so both halves — the ladder itself
+and the pruning-walk skip — were rewritten by hand against current `main`'s actual
+`RefineCache`/`match_rest`/`Buckets::extract_dense`, reusing the branch's own module (`theta_ladder.rs`
+copied verbatim, its only dependency being `QPos`) and porting its `tests/adaptive_theta.rs` (fixing
+one bug found while porting it: the test's "full pruning walk" control set `SHMAP_PRUNE_EXTEND_CAP`,
+an env var nothing in the source ever read — the real switch is `SHMAP_NO_PRUNE_SKIP` — so that
+comparison was silently vacuous on the original branch).
+
+Verified exact the same way Q12 originally was: full test suite in debug and release (`debug_assert!`s
+included), the ported `adaptive_theta.rs` (byte-identical mappings with the ladder on vs.
+`SHMAP_NO_ADAPTIVE_THETA=1`, and with the pruning walk skipped vs. `SHMAP_NO_PRUNE_SKIP=1`), the
+golden PAF (only its effort tags moved, as designed), and an 8-repeat interleaved A/B at
+chromosome scale (`[params.ablation]`'s own parameters: k=25, hashratio=0.05, `-t 0.4 -d 0.075`,
+3000 simulated 24 kb reads against chr21) with every mapping field byte-identical save effort tags.
+**Speedup: ~1.07x on `mapping`** (mean/median/geomean ratio 1.076/1.097/1.068) — reproducing the
+original branch's own 1.037–1.070x almost exactly, which is itself a second confirmation that this
+port is faithful to the original.
+
+**Asked whether a bigger win was available by moving off the paper's k=25** — RESULTS.md §11 records
+`match_seeds` at 92% of mapping on HiFi at k=15 against 21% at the paper's k=25, so k=15 is where
+seed-count reduction should matter most. It does, and it doesn't help: at k=15 (same corpus/host),
+`match_seeds` is **2.9x faster** but `match_rest` is **~1.8x slower**, netting to the same ~1.07x
+overall. Isolated with `SHMAP_NO_PRUNE_SKIP=1` (ladder only, no skip): match_seeds 3.83s → 1.19s,
+match_rest 2.53s → 4.69s (3 reps, mean) — the skip mechanism is not the cause, the ladder's own
+smaller `S` is. This is not a new finding so much as a sharper view of one the original branch
+already made and named ("match_rest rises 13–36% as match_seeds falls by half" — §5c): a bucket's
+seed-heuristic walk always runs from wherever seeding stopped (`S`) to the end of `p_unique`, so a
+smaller `S` shrinks the bulk seeding phase but *lengthens* the per-bucket walk that has to cover
+the rest — moving cost, not just removing it. At k=25 that trade is favorable; at k=15, where more
+of a read's k-mers are involved and more buckets survive to be walked, it is unfavorable enough to
+cancel the gain outright. The ceiling this technique offers is the ~1.07x already measured at the
+parameters it was designed and tuned against, not something a different k unlocks.
+
+**Reverted**, matching the original "ACCEPT, not merged" verdict — confirmed independently rather
+than taken on faith. `src/shmap/theta_ladder.rs`, `tests/adaptive_theta.rs`, and the
+`scoring.rs`/`pruning.rs`/`mod.rs`/`buckets.rs`/`utils.rs` changes are off `main` again. The
+branch (`q12-adaptive-theta`, PR #39) remains the record of the full implementation and its cost
+model, per the paragraph above.
+
 ## Q13 — Choose the bucket accumulator by occupancy, not by size alone
 
 **Worked** 2026-08-12 · `q13-dense-occupancy` · no PR · **dropped**
@@ -321,7 +363,7 @@ bought at `bucket_merge` 0.607x, leaving `query_mapping` inside the control cell
 the array is L3-resident, so its scatter costs ~40 cycles a miss rather than a DRAM round trip,
 which is cheaper per hit than radix-sorting ~3 800 records is per read. Occupancy is the wrong
 variable on its own; size against L3 is the right one. Recorded in
-[RESULTS.md §11](RESULTS.md#11-what-to-try-next); the branch is kept because the whole loss sits in
+[RESULTS.md §11](../RESULTS.md#11-what-to-try-next); the branch is kept because the whole loss sits in
 a merge tuned for a regime three orders of magnitude larger in entry count.
 
 **A latent panic was found on the way, and is now fixed** — `fix-dense-retire-panic`, PR #43,
@@ -330,7 +372,7 @@ merged 2026-08-13. `plan_dense`'s over-size early return replaced `dense` with a
 sat *after* that return. It needed all three of a read abandoned after adding but before extracting,
 a following read over `MAX_DENSE_SLOTS`, and a return to the dense path, which is why no run had hit
 it; `map_reads` catches per read, so it would have surfaced as one failed read rather than a crash.
-Retirement is now a named step at the top of `plan_dense` ([`src/buckets.rs`](src/buckets.rs)), on
+Retirement is now a named step at the top of `plan_dense` ([`src/buckets.rs`](../src/buckets.rs)), on
 the one path every exit passes through, so a future early return cannot reintroduce the hazard by
 forgetting to replicate it. `an_abandoned_read_does_not_leak_into_the_next_dense_read` walks the
 three steps and fails against the previous ordering with the real message
@@ -365,7 +407,7 @@ shortcut reads 1.074–1.152x across builds against 1.024x inside one binary, an
 `collect_kmer_info` — which runs before any of it — reproducibly "regressed" 19–23%. A perf claim
 here needs one binary and a runtime switch. `SHMAP_FORCE_P_HT` and `SHMAP_NO_SCORE_SHORTCUT` are
 that switch and are not scaffolding to delete. That finding is load-bearing for every other
-measurement in [RESULTS.md §11](RESULTS.md#11-what-to-try-next).
+measurement in [RESULTS.md §11](../RESULTS.md#11-what-to-try-next).
 
 ## Q15 — Probe the index once per read k-mer, not twice
 
@@ -476,7 +518,7 @@ The suite runs `-k 25 -r 0.01 -t 0.4 -d 0.075 -o 0.3` and calls these "the paper
 draft's own settings section gives `k = 25, r = 0.05, t = 0.5, o = 0.7, d = 0.15` — same `k`, four
 different values, and a sampling rate 5x denser.
 
-This is not cosmetic: [RESULTS.md §8](RESULTS.md#8-concordance-with-other-mappers) shows accuracy is
+This is not cosmetic: [RESULTS.md §8](../RESULTS.md#8-concordance-with-other-mappers) shows accuracy is
 bounded by the sampling rate, so which set is authoritative changes what every table in the file is
 a measurement *of*.
 
@@ -491,7 +533,7 @@ its caller reports a constant 1 per read. shmap-rs ports both as the same inert 
 The draft's seed-heuristic table reports small non-zero values for "lost on pruning", so those came
 from something other than this code path. Which build produced them? Measuring the quantity
 properly needs a run with pruning disabled to diff against — see
-[RESULTS.md §11](RESULTS.md#11-what-to-try-next).
+[RESULTS.md §11](../RESULTS.md#11-what-to-try-next).
 
 ## P3 — Per-read scaling does not cleanly show the logarithmic term
 

@@ -4,29 +4,13 @@ Two things live here: **the manuscript**, a two-page applications note somebody 
 **its artifacts**, the tables and figures generated from a benchmark result set. Neither
 contains a number a person typed.
 
-## Experimental Results Scope
+## Scope
 
-The fixed-window adaptive architecture has been retired after failing truth-based
-qualification. Its charts and supplementary timings remain historical evidence,
-not an endorsed mode. The original mapper's paper results are unchanged; reaching
-Winnowmap-level accuracy remains a separate, unfulfilled target.
-
-The [post-release revision validation](../benchmarks/results/native-compare-6e33e5c/README.md)
-adds 540 native measurements with exact output/work parity on both hosts. It
-shows primarily setup-time savings, not a general mapping gain. Its
-[historical C++ comparison chart](../benchmarks/results/native-compare-6e33e5c/versus-cpp.svg)
-uses latest Rust and older C++ timings, with dates and limitations visible.
-Neither comparison replaces the maintained measurements in the paper macros;
-the C++ chart is not a contemporaneous head-to-head experiment.
-
-The [native adaptive host measurements](../benchmarks/results/native-778d519f001d/README.md)
-are a separate, reproducibly generated supplement, not a promoted replacement
-for the result sets used by these notes. They compare modes of one binary,
-include dense/ONT regressions, and do not establish a tenfold gain. The default
-mapper notes and their historical figures must not be read as validation of
-adaptive coordinates, unavailable MAPQ, or noisy/split-read handling. See
-[the redesign guide](../docs/long_read_redesign.md) for the implemented algorithm
-and remaining gates. No experimental values are substituted into historical macros.
+The papers describe the **original mapper** and the maintained suite. The retired adaptive
+architecture and the native mode comparisons ([archives](../benchmarks/results/README.md)) are
+historical evidence, not an endorsed mode, and no value from them is substituted into the paper
+macros. Reaching Winnowmap-level accuracy remains an open target; see
+[`../docs/ROADMAP.md`](../docs/ROADMAP.md).
 
 ```
 make paper                                  build everything below

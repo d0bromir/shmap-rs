@@ -78,7 +78,7 @@ come from the access pattern and earlier profiling, not a new perf measurement.
 Even optimistically subtracting all current refinement time leaves about
 309 s / 335 s for B04, far above the 89 s / 90 s goal. The problem cannot be
 solved by one refinement micro-optimization or by removing the ~7 s index build.
-See the [lossless redesign proposal](../../../docs/long_read_redesign.md#lossless-coarse-to-fine-search).
+See the [lossless redesign proposal](../../../docs/ROADMAP.md#lossless-coarse-to-fine-search).
 
 ## Optimization Screening
 

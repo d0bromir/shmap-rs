@@ -11,7 +11,7 @@ one read fewer is blocked, not traded off.
 ## 0 How work is organised
 
 Most work here answers a question or change request from Pesho, the C++ `shmap` author.
-[`QUESTIONS.md`](QUESTIONS.md) is the log of those: what was asked, what was done, what the
+[`docs/QUESTIONS.md`](docs/QUESTIONS.md) is the log of those: what was asked, what was done, what the
 benchmark said.
 
 **One question at a time, one branch and one PR each.**
@@ -82,7 +82,7 @@ is in [`benchmarks/RUNBOOK.md`](benchmarks/RUNBOOK.md).
 
 ## 2 What decides the merge
 
-`benchmarks/scripts/compare.py` applies **[the rule table in `VERSIONING.md`](VERSIONING.md#the-pr-rule)**
+`benchmarks/scripts/compare.py` applies **[the rule table in `docs/VERSIONING.md`](docs/VERSIONING.md#the-pr-rule)**
 mechanically, with the thresholds from `benchmarks/data/suite.toml` — and, where a host overrides
 them, from `benchmarks/data/hosts.toml`. That table is the single statement of what blocks a merge;
 it is not repeated here.
