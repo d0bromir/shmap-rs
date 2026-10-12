@@ -1,0 +1,9 @@
+commit 19e55af711fa599e79fb07d98b099be8a1b8a030
+2026-10-12T08:17:15Z
+Linux 6.17.0-41-generic aarch64
+128
+ 08:17:15 up 56 days, 15:21,  8 users,  load average: 3.86, 2.58, 2.13
+perf version 6.17.13
+flamegraph 0.6.14
+1
+shmap 2.0.0

@@ -8,6 +8,7 @@ Project documentation that is not a measurement. (Numbers live in
 |---|---|
 | understand the algorithm, end to end | [`algorithm/`](algorithm/) — LaTeX book ([PDF](algorithm/shmap_algorithm.pdf)), one section per pipeline stage |
 | know where the project is heading, and what was retired | [`ROADMAP.md`](ROADMAP.md) — accuracy-first direction, optimization roadmap, retired adaptive prototype |
+| know what is slow and what to change for a speedup | [`SPEEDUP_PROPOSALS.md`](SPEEDUP_PROPOSALS.md) — measured hot spots and ranked, exactness-argued proposals |
 | see what Pesho asked and what became of each request | [`QUESTIONS.md`](QUESTIONS.md) — index Q1–Q16 and open questions P1–P3 |
 | know what a version number means, or what a PR must satisfy | [`VERSIONING.md`](VERSIONING.md) — software / suite / dataset / result-set versions, the PR rule |
 | read what a release contained | [`releases/`](releases/) |

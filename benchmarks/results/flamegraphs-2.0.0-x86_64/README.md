@@ -14,8 +14,7 @@ measurement**: use it to find candidates, then judge changes with the suite
 | build | release, `-C force-frame-pointers=yes`, debug info; same LTO profile otherwise |
 | driver | [`profiling/flamegraph_suite.sh`](../../../profiling/flamegraph_suite.sh), summary by [`profiling/flamegraph_summary.py`](../../../profiling/flamegraph_summary.py) |
 
-**galaxy (aarch64) was not profiled**: `kernel.perf_event_paranoid=4` there and
-unprivileged `perf` is refused. Rerun the same script once it is lowered.
+The aarch64 run of the same script is in [`../flamegraphs-2.0.0-aarch64/`](../flamegraphs-2.0.0-aarch64/README.md).
 
 ## Files
 
@@ -78,3 +77,5 @@ Single run per benchmark, one host. perf adds sampling overhead; walls here are 
 timings and should not be compared with RESULTS.md. Frame pointers and debug info alter code
 layout slightly. Self time is cycle-weighted. Symbol names are normalised (hash suffixes
 dropped) so one function under several LTO hashes is one row.
+
+What to change, with the follow-up probes in [`probes/`](probes/): [`docs/SPEEDUP_PROPOSALS.md`](../../../docs/SPEEDUP_PROPOSALS.md).
