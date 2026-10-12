@@ -1,0 +1,34 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 4K of event 'cycles:P'
+# Event count (approx.): 125987385099
+#
+# Overhead  Symbol                                                                                                                                                                                                                    IPC   [IPC Coverage]
+# ........  ........................................................................................................................................................................................................................  ....................
+#
+    27.20%  [.] <shmap::sketch::FracMinHash>::sketch_slice_into                                                                                                                                                                       -      -            
+    23.39%  [.] <shmap::shmap::SHMapper<false, false, false>>::map_reads::{closure#0}::{closure#0}                                                                                                                                    -      -            
+    13.27%  [.] <shmap::shmap::SHMapper<false, false, false>>::match_rest                                                                                                                                                             -      -            
+     7.44%  [.] <shmap::index::SketchIndex>::insert_hit                                                                                                                                                                               -      -            
+     2.56%  [.] __memcpy_generic                                                                                                                                                                                                      -      -            
+     2.16%  [.] <needletail::parser::record::SequenceRecord>::seq                                                                                                                                                                     -      -            
+     2.02%  [.] <needletail::parser::fasta::Reader<core::io::util::Chain<core::io::cursor::Cursor<[u8; 2]>, std::fs::File>>>::find                                                                                                    -      -            
+     1.27%  [.] core::slice::sort::stable::quicksort::quicksort::<shmap::types::Kmer, <[shmap::types::Kmer]>::sort_by<<shmap::shmap::SHMapper<false, false, false>>::unique_elements_with_info::{closure#0}>::{closure#0}>            -      -            
+     1.22%  [.] <hashbrown::raw::RawTable<(u64, shmap::types::Seed)>>::reserve_rehash::<hashbrown::map::make_hasher<u64, shmap::types::Seed, rustc_hash::FxBuildHasher>::{closure#0}>                                                 -      -            
+     1.18%  [.] __aarch64_cas8_acq_rel                                                                                                                                                                                                -      -            
+     1.09%  [.] _mi_page_malloc_zero                                                                                                                                                                                                  -      -            
+     0.89%  [.] core::slice::sort::stable::quicksort::quicksort::<shmap::types::Seed, <[shmap::types::Seed]>::sort_by_key<i32, <shmap::shmap::SHMapper<false, false, false>>::unique_elements_with_info::{closure#2}>::{closure#0}>   -      -            
+     0.69%  [.] <shmap::shmap::SHMapper<false, false, false>>::map_reads                                                                                                                                                              -      -            
+     0.69%  [.] <core::hash::sip::Hasher<core::hash::sip::Sip13Rounds> as core::hash::Hasher>::write                                                                                                                                  -      -            
+     0.66%  [.] <hashbrown::raw::RawTable<(u64, shmap::types::Hit)>>::reserve_rehash::<hashbrown::map::make_hasher<u64, shmap::types::Hit, rustc_hash::FxBuildHasher>::{closure#0}>                                                   -      -            
+     0.62%  [.] core::slice::sort::unstable::quicksort::quicksort::<u64, <u64 as core::cmp::PartialOrd>::lt>                                                                                                                          -      -            
+     0.55%  [.] core::slice::sort::unstable::quicksort::quicksort::<u32, <u32 as core::cmp::PartialOrd>::lt>                                                                                                                          -      -            
+     0.51%  [.] <shmap::index::SketchIndex>::finalize_shard                                                                                                                                                                           -      -            
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

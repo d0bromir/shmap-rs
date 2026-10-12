@@ -1,0 +1,17 @@
+diff --git a/src/shmap/scoring.rs b/src/shmap/scoring.rs
+index d43bdd5..2308ae8 100644
+--- a/src/shmap/scoring.rs
++++ b/src/shmap/scoring.rs
+@@ -642,6 +642,12 @@ impl<'idx, const NBP: bool, const OS: bool, const AP: bool> SHMapper<'idx, NBP,
+         for (idx, (b, content)) in sorted_buckets.iter_mut().enumerate() {
+             let b: BucketLoc = *b;
+             let mut sh = 1.0;
++            if forbidden.is_none() {
++                self.counters.inc1("probe_buckets_pass1");
++                if self.hseed(m, content.seeds, content.matches) < thr {
++                    self.counters.inc1("probe_dead_on_arrival");
++                }
++            }
+             if self.seed_heuristic_pass(buckets, p_unique, m, &b, content, &mut sh, thr) {
+                 self.timers.start("refine");
+ 

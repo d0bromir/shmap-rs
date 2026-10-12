@@ -18,7 +18,8 @@ What survived is what a re-run cannot give back.
 | `validate_paf.py` | structural, score and ground-truth PAF invariants | checking any output; blocks merges |
 | `adjudicate_disagreements.py` | attributes shmap-rs/other-mapper disagreements using truth | accuracy comparisons |
 | `selective_density.py` | two-pass selective-density driver | the sampling-rate experiments |
-| `flamegraph_suite.sh`, `flamegraph_summary.py` | perf flame graphs for B01-B09 on a host; per-function self time from the SVGs | finding where time goes ([results](../benchmarks/results/flamegraphs-2.0.0-x86_64/README.md)) |
+| `flamegraph_suite.sh`, `flamegraph_summary.py` | perf flame graphs for B01-B09 on a host; per-function self time from the SVGs | finding where time goes (results: [a2](../benchmarks/results/flamegraphs-2.0.0-x86_64/README.md), [galaxy](../benchmarks/results/flamegraphs-2.0.0-aarch64/README.md)) |
+| `speedup_probes.sh`, `dead_on_arrival.patch` | short-read stage split, `--index-cache` reuse, large-page A/B, dead-bucket counter | the measurements behind [`docs/SPEEDUP_PROPOSALS.md`](../docs/SPEEDUP_PROPOSALS.md) |
 | `*_probe.rs` | standalone probes behind rejected optimizations | before re-proposing one |
 | `datasets/` | how each read set was made | provenance of `datasets.tsv` |
 | `other-mappers/` | stored third-party measurements | historical comparison only |

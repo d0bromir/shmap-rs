@@ -1,0 +1,23 @@
+	Command being timed: "perf record -F 99 --call-graph fp -o /home/mpiuser/flame-2.0.0/B08.perf.data -- /home/mpiuser/bench-work/flame-19e55af711fa599e79fb07d98b099be8a1b8a030/release/shmap -s /home/mpiuser/shmap-rs/benchmarks/data/files/_paper_work/hs1.fa -p /home/mpiuser/shmap-rs/benchmarks/data/files/aviti150/reads_aviti_7x.fa -k 25 -r 0.1 -t 0.4 -d 0.075 -o 0.3 -m Containment -@ 32"
+	User time (seconds): 51116.56
+	System time (seconds): 591.64
+	Percent of CPU this job got: 2677%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 32:11.41
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 18005156
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 1
+	Minor (reclaiming a frame) page faults: 39743245
+	Voluntary context switches: 32694717
+	Involuntary context switches: 63554195
+	Swaps: 0
+	File system inputs: 56893856
+	File system outputs: 1562440
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

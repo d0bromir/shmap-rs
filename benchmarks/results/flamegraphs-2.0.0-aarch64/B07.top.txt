@@ -1,0 +1,31 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2M of event 'cycles:P'
+# Event count (approx.): 83791312529678
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                  IPC   [IPC Coverage]
+# ........  ......................................................................................................................................................................................................................................................  ....................
+#
+    27.54%  [.] <shmap::shmap::SHMapper<false, false, false>>::map_reads::{closure#0}::{closure#0}                                                                                                                                                                  -      -            
+    27.20%  [.] <shmap::shmap::SHMapper<false, false, false>>::match_rest                                                                                                                                                                                           -      -            
+     8.61%  [.] core::slice::sort::unstable::quicksort::quicksort::<(i32, i32, i32), <[(i32, i32, i32)]>::sort_unstable_by_key<i32, <shmap::shmap::SHMapper<false, false, false>>::best_containment_window_via_anchors::{closure#0}>::{closure#0}>                  -      -            
+     6.22%  [.] core::slice::sort::unstable::quicksort::quicksort::<u64, <u64 as core::cmp::PartialOrd>::lt>                                                                                                                                                        -      -            
+     4.35%  [.] <shmap::buckets::Buckets<false>>::merge_entries                                                                                                                                                                                                     -      -            
+     4.30%  [.] core::slice::sort::unstable::quicksort::quicksort::<u32, <u32 as core::cmp::PartialOrd>::lt>                                                                                                                                                        -      -            
+     2.90%  [.] <shmap::buckets::Buckets<false>>::get_sorted_buckets                                                                                                                                                                                                -      -            
+     2.49%  [.] _mi_page_malloc_zero                                                                                                                                                                                                                                -      -            
+     1.52%  [.] <shmap::shmap::SHMapper<false, false, false>>::map_reads                                                                                                                                                                                            -      -            
+     1.25%  [.] core::slice::sort::shared::smallsort::sort8_stable::<(i32, i32, i32), <[(i32, i32, i32)]>::sort_unstable_by_key<i32, <shmap::shmap::SHMapper<false, false, false>>::best_containment_window_via_anchors::{closure#0}>::{closure#0}>                 -      -            
+     1.12%  [.] __memcpy_generic                                                                                                                                                                                                                                    -      -            
+     1.03%  [.] <core::hash::sip::Hasher<core::hash::sip::Sip13Rounds> as core::hash::Hasher>::write                                                                                                                                                                -      -            
+     0.60%  [.] mi_free                                                                                                                                                                                                                                             -      -            
+     0.60%  [.] <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&str>                                                                                                                                                                       -      -            
+     0.53%  [.] _mi_page_free_collect                                                                                                                                                                                                                               -      -            
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
